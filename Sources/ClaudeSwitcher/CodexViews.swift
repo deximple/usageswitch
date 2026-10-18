@@ -1,0 +1,415 @@
+import SwiftUI
+import SwitcherCore
+
+// MARK: - Tabs
+
+enum AppTab: String, CaseIterable {
+    case claude, codex
+}
+
+/// The selected tab, shared by the window and the menu. Remembered between launches, except for demo screens.
+@MainActor
+final class TabSelection: ObservableObject {
+    static let defaultsKey = "selectedTab"
+    private let remembers: Bool
+
+    @Published var tab: AppTab {
+        didSet { if remembers { UserDefaults.standard.set(tab.rawValue, forKey: Self.defaultsKey) } }
+    }
+
+    init(forced: AppTab? = nil) {
+        remembers = forced == nil
+        tab = forced ?? AppTab(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .claude
+    }
+}
+
+struct TabSwitcher: View {
+    @ObservedObject var selection: TabSelection
+
+    var body: some View {
+        Picker(selection: $selection.tab) {
+            Text(L10n.t(.tabClaude)).tag(AppTab.claude)
+            Text(L10n.t(.tabCodex)).tag(AppTab.codex)
+        } label: {
+            EmptyView()
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+}
+
+// MARK: - Rows
+
+struct CodexRow: View {
+    let account: CodexAccount
+    let revealed: Bool
+    let busy: Bool
+    let onOpen: () -> Void
+    let onSignIn: () -> Void
+    let onToggleEmail: () -> Void
+    let onRename: () -> Void
+    let onCopyCommand: () -> Void
+    let onReveal: () -> Void
+    var onRemove: (() -> Void)? = nil
+    var compact = false
+    /// "Always show emails" is on: nothing to toggle.
+    var alwaysRevealed = false
+    @State private var hovering = false
+
+    private var stateColor: Color {
+        switch account.state {
+        case .running: return Theme.active
+        case .signedIn: return Theme.ready
+        case .signedOut: return Theme.relogin
+        }
+    }
+
+    private var stateText: String {
+        switch account.state {
+        case .running: return L10n.t(.codexStateRunning)
+        case .signedIn: return L10n.t(.codexStateSignedIn)
+        case .signedOut: return L10n.t(.codexStateSignedOut)
+        }
+    }
+
+    private var title: String { revealed ? account.label : SwitcherModel.displayName(account.label) }
+    private var titleIsMasked: Bool { SwitcherModel.displayName(account.label) != account.label }
+
+    @ViewBuilder
+    private func titleView(font: Font) -> some View {
+        let text = Text(title).font(font).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.middle)
+        if titleIsMasked && !alwaysRevealed {
+            Button(action: onToggleEmail) { text }
+                .buttonStyle(.plain)
+                .help(revealed ? L10n.t(.uiEmailHide) : L10n.t(.uiEmailShow))
+        } else {
+            text
+        }
+    }
+
+    private var chips: some View {
+        HStack(spacing: 6) {
+            Chip(text: stateText, color: stateColor, filled: account.state == .running).layoutPriority(1)
+            if let plan = account.identity?.plan { Chip(text: plan.capitalized, color: Theme.alias) }
+            if account.identity?.mode == .apiKey { Chip(text: L10n.t(.codexChipApiKey), color: Theme.alias) }
+            if account.kind == .standard { Chip(text: L10n.t(.codexChipStandard), color: Theme.inkMuted) }
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.gapRow) {
+            Capsule()
+                .fill(stateColor)
+                .frame(width: 4, height: compact ? 44 : 40)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Theme.gapTight) {
+                if compact {
+                    titleView(font: .system(size: 16, weight: .semibold, design: .serif))
+                    chips
+                } else {
+                    HStack(spacing: 8) {
+                        titleView(font: Theme.rowTitle)
+                        Button(action: onRename) {
+                            Image(systemName: "pencil").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.inkMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                        .opacity(hovering ? 1 : 0)
+                        .help(L10n.t(.uiRename))
+                        .accessibilityLabel(L10n.t(.uiRename))
+                        chips
+                    }
+                }
+                if let email = account.email, email != account.label {
+                    if alwaysRevealed {
+                        Text(email).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                    } else {
+                        Button(action: onToggleEmail) {
+                            Text(revealed ? email : Privacy.maskEmail(email)).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .help(revealed ? L10n.t(.uiEmailHide) : L10n.t(.uiEmailShow))
+                    }
+                }
+                if !compact {
+                    Text(account.homePath)
+                        .font(Theme.mono)
+                        .foregroundStyle(Theme.inkMuted.opacity(0.8))
+                        .lineLimit(1).truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .padding(.horizontal, compact ? 10 : 14)
+        .padding(.vertical, compact ? 8 : 12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
+                .fill(account.state == .running ? Theme.active.opacity(0.07) : hovering ? Theme.surfaceRaised : Theme.surface))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
+                .strokeBorder(account.state == .running ? Theme.active.opacity(0.35) : Theme.hairline, lineWidth: 1))
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button(L10n.t(.uiRename), action: onRename).disabled(busy)
+            Button(L10n.t(.codexReauth), action: onSignIn).disabled(busy)
+            Divider()
+            Button(L10n.t(.codexCopyCommand), action: onCopyCommand)
+            Button(L10n.t(.codexRevealInFinder), action: onReveal)
+            if let onRemove {
+                Divider()
+                Button(account.kind == .managed ? L10n.t(.codexRemove) : L10n.t(.codexHide), role: .destructive, action: onRemove)
+                    .disabled(busy)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        switch account.state {
+        case .running:
+            Button(L10n.t(.codexShow), action: onOpen)
+                .buttonStyle(ActionButtonStyle(tint: Theme.active, prominent: false))
+                .disabled(busy)
+                .help(L10n.t(.codexOpenHelp))
+        case .signedIn:
+            Button(L10n.t(.codexOpen), action: onOpen)
+                .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                .disabled(busy)
+                .help(L10n.t(.codexOpenHelp))
+        case .signedOut:
+            Button(L10n.t(.codexSignIn), action: onSignIn)
+                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .disabled(busy)
+        }
+    }
+}
+
+extension CodexRow {
+    init(account: CodexAccount, model: CodexModel, alwaysReveal: Bool, compact: Bool = false) {
+        self.init(account: account, revealed: alwaysReveal || model.revealedEmails.contains(account.id), busy: model.isBusy,
+                  onOpen: { model.open(account) }, onSignIn: { model.requestReauth(account) },
+                  onToggleEmail: { model.toggleEmail(account.id) }, onRename: { model.requestRename(account) },
+                  onCopyCommand: { model.copyCommand(account) }, onReveal: { model.revealInFinder(account) },
+                  onRemove: account.kind == .standard ? nil : { model.requestRemove(account) }, compact: compact,
+                  alwaysRevealed: alwaysReveal)
+    }
+}
+
+/// A Codex home found on this Mac that isn't in the list: it can be added or hidden, never opened from here.
+struct CodexFoundRow: View {
+    let found: CodexAccount
+    @ObservedObject var model: CodexModel
+    var alwaysRevealed = false
+
+    var body: some View {
+        HStack(spacing: Theme.gapRow) {
+            VStack(alignment: .leading, spacing: Theme.gapTight) {
+                Text(alwaysRevealed ? found.label : SwitcherModel.displayName(found.label))
+                    .font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                    .lineLimit(1).truncationMode(.middle)
+                Text(found.homePath).font(Theme.mono).foregroundStyle(Theme.inkMuted.opacity(0.8)).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(L10n.t(.codexDismiss)) { model.dismiss(found) }
+                .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                .disabled(model.isBusy)
+            Button(L10n.t(.codexAdopt)) { model.requestAdopt(found) }
+                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .disabled(model.isBusy)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
+            .strokeBorder(Theme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+    }
+}
+
+// MARK: - Header and progress
+
+struct CodexHeader: View {
+    let status: CodexStatus
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 2 : 6) {
+            Text(L10n.t(.codexHeaderTitle)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+            if status.installed {
+                Text(L10n.t(.codexRunningCount, status.runningCount))
+                    .font(compact ? .system(size: 22, weight: .semibold, design: .serif) : Theme.display)
+                    .foregroundStyle(status.runningCount > 0 ? Theme.active : Theme.ink)
+                if !compact, let version = status.version {
+                    Label("Codex v\(version)", systemImage: "shippingbox").font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                }
+            } else {
+                Text(L10n.t(.errCodexNotInstalled)).font(Theme.body).foregroundStyle(Theme.inkMuted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct CodexSignInProgress: View {
+    @ObservedObject var model: CodexModel
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { label; Spacer(minLength: 8); buttons }
+            VStack(alignment: .leading, spacing: 8) { label; HStack(spacing: 8) { buttons } }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.alias.opacity(0.09)))
+    }
+
+    private var label: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(L10n.t(.codexSigningIn)).font(Theme.body).foregroundStyle(Theme.ink)
+        }
+    }
+
+    @ViewBuilder
+    private var buttons: some View {
+        if model.signInLink != nil {
+            Button(L10n.t(.codexOpenLinkAgain)) { model.openSignInLink() }
+                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+        }
+        Button(L10n.t(.uiCancel)) { model.cancelSignIn() }
+            .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+    }
+}
+
+// MARK: - Window and menu content
+
+struct CodexMainContent: View {
+    @ObservedObject var model: CodexModel
+    @ObservedObject var settings: SwitcherModel
+
+    var body: some View {
+        if let status = model.status {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    CodexHeader(status: status)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if model.isDemo { Chip(text: L10n.t(.uiDemo), color: Theme.alias, filled: true) }
+                        Button { model.refresh() } label: { Label(L10n.t(.uiRefresh), systemImage: "arrow.clockwise") }
+                            .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                            .keyboardShortcut("r", modifiers: .command)
+                            .disabled(model.isBusy)
+                    }
+                }
+                .padding(Theme.gapGroup)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).fill(Theme.surface)
+                    .shadow(color: .black.opacity(0.06), radius: 14, y: 6))
+                .padding([.horizontal, .top], Theme.gapGroup)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.gapGroup) {
+                        if case .signingIn = model.phase { CodexSignInProgress(model: model) }
+                        if let banner = model.banner { BannerView(banner: banner) }
+                        VStack(alignment: .leading, spacing: Theme.gapRow) {
+                            Text(L10n.t(.uiAccounts)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+                            ForEach(status.accounts) { account in CodexRow(account: account, model: model, alwaysReveal: settings.showEmails) }
+                        }
+                        if !status.found.isEmpty {
+                            VStack(alignment: .leading, spacing: Theme.gapRow) {
+                                Text(L10n.t(.codexFoundTitle)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+                                Text(L10n.t(.codexFoundHint)).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                                ForEach(status.found) { found in
+                                    CodexFoundRow(found: found, model: model, alwaysRevealed: settings.showEmails)
+                                }
+                            }
+                        }
+                    }
+                    .padding(Theme.gapGroup)
+                }
+
+                Divider().overlay(Theme.hairline)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button(L10n.t(.codexAdd)) { model.add() }
+                            .buttonStyle(ActionButtonStyle(tint: Theme.alias))
+                            .disabled(model.isBusy || !status.installed)
+                            .help(L10n.t(.codexAddHelp))
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, Theme.gapGroup)
+                .padding(.vertical, 12)
+                .background(Theme.surface.opacity(0.6))
+            }
+        } else {
+            ProgressView(L10n.t(.uiLoading)).foregroundStyle(Theme.inkMuted).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+struct CodexMenuContent: View {
+    @ObservedObject var model: CodexModel
+    @ObservedObject var settings: SwitcherModel
+
+    var body: some View {
+        if let status = model.status {
+            CodexHeader(status: status, compact: true).padding(.bottom, 4)
+            ForEach(status.accounts) { account in
+                CodexRow(account: account, model: model, alwaysReveal: settings.showEmails, compact: true)
+            }
+            if case .signingIn = model.phase { CodexSignInProgress(model: model) }
+            if let banner = model.banner { BannerView(banner: banner) }
+            HStack(spacing: 8) {
+                Button(L10n.t(.codexAdd)) { model.add() }
+                    .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                    .disabled(model.isBusy || !status.installed)
+                    .help(L10n.t(.codexAddHelp))
+                if !status.found.isEmpty {
+                    // Adding a found home needs the explanation in the window.
+                    Button(L10n.t(.codexFoundCount, status.found.count)) { AppDelegate.shared?.showMainWindow() }
+                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                }
+            }
+        } else {
+            ProgressView()
+        }
+    }
+}
+
+// MARK: - Dialogs
+
+struct CodexAlertsModifier: ViewModifier {
+    @ObservedObject var model: CodexModel
+
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                Privacy.maskEmails(in: model.pending?.title ?? ""),
+                isPresented: Binding(get: { model.pending != nil }, set: { if !$0 { model.pending = nil } }),
+                presenting: model.pending
+            ) { action in
+                switch action.kind {
+                case .adopt: Button(L10n.t(.codexAdopt)) { model.confirm(action) }
+                case .remove: Button(L10n.t(.codexRemoveButton), role: .destructive) { model.confirm(action) }
+                case .hide: Button(L10n.t(.codexHideButton), role: .destructive) { model.confirm(action) }
+                case .reauth: Button(L10n.t(.codexReauthButton)) { model.confirm(action) }
+                }
+                Button(L10n.t(.uiCancel), role: .cancel) { model.pending = nil }
+                    .keyboardShortcut(.defaultAction)
+            } message: { action in
+                Text(Privacy.maskEmails(in: action.detail))
+            }
+            .alert(
+                L10n.t(.uiRenameTitle),
+                isPresented: Binding(get: { model.renaming != nil }, set: { if !$0 { model.renaming = nil } }),
+                presenting: model.renaming
+            ) { account in
+                TextField(Privacy.maskEmails(in: account.defaultName), text: $model.renameDraft)
+                Button(L10n.t(.uiSave)) { model.rename(account, to: model.renameDraft) }
+                    .keyboardShortcut(.defaultAction)
+                Button(L10n.t(.uiCancel), role: .cancel) { model.renaming = nil }
+            } message: { account in
+                Text(L10n.t(.uiRenameMessage, Privacy.maskEmails(in: account.defaultName)))
+            }
+    }
+}

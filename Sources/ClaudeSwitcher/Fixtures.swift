@@ -1,0 +1,126 @@
+import Foundation
+import SwitcherCore
+
+/// Demo data for `--ui-fixture` screenshots: example accounts only, clearly labelled as a demo, no real store.
+@MainActor
+enum Fixtures {
+    static func model(named name: String?) -> SwitcherModel? {
+        guard let name else { return nil }
+        let base = status(active: "work")
+        let switchSteps: [SwitchStep] = [.preflight, .suspendingRelaunchers, .quittingClaude, .capturingOutgoing, .swapping,
+                                         .launching, .verifying]
+        switch name {
+        case "switching":
+            return SwitcherModel(demo: base, demoPhase: .working(action: L10n.t(.uiActionSwitchTo, "Personal")),
+                                 demoSteps: switchSteps)
+        case "success":
+            return SwitcherModel(demo: status(active: "personal"), demoSteps: switchSteps + [.restoringRelaunchers, .done],
+                                 demoBanner: .init(kind: .success, text: L10n.t(.uiResultSwitched, "Personal", 24)))
+        case "relogin":
+            return SwitcherModel(demo: status(active: "work", expired: ["personal"]),
+                                 demoBanner: .init(kind: .info, text: L10n.t(.demoExpired, "Personal")))
+        case "error":
+            return SwitcherModel(demo: base,
+                                 demoSteps: [.preflight, .suspendingRelaunchers, .quittingClaude, .swapping, .launching, .verifying,
+                                             .rollingBack, .restoringRelaunchers],
+                                 demoBanner: .init(kind: .error, text: SwitcherError.verificationFailed(
+                                     L10n.t(.reasonFaultInjected), rollback: .verified).description))
+        case "remove":
+            let model = SwitcherModel(demo: base)
+            model.pendingConfirmation = base.accounts.first { !$0.isActive }.map(SwitcherModel.removeConfirmation(for:))
+            return model
+        case "rename":
+            let model = SwitcherModel(demo: base)
+            model.renameDraft = ""
+            model.renaming = base.accounts.first { $0.customName == nil }
+            return model
+        default:
+            return SwitcherModel(demo: base)
+        }
+    }
+
+    struct DemoAccount {
+        let key: String
+        let name: String?
+        let email: String
+        let account: String
+        let org: String
+    }
+
+    /// In the app's name order; one account keeps its default (email) name to show the masking.
+    static let accounts = [
+        DemoAccount(key: "personal", name: "Personal", email: "alex.kim@example.com",
+                    account: "a1a1a1a1-0000-4000-8000-000000000001", org: "a1a1a1a1-0000-4000-8000-0000000000f1"),
+        DemoAccount(key: "side", name: "Side project", email: "alex.lab@example.com",
+                    account: "b2b2b2b2-0000-4000-8000-000000000002", org: "b2b2b2b2-0000-4000-8000-0000000000f2"),
+        DemoAccount(key: "team", name: nil, email: "studio.team@example.com",
+                    account: "c3c3c3c3-0000-4000-8000-000000000003", org: "c3c3c3c3-0000-4000-8000-0000000000f3"),
+        DemoAccount(key: "work", name: "Work", email: "alex@work.example.com",
+                    account: "d4d4d4d4-0000-4000-8000-000000000004", org: "d4d4d4d4-0000-4000-8000-0000000000f4"),
+    ]
+
+    static func status(active: String, expired: Set<String> = []) -> SwitcherStatus {
+        let rows = accounts.map { a in
+            AccountStatus(id: "\(a.account)__\(a.org)", label: a.name ?? a.email, customName: a.name, defaultName: a.email,
+                          email: a.email, accountUuid: a.account, orgUuid: a.org, isActive: a.key == active,
+                          snapshot: expired.contains(a.key) ? .expired : .ready, capturedAt: Date(), sessionExpiresAt: nil)
+        }
+        let current = accounts.first { $0.key == active }
+        return SwitcherStatus(
+            claude: ClaudeStatus(installed: true, running: true, pid: 4242, version: "1.0.0",
+                                 activeAccountUuid: current?.account, activeOrgUuid: current?.org,
+                                 activeEmail: current?.email, codeSessions: 1),
+            accounts: rows, relaunchers: [], suspendedRelaunchers: [],
+            originalBackup: "~/Library/Application Support/\(ProductInfo.defaultBundleID)/backups/original", pendingJournal: false,
+            nativeMultiAccount: false, warnings: [])
+    }
+
+    // MARK: - Codex tab
+
+    static func codexModel(named name: String) -> CodexModel {
+        let model: CodexModel
+        switch name {
+        case "codex-signin": model = CodexModel(demo: codexStatus(), demoPhase: .signingIn(id: nil))
+        default: model = CodexModel(demo: codexStatus())
+        }
+        switch name {
+        case "codex-remove":
+            model.requestDemoRemoval(codexStatus().accounts.first { $0.kind == .managed })
+        case "codex-rename":
+            model.renameDraft = ""
+            model.renaming = codexStatus().accounts.first { $0.customName == nil && $0.identity?.mode == .apiKey }
+        default: break
+        }
+        return model
+    }
+
+    static func codexStatus() -> CodexStatus {
+        func identity(_ email: String, _ plan: String) -> CodexIdentity { CodexIdentity(mode: .chatgpt, email: email, plan: plan) }
+        let accounts = [
+            CodexAccount(id: "standard", kind: .standard, label: "alex.kim@example.com", customName: nil,
+                         defaultName: "alex.kim@example.com", home: "/Users/alex/.codex", homePath: "~/.codex",
+                         identity: identity("alex.kim@example.com", "pro"), state: .running, pids: [4243]),
+            CodexAccount(id: "m-3c4d5e6f", kind: .managed, label: "Side project", customName: "Side project",
+                         defaultName: "alex.lab@example.com",
+                         home: "/Users/alex/Library/Application Support/\(ProductInfo.defaultBundleID)/codex/m-3c4d5e6f/home",
+                         homePath: "~/Library/Application Support/\(ProductInfo.defaultBundleID)/codex/m-3c4d5e6f/home",
+                         identity: identity("alex.lab@example.com", "plus"), state: .signedIn, pids: []),
+            CodexAccount(id: "found:.codex-work", kind: .found, label: "Work", customName: "Work",
+                         defaultName: "alex@work.example.com", home: "/Users/alex/.codex-work", homePath: "~/.codex-work",
+                         identity: identity("alex@work.example.com", "team"), state: .running, pids: [4244]),
+            CodexAccount(id: "found:.codex_second", kind: .found, label: L10n.t(.codexApiKeyName, ".codex_second"),
+                         customName: nil, defaultName: L10n.t(.codexApiKeyName, ".codex_second"),
+                         home: "/Users/alex/.codex_second", homePath: "~/.codex_second",
+                         identity: CodexIdentity(mode: .apiKey), state: .signedIn, pids: []),
+            CodexAccount(id: "found:.codex-test", kind: .found, label: "~/.codex-test", customName: nil,
+                         defaultName: "~/.codex-test", home: "/Users/alex/.codex-test", homePath: "~/.codex-test",
+                         identity: nil, state: .signedOut, pids: []),
+        ]
+        let found = [
+            CodexAccount(id: "found:.codex-backup", kind: .found, label: "alex.kim@example.com · .codex-backup",
+                         customName: nil, defaultName: "alex.kim@example.com", home: "/Users/alex/.codex-backup",
+                         homePath: "~/.codex-backup", identity: identity("alex.kim@example.com", "pro"), state: .signedIn, pids: []),
+        ]
+        return CodexStatus(installed: true, version: "26.1013.40934", accounts: accounts, found: found, hiddenCount: 1)
+    }
+}

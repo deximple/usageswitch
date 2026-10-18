@@ -1,0 +1,209 @@
+import AppKit
+import Darwin
+import ServiceManagement
+import SwiftUI
+import SwitcherCore
+
+/// Launch options (also used to produce UI evidence without touching the real store):
+/// `--background` (menu bar only), `--appearance light|dark`, `--ui-fixture <list|switching|success|relogin|error>`,
+/// `--menu-preview` (render the menu content in the window for screenshots), `--lang <code>` (not saved),
+/// `--tab claude|codex` (not saved),
+/// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).
+enum LaunchOptions {
+    static let args = CommandLine.arguments
+    static var background: Bool { args.contains("--background") }
+    static var appearance: String? { value("--appearance") }
+    static var language: AppLanguage? { value("--lang").flatMap(AppLanguage.matching) }
+    static var tab: AppTab? { value("--tab").flatMap(AppTab.init(rawValue:)) }
+    static var fixture: String? { value("--ui-fixture") }
+    static var menuPreview: Bool { args.contains("--menu-preview") }
+    static var behind: Bool { args.contains("--behind") }
+
+    /// App-level override for evidence screenshots; never changes the system setting.
+    static var colorScheme: ColorScheme? {
+        switch appearance {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+    }
+
+    static func value(_ flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+}
+
+/// One model shared by the menu bar extra and the main window.
+@MainActor
+enum AppModel {
+    static let shared: SwitcherModel = {
+        // Set before any view or fixture text is produced.
+        L10n.language = LaunchOptions.language ?? SwitcherSettings.load(env: .live()).effectiveLanguage
+        let model = Fixtures.model(named: LaunchOptions.fixture) ?? SwitcherModel()
+        if let forced = LaunchOptions.language { model.previewLanguage(forced) }
+        return model
+    }()
+
+    /// Demo screens (any `--ui-fixture`) get demo Codex data and never touch the real Codex homes.
+    static let codex: CodexModel = {
+        _ = shared   // language first
+        guard let fixture = LaunchOptions.fixture else { return CodexModel() }
+        return Fixtures.codexModel(named: fixture)
+    }()
+
+    /// Demo screens show a fixed tab and never change the remembered one.
+    static let tabs = TabSelection(forced: LaunchOptions.tab
+        ?? LaunchOptions.fixture.map { $0.hasPrefix("codex") ? AppTab.codex : AppTab.claude })
+}
+
+/// Strings come from a global table rather than view inputs, so the tree is rebuilt when the language changes.
+struct LanguageScoped<Content: View>: View {
+    @ObservedObject var model: SwitcherModel
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content().id(model.language) }
+}
+
+/// Owns the main window directly so it opens deterministically at launch (an LSUIElement app otherwise
+/// starts with no visible window) and can be reopened from the menu bar.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    static private(set) weak var shared: AppDelegate?
+    private var window: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
+        if !LaunchOptions.background && !Self.launchedAsLoginItem { showMainWindow() }
+    }
+
+    /// Opened at login: stay in the menu bar instead of showing the window. The Apple event flag is the classic
+    /// signal; since it isn't guaranteed for SMAppService launches, the first launch of a registered login item
+    /// within two minutes of this user's console login also counts (once per login, so a manual reopen shows it).
+    private static var launchedAsLoginItem: Bool {
+        let defaults = UserDefaults.standard
+        let login = consoleLoginDate()
+        let alreadyUsed = login.map { defaults.double(forKey: lastLoginLaunchKey) == $0.timeIntervalSince1970 } ?? false
+        let byEvent = NSAppleEventManager.shared().currentAppleEvent.map {
+            $0.eventID == kAEOpenApplication
+                && $0.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        } ?? false
+        let enabledAt = defaults.double(forKey: SwitcherModel.launchAtLoginEnabledAtKey)
+        let byTiming = login.map {
+            SMAppService.mainApp.status == .enabled && enabledAt < $0.timeIntervalSince1970
+                && Date().timeIntervalSince($0) < loginLaunchWindow
+        } ?? false
+        guard byEvent || (byTiming && !alreadyUsed) else { return false }
+        // One background start per login: a later manual open in the same session always shows the window.
+        if let login { defaults.set(login.timeIntervalSince1970, forKey: lastLoginLaunchKey) }
+        return true
+    }
+
+    private static let loginLaunchWindow: TimeInterval = 120
+    private static let lastLoginLaunchKey = "lastLoginItemLaunch"
+
+    /// Start of this user's current console (GUI) session, from utmpx.
+    private static func consoleLoginDate() -> Date? {
+        setutxent()
+        defer { endutxent() }
+        var newest: Date?
+        while let entry = getutxent() {
+            guard entry.pointee.ut_type == USER_PROCESS else { continue }
+            let line = withUnsafeBytes(of: entry.pointee.ut_line) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            let user = withUnsafeBytes(of: entry.pointee.ut_user) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            guard line == "console", user == NSUserName() else { continue }
+            let started = Date(timeIntervalSince1970: TimeInterval(entry.pointee.ut_tv.tv_sec))
+            if newest.map({ started > $0 }) ?? true { newest = started }
+        }
+        return newest
+    }
+
+    /// `<scheme>://switch?id=<account-id>[&force=1]` runs the same UI action as the Switch button.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == ProductInfo.urlScheme && url.host == "switch" {
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard let id = items.first(where: { $0.name == "id" })?.value else { continue }
+            showMainWindow()
+            AppModel.shared.requestSwitch(id: id, force: items.contains { $0.name == "force" && $0.value == "1" })
+        }
+    }
+
+    /// Quitting mid-switch would skip the relauncher restore and could leave files mid-swap, and quitting during
+    /// another Codex action could leave it half done, so both wait for the user. A Codex sign-in is simply cancelled
+    /// (its `codex login` ends) before the app quits.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let codex = AppModel.codex
+        if AppModel.shared.isBusy {
+            AppModel.shared.banner = .init(kind: .info, text: L10n.t(.uiBusyQuit))
+        } else if codex.isBusy && !codex.isSigningIn && !codex.isDemo {
+            codex.banner = .init(kind: .info, text: L10n.t(.codexBusyQuit))
+            AppModel.tabs.tab = .codex
+        } else {
+            codex.stopSignInForQuit()
+            return .terminateNow
+        }
+        showMainWindow()
+        return .terminateCancel
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return true
+    }
+
+    func showMainWindow() {
+        if window == nil {
+            let model = AppModel.shared
+            let content = LanguageScoped(model: model) {
+                if LaunchOptions.menuPreview {
+                    MenuView(model: model, codex: AppModel.codex, tabs: AppModel.tabs)
+                } else {
+                    MainView(model: model, codex: AppModel.codex, tabs: AppModel.tabs)
+                }
+            }
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            w.title = ProductInfo.name
+            w.contentViewController = NSHostingController(rootView: content.preferredColorScheme(LaunchOptions.colorScheme))
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.setFrameAutosaveName("ClaudeSwitcherMain")
+            if !w.setFrameUsingName("ClaudeSwitcherMain") { w.center() }
+            window = w
+        }
+        if LaunchOptions.behind {
+            window?.orderBack(nil)
+            return
+        }
+        NSApp.setActivationPolicy(.regular)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Back to a menu-bar-only app once the window is closed.
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+struct ClaudeSwitcherApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @StateObject private var model = AppModel.shared
+    @StateObject private var codex = AppModel.codex
+    @StateObject private var tabs = AppModel.tabs
+
+    var body: some Scene {
+        MenuBarExtra {
+            LanguageScoped(model: model) { MenuView(model: model, codex: codex, tabs: tabs) }
+                .preferredColorScheme(LaunchOptions.colorScheme)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: model.isBusy ? "arrow.triangle.2.circlepath" : "person.2.circle")
+                if let title = model.menuBarTitle { Text(title) }
+            }
+            .accessibilityLabel(model.menuBarTitle.map { "\(ProductInfo.name), \($0)" } ?? ProductInfo.name)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}

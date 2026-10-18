@@ -1,0 +1,12 @@
+.build/
+build/
+DerivedData/
+*.xcarchive
+.DS_Store
+.swiftpm/
+*.profraw
+
+# Private working files, never part of the public export (see docs/private/NOTES.ko.md)
+.goal-task/
+docs/evidence/
+docs/private/
