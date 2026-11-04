@@ -9,4 +9,9 @@ public enum MenuBarTitle {
         let shown = showEmails ? label : Privacy.maskEmails(in: label)
         return shown.count > limit ? String(shown.prefix(limit - 1)) + "…" : shown
     }
+
+    /// The most constrained window's short title, e.g. "Weekly 75%". The name comes in already localized.
+    public static func usage(windowName: String, usedPercent: Double) -> String {
+        "\(windowName) \(Int(usedPercent.rounded()))%"
+    }
 }

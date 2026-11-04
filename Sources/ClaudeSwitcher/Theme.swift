@@ -29,6 +29,10 @@ enum Theme {
     static let alias = dynamic(rgb(0x4F55B8), rgb(0x9CA1F0))
     static let danger = dynamic(rgb(0xA63A2B), rgb(0xF08371))
 
+    // Usage gauges: room to run, nearly out, empty (danger/missing reused from state colors)
+    static let usageNormal = dynamic(rgb(0x3B7DD8), rgb(0x5B9BF0))
+    static let usageLow = dynamic(rgb(0xE07B1F), rgb(0xF0A04B))
+
     // Typography
     static let display = Font.system(size: 30, weight: .semibold, design: .serif)
     static let rowTitle = Font.system(size: 19, weight: .semibold, design: .serif)

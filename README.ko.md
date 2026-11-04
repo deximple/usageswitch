@@ -2,11 +2,16 @@
 
 Claude 나 Codex 계정을 여러 개 쓰는 사람을 위한 macOS 메뉴바 앱입니다.
 
+- **사용량 탭** — 모든 계정의 사용량 창을 한눈에: 우선순위(고정·거의 다 씀·다 씀) 보기, 창별 진행 막대 목록, 메뉴바의 가장 빠듯한 창.
 - **Claude 탭**: 계정마다 Claude Desktop 로그인을 한 번 저장해 두면, 클릭 한 번으로 Claude Desktop(Code 탭 포함)을 그 계정으로 전환합니다. 로그아웃했다가 다시 로그인할 필요가 없습니다.
 - **Codex 탭**: Codex 계정마다 자기 Codex 홈을 두고, 각각 별도 창으로 나란히 엽니다.
 
 [English](README.md) · 내려받기: [최신 릴리스](https://github.com/deximple/usageswitch/releases/latest) · [개인정보](PRIVACY.md) · [변경 내역](CHANGELOG.md)
 
+<p>
+  <img src="docs/screenshots/usage-tab.png" width="49%" alt="사용량 탭: 링 게이지가 있는 우선순위 보기">
+  <img src="docs/screenshots/usage-all.png" width="49%" alt="사용량 탭: 계정별 창 진행 막대">
+</p>
 <p>
   <img src="docs/screenshots/claude-tab.png" width="49%" alt="Claude 탭: 저장된 계정마다 전환 버튼">
   <img src="docs/screenshots/codex-tab.png" width="49%" alt="Codex 탭: 계정마다 Codex 홈">
@@ -15,6 +20,16 @@ Claude 나 Codex 계정을 여러 개 쓰는 사람을 위한 macOS 메뉴바 �
 <sub>스크린샷은 데모 데이터입니다.</sub>
 
 화면 언어는 한국어 · 简体中文 · 日本語 · English · Español 입니다. 기본값은 시스템 언어이고 ⚙︎ › 언어에서 바꿉니다.
+
+## 사용량
+
+사용량 탭은 각 벤더의 도구로 사용량 창을 읽기만 합니다:
+
+- **Claude Code** — 기본 CLI 로그인의 `/usage` 를 `claude` CLI 로 읽습니다(Claude Code 자체 자격증명 사용). 관리 설정이 있는 Mac 에서는 읽지 않습니다.
+- **Codex** — 목록에 있는 ChatGPT 로그인마다 `codex app-server` 를 한 번씩 실행합니다. API 키 계정은 사용량을 알리지 않습니다.
+- **Cursor** — 기본 꺼짐. 켜면(⚙︎ › Cursor 사용량…) UsageSwitch 가 키체인 또는 `~/.cursor/auth.json` 에서 Cursor 로그인을 읽고 갱신마다 Cursor API 에 요청 한 번을 보냅니다. 토큰은 저장되지 않습니다. 이것이 UsageSwitch 가 직접 하는 유일한 네트워크 요청이고, 나머지는 모두 로컬입니다.
+
+사용량은 보여주기만 합니다. 한도 때문에 계정을 바꾸거나 앱을 실행·로그아웃하지 않습니다.
 
 ## 설치
 

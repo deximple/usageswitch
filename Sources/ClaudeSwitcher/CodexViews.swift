@@ -4,13 +4,14 @@ import SwitcherCore
 // MARK: - Tabs
 
 enum AppTab: String, CaseIterable {
-    case claude, codex
+    case usage, claude, codex
 }
 
 /// The selected tab, shared by the window and the menu. Remembered between launches, except for demo screens.
 @MainActor
 final class TabSelection: ObservableObject {
-    static let defaultsKey = "selectedTab"
+    /// The key changed for 2.0: the remembered tab moves to Usage for everyone on first launch.
+    static let defaultsKey = "selectedTab.v2"
     private let remembers: Bool
 
     @Published var tab: AppTab {
@@ -19,7 +20,7 @@ final class TabSelection: ObservableObject {
 
     init(forced: AppTab? = nil) {
         remembers = forced == nil
-        tab = forced ?? AppTab(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .claude
+        tab = forced ?? AppTab(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .usage
     }
 }
 
@@ -28,6 +29,7 @@ struct TabSwitcher: View {
 
     var body: some View {
         Picker(selection: $selection.tab) {
+            Text(L10n.t(.tabUsage)).tag(AppTab.usage)
             Text(L10n.t(.tabClaude)).tag(AppTab.claude)
             Text(L10n.t(.tabCodex)).tag(AppTab.codex)
         } label: {

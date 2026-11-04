@@ -7,6 +7,7 @@ import SwitcherCore
 struct SettingsMenu: View {
     @ObservedObject var model: SwitcherModel
     @ObservedObject var codex: CodexModel
+    @ObservedObject var usage: UsageModel
 
     var body: some View {
         Menu {
@@ -27,6 +28,13 @@ struct SettingsMenu: View {
                 model.setShowEmails($0)
                 codex.revealedEmails = []
             }))
+            Toggle(L10n.t(.uiSettingShowUsage), isOn: Binding(get: { model.menuBarShowsUsage },
+                                                            set: { model.setMenuBarShowsUsage($0) }))
+            // On-by-confirmation only: this toggle reads Cursor's sign-in and calls Cursor's API.
+            Toggle(L10n.t(.uiSettingCursorUsage), isOn: Binding(get: { model.cursorUsageEnabled }, set: { on in
+                if on { confirmCursorUsage() } else { model.setCursorUsageEnabled(false); usage.refresh() }
+            }))
+            .disabled(model.isDemo)
             if let hidden = codex.status?.hiddenCount, hidden > 0 {
                 Divider()
                 Button(L10n.t(.codexUnhide, hidden)) { codex.unhideAll() }
@@ -51,6 +59,21 @@ struct SettingsMenu: View {
         .fixedSize()
         .help(L10n.t(.uiSettings))
         .accessibilityLabel(L10n.t(.uiSettings))
+    }
+
+    /// Turning Cursor usage on asks first: it is the only way the app reads the Keychain or goes online.
+    private func confirmCursorUsage() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L10n.t(.usageCursorAlertTitle)
+        alert.informativeText = L10n.t(.usageCursorAlertBody)
+        alert.addButton(withTitle: L10n.t(.usageCursorAlertOn))
+        alert.addButton(withTitle: L10n.t(.uiCancel))
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.setCursorUsageEnabled(true)
+            usage.refresh()
+        }
     }
 
     /// Shown in the About panel under the version: what the app is, and that it's independent of both vendors.

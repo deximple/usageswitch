@@ -35,6 +35,12 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var menuBarShowsName = true
     /// Emails unmasked everywhere (rows, headers, menu bar), instead of masked until clicked.
     @Published private(set) var showEmails = false
+    /// Usage windows the user pinned in the Priority view.
+    @Published private(set) var usagePins: [String] = []
+    /// Show the most constrained usage window in the menu bar instead of the account name.
+    @Published private(set) var menuBarShowsUsage = true
+    /// Cursor usage is opt-in: it reads Cursor's sign-in and calls Cursor's API.
+    @Published private(set) var cursorUsageEnabled = false
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -61,6 +67,9 @@ final class SwitcherModel: ObservableObject {
         // Demo screens always use the defaults, so screenshots stay masked whatever the real settings are.
         menuBarShowsName = demo == nil ? settings.effectiveMenuBarShowsName : true
         showEmails = demo == nil ? settings.effectiveShowEmails : false
+        usagePins = demo == nil ? settings.effectiveUsagePins : []
+        menuBarShowsUsage = demo == nil ? settings.effectiveMenuBarShowsUsage : true
+        cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         status = demo
         phase = demoPhase
         steps = demoSteps
@@ -291,6 +300,24 @@ final class SwitcherModel: ObservableObject {
         showEmails = on
         revealedEmails = []
         if !saveSettings({ $0.showEmails = on }) { showEmails = before }
+    }
+
+    func setUsagePins(_ pins: [String]) {
+        let before = usagePins
+        usagePins = pins
+        if !saveSettings({ $0.usagePins = pins.isEmpty ? nil : pins }) { usagePins = before }
+    }
+
+    func setMenuBarShowsUsage(_ on: Bool) {
+        let before = menuBarShowsUsage
+        menuBarShowsUsage = on
+        if !saveSettings({ $0.menuBarShowsUsage = on }) { menuBarShowsUsage = before }
+    }
+
+    func setCursorUsageEnabled(_ on: Bool) {
+        let before = cursorUsageEnabled
+        cursorUsageEnabled = on
+        if !saveSettings({ $0.cursorUsageEnabled = on }) { cursorUsageEnabled = before }
     }
 
     /// Whether an email (by row id) is shown unmasked.

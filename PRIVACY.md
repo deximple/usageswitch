@@ -4,7 +4,7 @@ UsageSwitch runs entirely on your Mac.
 
 ## Network
 
-UsageSwitch makes no network connections of its own. It has no analytics, telemetry, crash reporting, or update checks running in the background.
+UsageSwitch makes no network connections of its own except one, and only if you turn it on: **Cursor usage** (⚙︎ › Cursor Usage…, off by default) sends one request to Cursor's API per refresh, authenticated with a token read from the Keychain or `~/.cursor/auth.json` and never saved. It has no analytics, telemetry, crash reporting, or update checks running in the background.
 
 Your browser goes online in two cases, and only when you ask:
 - **⚙︎ › Check for Updates…** opens the GitHub releases page in your browser.
@@ -51,10 +51,11 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
   - whether an API key is set, without reading the key itself.
 
   Tokens are never stored elsewhere, copied or printed.
+- **Usage reads:** the Usage tab asks the `claude` CLI for `/usage` output and runs `codex app-server` for each listed ChatGPT sign-in, in each vendor's own home with its own credentials. Only the answer's percentages, window durations, reset times and plan names are read — never account IDs, emails or error text. Nothing is persisted.
 
 ## What UsageSwitch never does
 
-- Decrypt cookies, or read or write the Keychain.
+- Decrypt cookies, or read or write the Keychain — except the one Cursor entry when Cursor usage is on.
 - Print, log, or send credentials anywhere.
 - Write to `~/.claude`, to other apps' data, or to Codex homes it didn't create. Those homes change only when you sign in or out, and Codex's CLI makes the change.
 - Sign you out on the server.

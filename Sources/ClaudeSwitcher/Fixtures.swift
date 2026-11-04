@@ -123,4 +123,81 @@ enum Fixtures {
         ]
         return CodexStatus(installed: true, version: "26.1013.40934", accounts: accounts, found: found, hiddenCount: 1)
     }
+
+    // MARK: - Usage tab
+
+    /// Demo usage for `--ui-fixture usage|usage-all|usage-empty|usage-stale`. Dates are relative to now.
+    static func usageModel(named name: String, settings: SwitcherModel) -> UsageModel {
+        switch name {
+        case "usage-all":
+            return UsageModel(demo: usages(), segment: .all, settings: settings)
+        case "usage-empty":
+            return UsageModel(demo: [account(.claude, "cli", "CLI sign-in", .unavailable(.cliMissing))],
+                              settings: settings)
+        case "usage-stale":
+            return UsageModel(demo: staleUsages(), segment: .all, settings: settings)
+        default:
+            settings.setUsagePins([personalWeeklyKey])
+            return UsageModel(demo: usages(), settings: settings)
+        }
+    }
+
+    private static let personalWeeklyKey = "codex:personal/weekly/"
+
+    private static func window(_ minutes: Int?, _ used: Double, scope: String? = nil,
+                               resetsIn: TimeInterval) -> UsageWindow {
+        UsageWindow(scope: scope, durationMinutes: minutes, usedPercent: used,
+                    resetsAt: Date().addingTimeInterval(resetsIn))
+    }
+
+    private static func account(_ provider: UsageProvider, _ ref: String, _ label: String,
+                                _ state: UsageState, plan: String? = nil, toolVersion: String? = nil,
+                                readAgo: TimeInterval = 0, windows: [UsageWindow] = []) -> AccountUsage {
+        AccountUsage(id: "\(provider.rawValue):\(ref)", provider: provider, accountRef: ref,
+                     label: label, plan: plan, windows: windows, state: state,
+                     readAt: Date().addingTimeInterval(-readAgo), toolVersion: toolVersion)
+    }
+
+    /// Claude weekly 75% + Fable 3%; Codex Personal 31% (pinned), Work session 92% + weekly 64%,
+    /// Side session used up; Cursor Auto 54% / API 12%.
+    private static func usages() -> [AccountUsage] {
+        [
+            account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
+                window(10080, 75, resetsIn: 2 * 86400 + 4 * 3600),
+                window(10080, 3, scope: "Fable", resetsIn: 2 * 86400 + 4 * 3600),
+            ]),
+            account(.codex, "personal", "alex.kim@example.com", .ok, plan: "prolite",
+                    toolVersion: "0.166.0-alpha.5.1", windows: [
+                window(10080, 31, resetsIn: 4 * 86400 + 9 * 3600),
+            ]),
+            account(.codex, "work", "Work", .ok, plan: "team", toolVersion: "0.166.0-alpha.5.1", windows: [
+                window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 64, resetsIn: 3 * 86400 + 2 * 3600),
+            ]),
+            account(.codex, "side", "Side project", .ok, plan: "plus",
+                    toolVersion: "0.166.0-alpha.5.1", windows: [
+                window(300, 100, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 41, resetsIn: 5 * 86400 + 7 * 3600),
+            ]),
+            account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
+                window(43200, 54, scope: "Auto", resetsIn: 21 * 86400 + 5 * 3600),
+                window(43200, 12, scope: "API", resetsIn: 21 * 86400 + 5 * 3600),
+            ]),
+        ]
+    }
+
+    /// A timed-out re-read that kept its previous windows: the windows' resets are still in the
+    /// future, so the non-ok state itself is what greys them — with a fresh Claude card for contrast.
+    private static func staleUsages() -> [AccountUsage] {
+        [
+            account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
+                window(10080, 40, resetsIn: 3 * 86400),
+            ]),
+            account(.codex, "work", "Work", .failed(.timeout), plan: "team",
+                    toolVersion: "0.166.0-alpha.5.1", readAgo: 40 * 60, windows: [
+                window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 64, resetsIn: 2 * 86400 + 4 * 3600),
+            ]),
+        ]
+    }
 }

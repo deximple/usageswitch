@@ -161,4 +161,13 @@ final class LineSplitter: @unchecked Sendable {
         lock.unlock()
         lines.forEach(onLine)
     }
+
+    /// Emits a last line that arrived without a trailing newline (call once the pipe is closed).
+    func flush() {
+        lock.lock()
+        let rest = buffer
+        buffer = Data()
+        lock.unlock()
+        if !rest.isEmpty { onLine(String(decoding: rest, as: UTF8.self)) }
+    }
 }

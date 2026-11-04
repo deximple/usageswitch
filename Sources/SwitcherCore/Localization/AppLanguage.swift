@@ -44,11 +44,21 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var menuBarShowsName: Bool?
     /// Show emails unmasked everywhere in the app (default off: masked until clicked).
     public var showEmails: Bool?
+    /// Priority-view window keys the user pinned (default none).
+    public var usagePins: [String]?
+    /// Show the most constrained usage window in the menu bar (default on).
+    public var menuBarShowsUsage: Bool?
+    /// Allow reading Cursor's sign-in for its usage (default off: no Keychain read, no request).
+    public var cursorUsageEnabled: Bool?
 
-    public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil) {
+    public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil,
+                usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
+        self.usagePins = usagePins
+        self.menuBarShowsUsage = menuBarShowsUsage
+        self.cursorUsageEnabled = cursorUsageEnabled
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
@@ -68,4 +78,7 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var effectiveLanguage: AppLanguage { language ?? AppLanguage.system() }
     public var effectiveMenuBarShowsName: Bool { menuBarShowsName ?? true }
     public var effectiveShowEmails: Bool { showEmails ?? false }
+    public var effectiveUsagePins: [String] { usagePins ?? [] }
+    public var effectiveMenuBarShowsUsage: Bool { menuBarShowsUsage ?? true }
+    public var effectiveCursorUsageEnabled: Bool { cursorUsageEnabled ?? false }
 }

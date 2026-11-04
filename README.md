@@ -2,11 +2,16 @@
 
 A macOS menu bar app for people who use more than one Claude or Codex account.
 
+- **Usage tab** — see every account's rate-limit windows at a glance: a Priority view (pinned, running out, used up), a full list with a bar per window, and the most constrained window in the menu bar.
 - **Claude tab** — save each account's Claude Desktop sign-in once, then switch Claude Desktop (including its Code tab) to any of them in one click. No signing out and back in.
 - **Codex tab** — give each Codex account its own Codex home and open them side by side, each in its own window.
 
 [한국어](README.ko.md) · Download: [latest release](https://github.com/deximple/usageswitch/releases/latest) · [Privacy](PRIVACY.md) · [Changelog](CHANGELOG.md)
 
+<p>
+  <img src="docs/screenshots/usage-tab.png" width="49%" alt="Usage tab: priority view with ring gauges">
+  <img src="docs/screenshots/usage-all.png" width="49%" alt="Usage tab: all accounts with per-window bars">
+</p>
 <p>
   <img src="docs/screenshots/claude-tab.png" width="49%" alt="Claude tab: saved accounts with a Switch button each">
   <img src="docs/screenshots/codex-tab.png" width="49%" alt="Codex tab: one Codex home per account">
@@ -19,6 +24,16 @@ A macOS menu bar app for people who use more than one Claude or Codex account.
 <sub>Screenshots use demo data.</sub>
 
 The app is available in English, 한국어, 简体中文, 日本語 and Español (it follows the system language; change it in ⚙︎ › Language).
+
+## Usage
+
+The Usage tab reads rate-limit windows through each vendor's own tooling, read-only:
+
+- **Claude Code** — the `claude` CLI's `/usage` for the default CLI sign-in, using Claude Code's own credentials. Refused on machines with managed Claude settings.
+- **Codex** — `codex app-server`, once per listed ChatGPT sign-in. API-key accounts can't report usage.
+- **Cursor** — off by default. If you turn it on (⚙︎ › Cursor Usage…), UsageSwitch reads Cursor's sign-in from the Keychain or `~/.cursor/auth.json` and sends one request to Cursor's API per refresh; the token is never saved. This is the only network request UsageSwitch makes — everything else is local.
+
+Usage never switches, launches or signs out because of a limit; it's display-only.
 
 ## Install
 

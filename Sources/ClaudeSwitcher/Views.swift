@@ -304,6 +304,7 @@ struct ConfirmationModifier: ViewModifier {
 struct MainView: View {
     @ObservedObject var model: SwitcherModel
     @ObservedObject var codex: CodexModel
+    @ObservedObject var usage: UsageModel
     @ObservedObject var tabs: TabSelection
 
     var body: some View {
@@ -312,9 +313,16 @@ struct MainView: View {
             VStack(spacing: 0) {
                 TabSwitcher(selection: tabs)
                     .frame(maxWidth: .infinity)
-                    .overlay(alignment: .trailing) { SettingsMenu(model: model, codex: codex).padding(.trailing, Theme.gapGroup) }
+                    .overlay(alignment: .trailing) { SettingsMenu(model: model, codex: codex, usage: usage).padding(.trailing, Theme.gapGroup) }
                     .padding(.top, 14)
                 switch tabs.tab {
+                case .usage:
+                    ScrollView {
+                        UsageContent(model: usage, settings: model)
+                            .frame(maxWidth: 560, alignment: .top)
+                            .frame(maxWidth: .infinity)
+                            .padding(Theme.gapGroup)
+                    }
                 case .claude:
                     if let status = model.status {
                         content(status)
@@ -417,12 +425,14 @@ struct MainView: View {
 struct MenuView: View {
     @ObservedObject var model: SwitcherModel
     @ObservedObject var codex: CodexModel
+    @ObservedObject var usage: UsageModel
     @ObservedObject var tabs: TabSelection
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.gapRow) {
             TabSwitcher(selection: tabs).frame(maxWidth: .infinity)
             switch tabs.tab {
+            case .usage: UsageContent(model: usage, settings: model, compact: true)
             case .claude: claudeContent
             case .codex: CodexMenuContent(model: codex, settings: model)
             }
@@ -431,7 +441,7 @@ struct MenuView: View {
                 Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }
                     .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
                 Spacer()
-                SettingsMenu(model: model, codex: codex)
+                SettingsMenu(model: model, codex: codex, usage: usage)
                 Button(L10n.t(.uiQuit)) { NSApp.terminate(nil) }
                     .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
                     .keyboardShortcut("q")

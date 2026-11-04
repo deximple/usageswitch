@@ -5,10 +5,12 @@ import SwiftUI
 import SwitcherCore
 
 /// Launch options (also used to produce UI evidence without touching the real store):
-/// `--background` (menu bar only), `--appearance light|dark`, `--ui-fixture <list|switching|success|relogin|error>`,
+/// `--background` (menu bar only), `--appearance light|dark`,
+/// `--ui-fixture <list|switching|success|relogin|error|codex-*|usage|usage-all|usage-empty|usage-stale>`,
 /// `--menu-preview` (render the menu content in the window for screenshots), `--lang <code>` (not saved),
-/// `--tab claude|codex` (not saved),
+/// `--tab usage|claude|codex` (not saved),
 /// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).
+/// `--snapshot <path.png>` (render the window offscreen to a PNG and quit; no real window, honors --ui-fixture, --menu-preview, --appearance, --lang).
 enum LaunchOptions {
     static let args = CommandLine.arguments
     static var background: Bool { args.contains("--background") }
@@ -18,6 +20,7 @@ enum LaunchOptions {
     static var fixture: String? { value("--ui-fixture") }
     static var menuPreview: Bool { args.contains("--menu-preview") }
     static var behind: Bool { args.contains("--behind") }
+    static var snapshot: String? { value("--snapshot") }
 
     /// App-level override for evidence screenshots; never changes the system setting.
     static var colorScheme: ColorScheme? {
@@ -52,9 +55,17 @@ enum AppModel {
         return Fixtures.codexModel(named: fixture)
     }()
 
+    /// Demo screens (any `--ui-fixture`) get demo usage data and never run the real collectors.
+    static let usage: UsageModel = {
+        _ = shared   // language first
+        guard let fixture = LaunchOptions.fixture else { return UsageModel(settings: shared) }
+        return Fixtures.usageModel(named: fixture, settings: shared)
+    }()
+
     /// Demo screens show a fixed tab and never change the remembered one.
     static let tabs = TabSelection(forced: LaunchOptions.tab
-        ?? LaunchOptions.fixture.map { $0.hasPrefix("codex") ? AppTab.codex : AppTab.claude })
+        ?? LaunchOptions.fixture.map {
+            $0.hasPrefix("usage") ? AppTab.usage : $0.hasPrefix("codex") ? AppTab.codex : AppTab.claude })
 }
 
 /// Strings come from a global table rather than view inputs, so the tree is rebuilt when the language changes.
@@ -74,7 +85,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
+        if let path = LaunchOptions.snapshot { takeSnapshot(to: path); return }
         if !LaunchOptions.background && !Self.launchedAsLoginItem { showMainWindow() }
+    }
+
+    /// Renders the same root view the real window would host, offscreen, and writes it as PNG.
+    /// Exists because Screen Recording permission isn't always available for `screencapture`.
+    private func takeSnapshot(to path: String) {
+        let model = AppModel.shared
+        let menuPreview = LaunchOptions.menuPreview
+        let content = LanguageScoped(model: model) {
+            if menuPreview {
+                MenuView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
+            } else {
+                MainView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
+            }
+        }
+        let size = menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
+        let hosting = NSHostingView(rootView: content.preferredColorScheme(LaunchOptions.colorScheme))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        if let scheme = LaunchOptions.colorScheme {
+            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        }
+        hosting.frame = NSRect(origin: .zero, size: size)
+        window.contentView = hosting
+        if menuPreview { hosting.frame.size = hosting.fittingSize }
+        window.orderBack(nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds)!
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: path))
+        }
+        NSApp.terminate(nil)
     }
 
     /// Opened at login: stay in the menu bar instead of showing the window. The Apple event flag is the classic
@@ -156,9 +200,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let model = AppModel.shared
             let content = LanguageScoped(model: model) {
                 if LaunchOptions.menuPreview {
-                    MenuView(model: model, codex: AppModel.codex, tabs: AppModel.tabs)
+                    MenuView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
                 } else {
-                    MainView(model: model, codex: AppModel.codex, tabs: AppModel.tabs)
+                    MainView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
                 }
             }
             let w = NSWindow(
@@ -191,18 +235,25 @@ struct ClaudeSwitcherApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
     @StateObject private var codex = AppModel.codex
+    @StateObject private var usage = AppModel.usage
     @StateObject private var tabs = AppModel.tabs
+
+    /// The usage title when the setting is on and a fresh window exists; else the account name.
+    private var barTitle: String? {
+        if model.menuBarShowsUsage, let title = usage.menuBarTitle { return title }
+        return model.menuBarTitle
+    }
 
     var body: some Scene {
         MenuBarExtra {
-            LanguageScoped(model: model) { MenuView(model: model, codex: codex, tabs: tabs) }
+            LanguageScoped(model: model) { MenuView(model: model, codex: codex, usage: usage, tabs: tabs) }
                 .preferredColorScheme(LaunchOptions.colorScheme)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.isBusy ? "arrow.triangle.2.circlepath" : "person.2.circle")
-                if let title = model.menuBarTitle { Text(title) }
+                if let title = barTitle { Text(title) }
             }
-            .accessibilityLabel(model.menuBarTitle.map { "\(ProductInfo.name), \($0)" } ?? ProductInfo.name)
+            .accessibilityLabel(barTitle.map { "\(ProductInfo.name), \($0)" } ?? ProductInfo.name)
         }
         .menuBarExtraStyle(.window)
     }

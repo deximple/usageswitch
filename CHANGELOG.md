@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0 — usage
+
+**Usage tab (new first tab):**
+- One view for every account's usage: a Priority list (Pinned, Running Out, Used Up) and
+  All Usage, one card per account with a bar per window.
+- Right-click any row to pin it to Priority; pins are saved.
+- The menu bar can show the most constrained window (e.g. "Weekly 75%") — ⚙︎ › Show Usage in Menu Bar.
+- Refreshes every 5 minutes, on demand, and right after a window resets.
+
+**Channels (all read-only, all through the vendors' own tools):**
+- Claude Code: the `claude` CLI's `/usage`, for the default CLI sign-in. Nothing is read when the
+  machine has managed Claude settings.
+- Codex: `codex app-server` per listed ChatGPT sign-in (API-key accounts don't report usage).
+- Cursor: opt-in only (⚙︎ › Cursor Usage…). Reads Cursor's sign-in and calls Cursor's API once per
+  refresh; the token is never saved.
+- Usage is display-only: nothing switches, launches or signs out because of a limit.
+
 ## 1.5.0 — first public release
 
 **Claude tab:**
