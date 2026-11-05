@@ -23,6 +23,11 @@ final class UsageModel: ObservableObject {
 
     private let settings: SwitcherModel
     private var generation = 0
+    /// The in-flight refresh; a consent change cancels it so superseded work
+    /// can't overwrite revoked-provider values.
+    private var refreshTask: Task<Void, Never>?
+    /// Original fixture rows for consent substitution — demo never destroys them.
+    private var demoRows: [AccountUsage] = []
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
     private var lastReadStartedAt: Date?
@@ -52,6 +57,7 @@ final class UsageModel: ObservableObject {
         // Inventory comes from the fixture rows only — a demo never runs live discovery.
         installations = UsageProvider.allCases.filter { provider in demo.contains { $0.provider == provider } }
             .map { UsageInstallation(provider: $0, cli: nil, app: nil) }
+        demoRows = demo
         self.isRefreshing = isRefreshing
         isDemo = true
     }
@@ -106,9 +112,10 @@ final class UsageModel: ObservableObject {
         let generation = generation
         isRefreshing = true
         lastReadStartedAt = Date()
-        let cursorEnabled = settings.cursorUsageEnabled
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
-        Task.detached(priority: .userInitiated) {
+        let enabled = settings.enabledUsageProviders
+        refreshTask?.cancel()
+        refreshTask = Task.detached(priority: .userInitiated) {
             let env = SwitcherEnvironment.live()
             let runner = SystemUsageProcessRunner()
             let installed = UsageInstallations.discover(
@@ -116,47 +123,114 @@ final class UsageModel: ObservableObject {
                 bundledCodexCLI: env.codexCLI)
             // Inventory first: uninstalled providers vanish before any subprocess starts.
             await MainActor.run { self.publishInventory(installed, generation: generation) }
-            func installation(_ provider: UsageProvider) -> UsageInstallation? {
-                installed.first { $0.provider == provider }
-            }
-            var next: [AccountUsage] = []
-            // App-only Claude gets an empty path list: an honest cliMissing, never a guessed binary.
-            if let claude = installation(.claude) {
-                next.append(ClaudeUsageCollector(runner: runner,
-                                                 binaryPaths: claude.cli.map { [$0] } ?? []).collect())
-            }
-            // App-only Codex falls back to the bundled path, which reports the existing missing state.
-            if let codex = installation(.codex) {
-                next += CodexUsageCollector(status: { CodexManager().status() }, runner: runner,
-                                            codexCLI: codex.cli ?? env.codexCLI,
-                                            clientVersion: version).collect()
-            }
-            if installation(.cursor) != nil {
-                if cursorEnabled {
-                    next += CursorUsageCollector(enabled: true, runner: runner,
-                                                 http: SystemUsageHTTP(), home: env.home).collect()
-                } else {
-                    next.append(Self.cursorConnectionRequired())
-                }
-            }
+            let transport = SystemUsageHTTPTransport()
+            let http = SystemUsageHTTP(transport: transport)
+            let credentials = UsageFileCredentialReader()
+            let environment = ProcessInfo.processInfo.environment
+
+            let fresh = await UsageCollection.collect(
+                installations: installed,
+                enabledProviders: enabled,
+                collector: { installation in
+                    if Task.isCancelled { return [] }
+                    switch installation.provider {
+                    case .claude:
+                        // App-only Claude gets an empty path list: honest cliMissing, never a guessed binary.
+                        return [ClaudeUsageCollector(runner: runner,
+                            binaryPaths: installation.cli.map { [$0] } ?? []).collect()]
+                    case .codex:
+                        // App-only Codex falls back to the bundled path -> existing missing state.
+                        return CodexUsageCollector(status: { CodexManager().status() },
+                            runner: runner, codexCLI: installation.cli ?? env.codexCLI,
+                            clientVersion: version).collect()
+                    case .cursor:
+                        return CursorUsageCollector(enabled: true, runner: runner,
+                            http: http, home: env.home).collect()
+                    case .grok:
+                        return GrokUsageCollector(enabled: true, http: transport,
+                            credentials: credentials, home: env.home,
+                            environment: environment).collect()
+                    case .gemini:
+                        return GeminiUsageCollector(enabled: true, http: transport,
+                            credentials: credentials, home: env.home,
+                            environment: environment).collect()
+                    case .devin:
+                        return DevinUsageCollector(enabled: true, http: transport,
+                            credentials: credentials, runner: runner,
+                            cli: installation.cli, clientVersion: version,
+                            home: env.home, environment: environment).collect()
+                    case .opencode:
+                        return OpenCodeUsageCollector(enabled: true, http: transport,
+                            credentials: credentials, home: env.home,
+                            environment: environment).collect()
+                    }
+                },
+                didCollect: { provider, rows in
+                    // Each provider's result lands promptly — a slow peer can't hold the UI hostage.
+                    await MainActor.run { self.publishPartial(provider, rows, generation: generation) }
+                })
             await MainActor.run {
-                self.finish(next, installed: installed, generation: generation, env: env)
+                self.finish(fresh, installed: installed, generation: generation, env: env)
             }
         }
     }
 
-    /// The single installed-but-not-connected Cursor row; no credential is read to make it.
-    nonisolated private static func cursorConnectionRequired() -> AccountUsage {
-        AccountUsage(id: CursorUsageCollector.rowID, provider: .cursor,
-                     accountRef: CursorUsageCollector.rowAccountRef, label: "Cursor",
-                     plan: nil, windows: [], state: .unavailable(.connectionRequired),
-                     readAt: Date(), toolVersion: nil)
+    /// A consent grant/revocation: invalidate in-flight work immediately, swap the
+    /// affected providers' visible rows (fresh grant -> real read next refresh;
+    /// revoked installed tool -> neutral placeholder; revoked absent tool -> gone),
+    /// then refresh with the new enabled set. Demo keeps fixture rows in memory.
+    func applyConsent(_ enabled: Set<UsageProvider>) {
+        if isDemo {
+            // memory-only substitution from the original fixture rows, never a real read
+            var out: [AccountUsage] = []
+            for fixture in demoRows {
+                if fixture.provider.requiresConsent && !enabled.contains(fixture.provider) {
+                    out.append(UsageCollection.connectionRequired(fixture.provider))
+                } else {
+                    out.append(fixture)
+                }
+            }
+            usages = out
+            return
+        }
+        generation += 1
+        refreshTask?.cancel()
+        // revoked providers drop their rows now — installed ones leave a neutral
+        // placeholder, absent ones disappear entirely
+        for provider in UsageProvider.allCases where provider.requiresConsent
+            && !enabled.contains(provider) {
+            let rows = installations.contains(where: { $0.provider == provider })
+                ? [UsageCollection.connectionRequired(provider)] : []
+            usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
+            clearPace(provider)
+        }
+        refresh()
+    }
+
+    /// A single provider's fresh rows replace its previous rows in place; the
+    /// remaining providers' values are untouched. Called on MainActor.
+    private func publishPartial(_ provider: UsageProvider, _ rows: [AccountUsage], generation: Int) {
+        guard generation == self.generation else { return }
+        // retained-window policy + stable provider order live in the core seam
+        usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
+        // Old pace/ETA may belong to a different login behind the same label —
+        // drop it now; the final finish recomputes pace once.
+        clearPace(provider)
+    }
+
+    /// Pace keys are "<provider>:<accountRef>:<window>" — clearing by prefix is
+    /// the safe narrow drop until the single final updatePace rebuilds them.
+    private func clearPace(_ provider: UsageProvider) {
+        let prefix = provider.rawValue + ":"
+        pace = pace.filter { !$0.key.hasPrefix(prefix) }
     }
 
     private func publishInventory(_ installed: [UsageInstallation], generation: Int) {
         guard generation == self.generation else { return }
+        let removed = Set(installations.map { $0.provider }).subtracting(installed.map { $0.provider })
         installations = installed
         usages = UsageInstallations.visible(usages, installations: installed)
+        removed.forEach { clearPace($0) }
     }
 
     private func finish(_ fresh: [AccountUsage], installed: [UsageInstallation],

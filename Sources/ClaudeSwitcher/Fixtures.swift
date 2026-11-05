@@ -128,25 +128,32 @@ enum Fixtures {
 
     /// Demo usage for `--ui-fixture usage|usage-all|usage-empty|usage-loading|usage-stale`. Dates are relative to now.
     static func usageModel(named name: String, settings: SwitcherModel) -> UsageModel {
+        func demo(_ rows: [AccountUsage], segment: UsageModel.Segment = .guide,
+                  isRefreshing: Bool = false) -> UsageModel {
+            // consent-required providers that show quota in this fixture start
+            // flagged connected in memory — never persisted, never a real read
+            settings.seedDemoConnections(Set(rows.map { $0.provider }))
+            return UsageModel(demo: rows, segment: segment, isRefreshing: isRefreshing,
+                              settings: settings)
+        }
         switch name {
         case "usage-all":
-            return UsageModel(demo: usages(), segment: .all, settings: settings)
+            return demo(usages(), segment: .all)
         case "usage-empty":
-            return UsageModel(demo: [account(.claude, "cli", "CLI sign-in", .unavailable(.cliMissing))],
-                              settings: settings)
+            return demo([account(.claude, "cli", "CLI sign-in", .unavailable(.cliMissing))])
         case "usage-loading":
-            return UsageModel(demo: [], isRefreshing: true, settings: settings)
+            return demo([], isRefreshing: true)
         case "usage-stale":
-            return UsageModel(demo: staleUsages(), segment: .all, settings: settings)
+            return demo(staleUsages(), segment: .all)
         case "usage-failed":
-            return UsageModel(demo: staleUsages(), segment: .guide, settings: settings)
+            return demo(staleUsages(), segment: .guide)
         case "usage-guide":
-            return UsageModel(demo: guideUsages(), segment: .guide, settings: settings)
+            return demo(guideUsages(), segment: .guide)
         case "usage-many-long":
-            return UsageModel(demo: manyLongUsages(), segment: .all, settings: settings)
+            return demo(manyLongUsages(), segment: .all)
         default:
             settings.setUsagePins([personalWeeklyKey])
-            return UsageModel(demo: usages(), settings: settings)
+            return demo(usages())
         }
     }
 

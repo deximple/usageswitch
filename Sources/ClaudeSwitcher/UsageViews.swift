@@ -156,8 +156,10 @@ struct UsageContent: View {
             let label = model.label(of: usage)
             switch usage.state {
             case .failed, .unavailable:
+                // connectionRequired is a neutral consent prompt, never an orange failure
+                let warn: Bool = { if case .unavailable(.connectionRequired) = usage.state { return false }; return true }()
                 if let reason = UsageText.reason(usage.state, provider: usage.provider) {
-                    items.append(("\(usage.id)/state", "\(label) — \(reason)", true))
+                    items.append(("\(usage.id)/state", "\(label) — \(reason)", warn))
                 }
             case .notReporting:
                 if let reason = UsageText.reason(usage.state, provider: usage.provider) {

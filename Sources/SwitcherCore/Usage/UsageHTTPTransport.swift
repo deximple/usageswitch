@@ -67,6 +67,9 @@ public struct SystemUsageHTTPTransport: UsageHTTPTransport {
     }
 
     public func send(_ request: UsageHTTPRequest) -> UsageHTTPResponse? {
+        // An already-cancelled Task must not start any network work — revocation
+        // mid-sequence (e.g. Gemini step 2) stops here.
+        if Task.isCancelled { return nil }
         let url = request.url
         guard url.scheme == "https",
               let host = url.host, Self.allowedHosts.contains(host),

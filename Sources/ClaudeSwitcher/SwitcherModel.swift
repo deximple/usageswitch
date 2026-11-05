@@ -41,6 +41,8 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var menuBarShowsUsage = true
     /// Cursor usage is opt-in: it reads Cursor's sign-in and calls Cursor's API.
     @Published private(set) var cursorUsageEnabled = false
+    /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
+    @Published private(set) var usageConnections: Set<UsageProvider> = []
     /// Appearance choice persisted in settings; system follows the OS live.
     @Published private(set) var appearanceChoice: AppAppearance = .system
     @Published private(set) var usageWarnPercent = 80
@@ -74,6 +76,8 @@ final class SwitcherModel: ObservableObject {
         usagePins = demo == nil ? settings.effectiveUsagePins : []
         menuBarShowsUsage = demo == nil ? settings.effectiveMenuBarShowsUsage : true
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
+        usageConnections = demo == nil
+            ? settings.enabledUsageProviders.subtracting([.cursor]) : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
         usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
@@ -332,6 +336,35 @@ final class SwitcherModel: ObservableObject {
         let before = cursorUsageEnabled
         cursorUsageEnabled = on
         if !saveSettings({ $0.cursorUsageEnabled = on }) { cursorUsageEnabled = before }
+    }
+
+    /// One entry point for any consent-required provider; Cursor delegates to its own
+    /// SSOT. The setter performs no dialog — the caller asks first when turning on.
+    func setUsageConnection(_ provider: UsageProvider, on: Bool) {
+        guard provider.requiresConsent else { return }
+        if provider == .cursor { setCursorUsageEnabled(on); return }
+        let before = usageConnections
+        if on { usageConnections.insert(provider) } else { usageConnections.remove(provider) }
+        if !saveSettings({
+            $0.usageConnections = self.usageConnections.isEmpty
+                ? nil : self.usageConnections.map { $0.rawValue }.sorted()
+        }) { usageConnections = before }
+    }
+
+    /// Fixture-only: mark the providers a demo fixture shows as connected, in
+    /// memory only — no saveSettings, no real collector. Lets the consent toggles
+    /// simulate revocation/restoration against the original fixture rows.
+    func seedDemoConnections(_ providers: Set<UsageProvider>) {
+        guard isDemo else { return }
+        if providers.contains(.cursor) { cursorUsageEnabled = true }
+        usageConnections.formUnion(providers.filter { $0.requiresConsent && $0 != .cursor })
+    }
+
+    /// The effective consent set the usage model reads.
+    var enabledUsageProviders: Set<UsageProvider> {
+        var out = usageConnections
+        if cursorUsageEnabled { out.insert(.cursor) }
+        return out
     }
 
     func setUsageWarnPercent(_ percent: Int) {

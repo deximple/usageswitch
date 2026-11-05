@@ -3,6 +3,24 @@ import Foundation
 /// Where a usage reading came from.
 public enum UsageProvider: String, Codable, Sendable, CaseIterable {
     case claude, codex, cursor, grok, gemini, devin, opencode
+
+    /// Claude and Codex are read through their own vendor CLIs; every other provider
+    /// touches local credentials or network and requires an explicit consent grant.
+    public var requiresConsent: Bool { self != .claude && self != .codex }
+}
+
+public extension SwitcherSettings {
+    /// Effective consent set: known consent-required providers present in
+    /// `usageConnections`, plus Cursor when its legacy flag is on. Unknown values
+    /// in `usageConnections` are ignored, never granted.
+    var enabledUsageProviders: Set<UsageProvider> {
+        // cursorUsageEnabled is Cursor's sole SSOT — a stray "cursor" entry in
+        // usageConnections never grants it (nor any non-consent provider).
+        var out = Set((usageConnections ?? []).compactMap { UsageProvider(rawValue: $0) }
+            .filter { $0.requiresConsent && $0 != .cursor })
+        if cursorUsageEnabled == true { out.insert(.cursor) }
+        return out
+    }
 }
 
 /// How the account authenticates to the provider. Subscription and API-key accounts are billed

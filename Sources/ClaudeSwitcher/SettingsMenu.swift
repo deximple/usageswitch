@@ -46,11 +46,31 @@ struct SettingsMenu: View {
                 Text(L10n.t(.usageUsedPercent, 90)).tag(90)
             }
             .pickerStyle(.menu)
-            // On-by-confirmation only: this toggle reads Cursor's sign-in and calls Cursor's API.
-            Toggle(L10n.t(.uiSettingCursorUsage), isOn: Binding(get: { model.cursorUsageEnabled }, set: { on in
-                if on { confirmCursorUsage() } else { model.setCursorUsageEnabled(false); usage.refresh() }
-            }))
-            .disabled(model.isDemo)
+            // Usage Connections: only detected or previously granted consent-required
+            // providers appear; an absent tool's old grant stays revocable here.
+            let consentProviders = Set(usage.installations.map { $0.provider })
+                .union(model.enabledUsageProviders)
+                .filter { $0.requiresConsent }
+                .sorted { $0.rawValue < $1.rawValue }
+            if !consentProviders.isEmpty {
+                Menu(L10n.t(.uiUsageConnections)) {
+                    ForEach(consentProviders, id: \.self) { provider in
+                        Toggle(UsageText.providerName(provider), isOn: Binding(
+                            get: { model.enabledUsageProviders.contains(provider) },
+                            set: { on in
+                                if on {
+                                    Self.confirmUsageConnection(provider) {
+                                        model.setUsageConnection(provider, on: true)
+                                        usage.applyConsent(model.enabledUsageProviders)
+                                    }
+                                } else {
+                                    model.setUsageConnection(provider, on: false)
+                                    usage.applyConsent(model.enabledUsageProviders)
+                                }
+                            }))
+                    }
+                }
+            }
             if let hidden = codex.status?.hiddenCount, hidden > 0 {
                 Divider()
                 Button(L10n.t(.codexUnhide, hidden)) { codex.unhideAll() }
@@ -77,19 +97,16 @@ struct SettingsMenu: View {
         .accessibilityLabel(L10n.t(.uiSettings))
     }
 
-    /// Turning Cursor usage on asks first: it is the only way the app reads the Keychain or goes online.
-    private func confirmCursorUsage() {
+    /// Shared opt-in explanation for any consent-required provider: local sign-in
+    /// read + read-only provider HTTPS usage requests, no task/token refresh/login.
+    /// Turning off never asks. Returns via `enable` only on the explicit action.
+    static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = L10n.t(.usageCursorAlertTitle)
-        alert.informativeText = L10n.t(.usageCursorAlertBody)
-        alert.addButton(withTitle: L10n.t(.usageCursorAlertOn))
+        alert.messageText = L10n.t(.uiConnectUsageTitle, UsageText.providerName(provider))
+        alert.informativeText = L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
+        alert.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
         alert.addButton(withTitle: L10n.t(.uiCancel))
-        NSApp.activate()
-        if alert.runModal() == .alertFirstButtonReturn {
-            model.setCursorUsageEnabled(true)
-            usage.refresh()
-        }
+        if alert.runModal() == .alertFirstButtonReturn { enable() }
     }
 
     /// Shown in the About panel under the version: what the app is, and that it's independent of both vendors.

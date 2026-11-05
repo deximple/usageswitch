@@ -56,10 +56,15 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var usageWarnPercent: Int?
     /// Post a notification when a window crosses the warn percent (default on).
     public var usageAlertsEnabled: Bool?
+    /// Granted consent for the four new consent-required providers, stored as
+    /// provider rawValues. Missing/unknown entries never grant anything; Cursor's
+    /// consent stays solely in `cursorUsageEnabled`.
+    public var usageConnections: [String]?
 
     public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil,
                 usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil, appearance: String? = nil,
-                usageWarnPercent: Int? = nil, usageAlertsEnabled: Bool? = nil) {
+                usageWarnPercent: Int? = nil, usageAlertsEnabled: Bool? = nil,
+                usageConnections: [String]? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
@@ -69,6 +74,7 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         self.appearance = appearance
         self.usageWarnPercent = usageWarnPercent
         self.usageAlertsEnabled = usageAlertsEnabled
+        self.usageConnections = usageConnections
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
