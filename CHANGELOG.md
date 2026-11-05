@@ -1,26 +1,41 @@
 # Changelog
 
-## 2.1.0 — usage guide, alerts, CLI
+## 2.1.0 — environment-first usage, details and consent
 
-**Guide (new section in Priority):**
-- Which account is best placed for each kind of work — long work (weekly/monthly windows),
-  heavy bursts (session windows) and dedicated pools (model-scoped windows like Fable or Auto) —
-  from each account's tightest fresh window.
-- A "best for …" badge on the winning account's card in All Usage (hidden under 25% left),
-  and a "weekly is tight — keep it to bursts" hint when the long-work pool is nearly out.
+**Quiet List:**
+- The usage list is environment-first: detected installations and registered accounts
+  only, never a fixed catalog — absent providers run no reads or jobs.
+- Two-line identity rows (name, lock, CLI/App badge, plan/API tag, masked email) with a
+  per-account Details window for full limits, resets, source and version.
+- Compact list shows at most three trustworthy fresh windows per account; "More limits"
+  opens the full set in Details.
+- Saved Claude/Codex display names are editable in Details through the existing account
+  registry — updates propagate without recollecting usage.
+- Appearance: System / Light / Dark; five languages.
 
-**Pace:**
-- Compares each fresh read with the previous one; a window draining fast enough to run dry
-  before its reset shows the projected exhaustion instead of the reset countdown.
+**Consent-gated optional providers (all off by default):**
+- Grok, Gemini, Devin and OpenCode Go read a local sign-in only after explicit opt-in,
+  then send bounded read-only HTTPS to a fixed allowlist. Experimental — private
+  endpoints may change and live-account compatibility is unverified. Cursor keeps its
+  own opt-in flag.
 
-**Alerts and threshold:**
-- macOS notification when a window crosses the warn level — ⚙︎ › Usage Alerts (on by default).
-- The "Running Out" level is configurable (70/80/90%) — ⚙︎ › next to it.
+**Guide, pace, alerts:**
+- The optional Guide offers at most one conservative next-account candidate.
+- Pace marks a window draining fast enough to run dry before its reset.
+- macOS notification when a window crosses the warn level; threshold is configurable.
+- `--cli usage` prints the last read as JSON — reads only the persisted masked snapshot.
 
-**CLI:**
-- `UsageSwitch --cli usage` prints the app's last read as JSON, for scripts and agents.
-  It only reads the snapshot file the app writes per refresh — never a vendor tool, the
-  Keychain or the network.
+**CLI detection:**
+- The caller's PATH order wins; npm, bun and Volta user directories are searched;
+  discovery never executes a candidate.
+
+**Refinement (unslop polish):**
+- Consistent spacing scale, aligned provider headings and a neutral secondary
+  Details action in the compact list.
+
+**Accessibility and fixes:**
+- Account-scoped accessibility labels on every Details and More-limits control.
+- Gemini model/input/output limits are labelled distinctly in compact rows.
 
 ## 2.0.0 — usage
 
