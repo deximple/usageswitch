@@ -22,6 +22,33 @@ public enum UsageText {
         return Int(max(0, min(100, 100 - usedPercent)).rounded())
     }
 
+    /// Seconds until a reset, only when safely representable: non-finite or
+    /// Int-overflowing intervals yield nil (views render a dash); past/sub-minute
+    /// deltas yield 0 and mean "now".
+    private static func safeSeconds(to resetsAt: Date, from now: Date) -> Int? {
+        let delta = resetsAt.timeIntervalSince(now)
+        guard delta.isFinite else { return nil }
+        if delta < 60 { return 0 }
+        if delta >= Double(Int.max) { return nil }
+        let seconds = Int(delta)
+        // representation bound: localized %d and callers assume day counts fit Int32
+        if seconds / 86400 > Int(Int32.max) { return nil }
+        return seconds
+    }
+
+    /// Compact locale-invariant countdown for the tight menu list: `2d 3h`, `1h 12m`, `5m`.
+    /// Past/sub-minute reads mean the localized "now"; non-finite intervals yield a dash.
+    public static func compactCountdown(to resetsAt: Date, from now: Date) -> String {
+        guard let total = safeSeconds(to: resetsAt, from: now) else { return "—" }
+        if total < 60 { return L10n.t(.usageNow) }
+        let days = total / 86400
+        let hours = (total % 86400) / 3600
+        let minutes = (total % 3600) / 60
+        if days >= 1 { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
+        if hours >= 1 { return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
+        return "\(minutes)m"
+    }
+
     /// "58% left", rounded — "—" for a reading whose percent isn't a real number.
     public static func left(_ window: UsageWindow) -> String {
         percentLeft(window.usedPercent).map { L10n.t(.usageLeft, $0) } ?? "—"
@@ -29,7 +56,8 @@ public enum UsageText {
 
     /// "2d 4h" / "1h 13m" / "5m"; a reset in the past or under a minute away is "now".
     public static func countdown(to resetsAt: Date, from now: Date) -> String {
-        let minutes = Int(resetsAt.timeIntervalSince(now)) / 60
+        guard let seconds = safeSeconds(to: resetsAt, from: now) else { return "—" }
+        let minutes = seconds / 60
         guard minutes >= 1 else { return L10n.t(.usageNow) }
         let days = minutes / 1440
         let hours = (minutes % 1440) / 60
