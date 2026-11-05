@@ -1,8 +1,8 @@
 # UsageSwitch
 
-A macOS menu bar app for people who use more than one Claude or Codex account.
+A local-first usage dashboard and Claude/Codex account switcher for macOS.
 
-- **Usage tab** — see every account's rate-limit windows at a glance: a Guide view (one conservative next-account candidate with the comparison folded away) and a plain per-provider list with a remaining-share bar per window.
+- **Usage tab** — a compact list of your detected tools and registered accounts, remaining limits and resets. Details shows full limits and lets you edit saved account names; the optional Guide offers one conservative next-account candidate.
 - **Claude tab** — save each account's Claude Desktop sign-in once, then switch Claude Desktop (including its Code tab) to any of them in one click. No signing out and back in.
 - **Codex tab** — give each Codex account its own Codex home and open them side by side, each in its own window.
 
@@ -27,18 +27,31 @@ The app is available in English, 한국어, 简体中文, 日本語 and Español
 
 ## Usage
 
-The Usage tab reads rate-limit windows through each vendor's own tooling, read-only:
+The list follows your local environment, not a fixed seven-provider catalog. With Claude, Codex and Cursor present, it shows those three; a Claude-only setup shows Claude and its saved accounts. Installation, saved sign-in and verified quota are separate signals. Claude CLI usage is not copied onto saved Claude App accounts.
 
-- **Claude Code** — the `claude` CLI's `/usage` for the default CLI sign-in, using Claude Code's own credentials. Refused on machines with managed Claude settings.
-- **Codex** — `codex app-server`, once per listed ChatGPT sign-in. API-key accounts can't report usage.
-- **Cursor** — off by default. If you turn it on (⚙︎ › Cursor Usage…), UsageSwitch reads Cursor's sign-in from the Keychain or `~/.cursor/auth.json` and sends one request to Cursor's API per refresh; the token is never saved. This is the only network request UsageSwitch makes — everything else is local.
+| Provider | Read path | Availability |
+|---|---|---|
+| Claude Code | CLI `/usage`, with Claude Code's credentials | Default CLI sign-in; refused with managed Claude settings |
+| Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles do not report subscription quota |
+| Cursor | Dashboard usage and plan endpoints | Explicit opt-in; Keychain or bounded auth-file fallback |
+| Grok | CLI usage endpoint | Explicit opt-in; experimental |
+| Gemini | Code Assist project/quota endpoints | Explicit opt-in; model/token limits kept separate |
+| Devin | CLI-compatible user status endpoint | Explicit opt-in; supported CLI version required |
+| OpenCode Go | Go usage endpoint | Explicit opt-in; not a total of all OpenCode providers |
+
+The additional provider integrations in this development branch are experimental; private endpoints may change, and live-account compatibility is not yet verified. The table describes implemented read paths, not guaranteed quota availability for every plan or authentication mode.
+
+**Settings > Usage Connections** asks before reading a provider's local sign-in or sending HTTPS usage requests. All five optional connections start off. Cursor and Gemini can each make two requests per refresh. Tokens are never saved or logged; requests reject redirects and bound response sizes. Disabled or absent providers do not run credential reads or collection jobs. See [Privacy](PRIVACY.md) for sources and destinations.
 
 Usage never switches, launches or signs out because of a limit; it's display-only. What it adds on top:
 
 - **Guide** — at most one next-account candidate, from accounts that report the same kinds of common windows; percentages compare the share of each limit left, never token counts. Nothing launches or switches on its own.
 - **Pace** — when a window is draining fast enough to run dry before its reset, the row says so.
+- **Details** — full limit names, reset information and collection method. Saved Claude/Codex display names use the existing account registry; Save propagates to the current list and Guide without recollecting usage. Blank is invalid; Default Name is an explicit restore. The CLI snapshot remains the last collected reading until the next normal refresh.
 - **Alerts** — a macOS notification when a window crosses the warn level (⚙︎ › Usage Alerts, and the "Warn at used percentage" level next to it — 80% used, by default).
 - **`--cli usage`** — prints the last read as JSON, for scripts and agents. It only reads the app's snapshot file — whose labels are always email-masked regardless of the show-emails setting — and never touches a vendor tool, Keychain or network.
+
+Appearance offers **System / Light / Dark**, defaults to System and saves explicit overrides. Usage collection never initiates sign-in/out, token refresh, account switching or model-generation tasks. API profiles are marked `API`, not treated as subscription balances.
 
 ## Install
 
@@ -46,11 +59,11 @@ Usage never switches, launches or signs out because of a limit; it's display-onl
 2. Open it and drag **UsageSwitch** to **Applications**.
 3. Open UsageSwitch. It lives in the menu bar, and opening it from Finder also shows its window.
 
-UsageSwitch is signed with a Developer ID and notarized by Apple.
+Published releases are signed with a Developer ID and notarized by Apple. Development previews in this branch are ad-hoc signed and are not notarized.
 
 **Requirements:**
 - macOS 15 or later, Apple silicon or Intel.
-- [Claude Desktop](https://claude.ai/download), the Codex desktop app, or both, installed in `/Applications` or `~/Applications`.
+- For account switching: [Claude Desktop](https://claude.ai/download), the Codex desktop app, or both, in `/Applications` or `~/Applications`. Usage-only environments can use the supported local CLIs without those desktop apps.
 
 ## Claude tab
 
@@ -196,13 +209,17 @@ python3 scripts/check-l10n.py  # every language has every string
 
 **Demo screens** use example data only: run `UsageSwitch --ui-fixture list|switching|success|relogin|error|codex --lang <code> [--appearance dark]`.
 
+Environment fixtures: `usage-local-three`, `usage-claude-only`, `usage-seven`, `usage-none`, `usage-connecting`, and `usage-long`. They do not touch real credentials; consent and name edits are in-memory. `--menu-preview` renders the 360pt panel.
+
 ## Related projects
 
-These open-source projects informed the approach; no code was copied:
+Account-switching design references:
 - [claudepot-app](https://github.com/xiaolai/claudepot-app)
 - [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts)
 - [Swivel](https://github.com/jspanji/Swivel)
 - [claude-graft](https://github.com/aaditya-v-more/claude-graft)
+
+Usage collection also references POSA's Claude/Codex CLI patterns and provider-protocol observations from Orca, MonoCode and OpenBot. UsageSwitch keeps read-only adapters separate from task execution and account-allocation policies; another tool using an endpoint does not make it an official or stable API.
 
 ## Disclaimer
 

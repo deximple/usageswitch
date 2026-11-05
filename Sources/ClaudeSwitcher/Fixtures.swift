@@ -6,7 +6,8 @@ import SwitcherCore
 enum Fixtures {
     static func model(named name: String?) -> SwitcherModel? {
         guard let name else { return nil }
-        let base = status(active: "work")
+        let compactUsage = ["usage-local-three", "usage-claude-only", "usage-seven", "usage-connecting"].contains(name)
+        let base = status(active: "work", keys: compactUsage ? ["personal", "work"] : nil)
         let switchSteps: [SwitchStep] = [.preflight, .suspendingRelaunchers, .quittingClaude, .capturingOutgoing, .swapping,
                                          .launching, .verifying]
         switch name {
@@ -59,8 +60,8 @@ enum Fixtures {
                     account: "d4d4d4d4-0000-4000-8000-000000000004", org: "d4d4d4d4-0000-4000-8000-0000000000f4"),
     ]
 
-    static func status(active: String, expired: Set<String> = []) -> SwitcherStatus {
-        let rows = accounts.map { a in
+    static func status(active: String, expired: Set<String> = [], keys: Set<String>? = nil) -> SwitcherStatus {
+        let rows = accounts.filter { keys?.contains($0.key) ?? true }.map { a in
             AccountStatus(id: "\(a.account)__\(a.org)", label: a.name ?? a.email, customName: a.name, defaultName: a.email,
                           email: a.email, accountUuid: a.account, orgUuid: a.org, isActive: a.key == active,
                           snapshot: expired.contains(a.key) ? .expired : .ready, capturedAt: Date(), sessionExpiresAt: nil)
@@ -79,9 +80,10 @@ enum Fixtures {
 
     static func codexModel(named name: String) -> CodexModel {
         let model: CodexModel
+        let usagePreview = ["usage-local-three", "usage-seven", "usage-connecting", "usage-long"].contains(name)
         switch name {
         case "codex-signin": model = CodexModel(demo: codexStatus(), demoPhase: .signingIn(id: nil))
-        default: model = CodexModel(demo: codexStatus())
+        default: model = CodexModel(demo: codexStatus(usagePreview: usagePreview))
         }
         switch name {
         case "codex-remove":
@@ -94,12 +96,15 @@ enum Fixtures {
         return model
     }
 
-    static func codexStatus() -> CodexStatus {
+    static func codexStatus(usagePreview: Bool = false) -> CodexStatus {
         func identity(_ email: String, _ plan: String) -> CodexIdentity { CodexIdentity(mode: .chatgpt, email: email, plan: plan) }
         let accounts = [
-            CodexAccount(id: "standard", kind: .standard, label: "alex.kim@example.com", customName: nil,
+            CodexAccount(id: "standard", kind: .standard,
+                         label: usagePreview ? "Personal" : "alex.kim@example.com",
+                         customName: usagePreview ? "Personal" : nil,
                          defaultName: "alex.kim@example.com", home: "/Users/alex/.codex", homePath: "~/.codex",
-                         identity: identity("alex.kim@example.com", "pro"), state: .running, pids: [4243]),
+                         identity: identity("alex.kim@example.com", usagePreview ? "prolite" : "pro"),
+                         state: .running, pids: [4243]),
             CodexAccount(id: "m-3c4d5e6f", kind: .managed, label: "Side project", customName: "Side project",
                          defaultName: "alex.lab@example.com",
                          home: "/Users/alex/Library/Application Support/\(ProductInfo.defaultBundleID)/codex/m-3c4d5e6f/home",
@@ -121,7 +126,11 @@ enum Fixtures {
                          customName: nil, defaultName: "alex.kim@example.com", home: "/Users/alex/.codex-backup",
                          homePath: "~/.codex-backup", identity: identity("alex.kim@example.com", "pro"), state: .signedIn, pids: []),
         ]
-        return CodexStatus(installed: true, version: "26.1013.40934", accounts: accounts, found: found, hiddenCount: 1)
+        let selected = usagePreview
+            ? accounts.filter { ["standard", "m-3c4d5e6f", "found:.codex_second"].contains($0.id) }
+            : accounts
+        return CodexStatus(installed: true, version: "26.1013.40934",
+                           accounts: selected, found: usagePreview ? [] : found, hiddenCount: 1)
     }
 
     // MARK: - Usage tab
@@ -149,8 +158,27 @@ enum Fixtures {
             return demo(staleUsages(), segment: .guide)
         case "usage-guide":
             return demo(guideUsages(), segment: .guide)
-        case "usage-many-long":
+        case "usage-many-long", "usage-long":
             return demo(manyLongUsages(), segment: .all)
+        case "usage-local-three":
+            return demo(localThreeUsages(), segment: .all)
+        case "usage-claude-only":
+            return demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(10080, 60, resetsIn: 3 * 86400),
+                ]),
+            ], segment: .all)
+        case "usage-seven":
+            return demo(sevenUsages(), segment: .all)
+        case "usage-none":
+            return demo([], segment: .all)
+        case "usage-connecting":
+            let model = demo(sevenUsages(), segment: .all)
+            for provider in UsageProvider.allCases where provider.requiresConsent {
+                settings.setUsageConnection(provider, on: false)
+            }
+            model.applyConsent(settings.enabledUsageProviders)
+            return model
         default:
             settings.setUsagePins([personalWeeklyKey])
             return demo(usages())
@@ -211,6 +239,52 @@ enum Fixtures {
 
     /// Two comparable subscription accounts plus a warning account and an API profile:
     /// personal min(80,69)=69 beats side min(55,59)=55; plans differ (Pro Lite vs Plus).
+    /// Claude + Codex + Cursor, the three local-only environments.
+    private static func localThreeUsages() -> [AccountUsage] {
+        [
+            account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                window(300, 30, resetsIn: 2 * 3600),
+                window(10080, 55, resetsIn: 4 * 86400),
+            ]),
+            account(.codex, "standard", "alex.kim@work.example", .ok, plan: "prolite",
+                    auth: .subscription, identityKey: "fixture-p", windows: [
+                window(300, 45, resetsIn: 1 * 3600),
+                window(10080, 70, resetsIn: 6 * 86400),
+            ]),
+            account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
+                window(43200, 25, scope: "Auto", resetsIn: 12 * 86400),
+            ]),
+        ]
+    }
+
+    /// All seven providers present, consent-required ones already connected.
+    private static func sevenUsages() -> [AccountUsage] {
+        localThreeUsages() + [
+            account(.grok, "current", "Grok", .ok, windows: [
+                window(10080, 40, resetsIn: 3 * 86400),
+            ]),
+            account(.gemini, "current", "Gemini", .ok, windows: [
+                UsageWindow(scope: "gemini-pro [input]", durationMinutes: nil, usedPercent: 65,
+                            resetsAt: Date().addingTimeInterval(3600)),
+                UsageWindow(scope: "gemini-pro [output]", durationMinutes: nil, usedPercent: 42,
+                            resetsAt: Date().addingTimeInterval(3600)),
+                UsageWindow(scope: "gemini-flash [input]", durationMinutes: nil, usedPercent: 80,
+                            resetsAt: Date().addingTimeInterval(7200)),
+                UsageWindow(scope: "gemini-flash [output]", durationMinutes: nil, usedPercent: 20,
+                            resetsAt: Date().addingTimeInterval(7200)),
+            ]),
+            account(.devin, "current", "Devin", .ok, plan: "Solo", windows: [
+                window(1440, 20, resetsIn: 8 * 3600),
+                window(10080, 50, resetsIn: 5 * 86400),
+            ]),
+            account(.opencode, "current", "OpenCode", .ok, plan: "Go",
+                    auth: .subscription, windows: [
+                window(300, 15, resetsIn: 90 * 60),
+                window(10080, 35, resetsIn: 4 * 86400),
+            ]),
+        ]
+    }
+
     private static func guideUsages() -> [AccountUsage] {
         [
             account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [

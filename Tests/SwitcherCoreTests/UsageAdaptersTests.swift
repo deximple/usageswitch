@@ -268,12 +268,18 @@ struct OpenCodeAdapterTests {
 /// Offline protocol stub for transport tests — no real network.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, Data)) = { _ in (200, Data()) }
+    /// Optional headers so tests can exercise the Content-Length fast path.
+    nonisolated(unsafe) static var headers: [String: String] = [:]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (status, body) = Self.handler(request)
+        var fields = Self.headers
+        if fields["Content-Length"] == nil && fields["Transfer-Encoding"] == nil {
+            fields["Content-Length"] = String(body.count)
+        }
         let resp = HTTPURLResponse(url: request.url!, statusCode: status,
-                                   httpVersion: nil, headerFields: nil)!
+                                   httpVersion: nil, headerFields: fields)!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         // deliver in chunks to exercise the streaming bound
         let half = body.count / 2
@@ -294,24 +300,31 @@ private func stubbed() -> SystemUsageHTTPTransport {
 struct TransportStreamTests {
     @Test("a real 200 JSON response passes through the delegate path")
     func success() {
-        StubProtocol.handler = { _ in (200, #"{"ok":true}"#.data(using: .utf8)!) }
+        let body = #"{"ok":true,"v":42}"#.data(using: .utf8)!
+        StubProtocol.handler = { _ in (200, body) }
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
         let r = stubbed().send(req)
         #expect(r?.status == 200)
+        #expect(r?.body == body)
     }
 
-    @Test("Content-Length above cap is rejected before receive")
+    @Test("Content-Length above cap is rejected before any bytes arrive")
     func tooBig() {
-        StubProtocol.handler = { _ in (200, Data(repeating: 1, count: 2_000_000)) }
+        // declared oversized length is refused at the response stage, not after body
+        StubProtocol.headers = ["Content-Length": "2000000"]
+        StubProtocol.handler = { _ in (200, Data(repeating: 1, count: 16)) }
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
         #expect(stubbed().send(req) == nil)
+        StubProtocol.headers = [:]
     }
 
     @Test("chunks crossing the cap mid-stream cancel")
     func crossing() {
         // two ~600KiB chunks land past the 1MiB bound together
+        StubProtocol.headers = ["Transfer-Encoding": "chunked"]
+        defer { StubProtocol.headers = [:] }
         StubProtocol.handler = { _ in (200, Data(repeating: 1, count: 1_200_000)) }
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
@@ -333,10 +346,23 @@ struct AdapterStatusTests {
     }
 }
 
+private final class RedirectTargetFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hit = false
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return hit }
+    func set(_ value: Bool) { lock.lock(); defer { lock.unlock() }; hit = value }
+}
+
 final class RedirectProtocol: URLProtocol, @unchecked Sendable {
+    fileprivate static let targetHit = RedirectTargetFlag()
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if request.url?.host == "evil.example" {
+            Self.targetHit.set(true)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         let r = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
                                 headerFields: ["Location": "https://evil.example"])!
         client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: "https://evil.example")!),
@@ -349,14 +375,16 @@ final class RedirectProtocol: URLProtocol, @unchecked Sendable {
 struct ProviderEdgeTests {
     private let home = URL(fileURLWithPath: "/tmp/e")
 
-    @Test("redirect refusal leaves no response")
+    @Test("redirect refusal: nil response AND the target was never invoked")
     func redirect() {
+        RedirectProtocol.targetHit.set(false)
         let c = URLSessionConfiguration.ephemeral
         c.protocolClasses = [RedirectProtocol.self]
         let t = SystemUsageHTTPTransport(configuration: c)
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
         #expect(t.send(req) == nil)
+        #expect(RedirectProtocol.targetHit.value == false)
     }
 
     @Test("grok lookalike auth origin supplies no token")
@@ -449,5 +477,58 @@ struct ProviderEdgeTests {
     func readerBounds() {
         #expect(UsageFileCredentialReader(limit: Int.max).read(URL(fileURLWithPath: "/tmp/e")) == nil)
         #expect(UsageFileCredentialReader().read(URL(fileURLWithPath: "/tmp")) == nil)
+    }
+}
+
+@Suite("Cursor bounded credentials")
+struct CursorCredentialTests {
+    private let home = URL(fileURLWithPath: "/tmp/cx")
+
+    @Test("disabled does zero keychain probes and zero file reads")
+    func disabled() {
+        let runner = FakeUsageRunner(); let creds = SpyCredentials()
+        let c = CursorUsageCollector(enabled: false, runner: runner,
+                                   http: FakeUsageHTTP(), home: home, credentials: creds)
+        #expect(c.collect().isEmpty)
+        #expect(creds.reads == 0)
+        #expect(runner.requests.isEmpty)
+    }
+
+    @Test("keychain overflow is authoritative-bad, no file fallback")
+    func overflow() {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .outputLimit) }
+        let creds = SpyCredentials()
+        creds.files["/tmp/cx/.cursor/auth.json"] = #"{"accessToken":"filetoken"}"#.data(using: .utf8)
+        let c = CursorUsageCollector(enabled: true, runner: runner,
+                                   http: FakeUsageHTTP(), home: home, credentials: creds)
+        let rows = c.collect()
+        #expect(rows.first?.state == .unavailable(.noSignIn))
+        #expect(creds.reads == 0) // never reached the file
+    }
+
+    @Test("malformed nonempty keychain token is authoritative-bad, no fallback")
+    func malformed() {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: ["bad\ntoken"], outcome: .exited(0)) }
+        let creds = SpyCredentials()
+        creds.files["/tmp/cx/.cursor/auth.json"] = #"{"accessToken":"filetoken"}"#.data(using: .utf8)
+        let c = CursorUsageCollector(enabled: true, runner: runner,
+                                   http: FakeUsageHTTP(), home: home, credentials: creds)
+        let rows = c.collect()
+        #expect(rows.first?.state == .unavailable(.noSignIn))
+        #expect(creds.reads == 0)
+    }
+
+    @Test("ordinary keychain failure falls back to bounded auth file")
+    func fallback() {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .failedToStart) }
+        let creds = SpyCredentials()
+        creds.files["/tmp/cx/.cursor/auth.json"] = #"{"accessToken":"filetoken"}"#.data(using: .utf8)
+        let c = CursorUsageCollector(enabled: true, runner: runner,
+                                   http: FakeUsageHTTP(), home: home, credentials: creds)
+        _ = c.collect()
+        #expect(creds.reads == 1)
     }
 }

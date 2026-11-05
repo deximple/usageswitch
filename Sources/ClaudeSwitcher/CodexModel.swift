@@ -199,6 +199,60 @@ final class CodexModel: ObservableObject {
         }
     }
 
+    /// Detail-window name editing with observable success/error: nil restores the
+    /// default name. Reuses the phase/workDone lifecycle so a rename can't overlap
+    /// switching, delete or the sheet-based rename; validation matches the core
+    /// registry policy in demo too.
+    @MainActor func renameDisplayName(_ id: String, to name: String?) async throws {
+        guard !isBusy, pending == nil, renaming == nil else {
+            throw SwitcherError.anotherSwitchInProgress
+        }
+        let normalized = try AccountNames.validated(name)
+        guard name == nil || normalized != nil else {
+            throw SwitcherError.invalidAccountName(maxLength: AccountNames.maxLength)
+        }
+        guard !isDemo else {
+            guard let status, status.accounts.contains(where: { $0.id == id }) else {
+                throw SwitcherError.unknownAccount(id)
+            }
+            if let name = normalized {
+                let folded = SwitcherAccount.fold(name)
+                let dup = status.accounts.contains {
+                    $0.id != id && (SwitcherAccount.fold($0.label) == folded
+                        || SwitcherAccount.fold($0.defaultName) == folded
+                        || $0.email.map { SwitcherAccount.fold($0) } == folded)
+                }
+                if dup { throw SwitcherError.duplicateAccountName(name) }
+            }
+            self.status = CodexStatus(
+                installed: status.installed, version: status.version,
+                accounts: status.accounts.map { a in
+                    a.id == id
+                        ? CodexAccount(id: a.id, kind: a.kind,
+                                       label: normalized ?? a.defaultName,
+                                       customName: normalized, defaultName: a.defaultName,
+                                       home: a.home, homePath: a.homePath,
+                                       identity: a.identity, state: a.state, pids: a.pids)
+                        : a
+                }, found: status.found, hiddenCount: status.hiddenCount)
+            return
+        }
+        phase = .working
+        refreshGeneration += 1 // any in-flight refresh must not overwrite the rename result
+        let done = DispatchSemaphore(value: 0)
+        workDone = done
+        defer {
+            phase = .idle
+            workDone = nil
+        }
+        let manager = self.manager
+        status = try await Task.detached {
+            defer { done.signal() }
+            try manager.renameAccount(id, to: normalized)
+            return manager.status()
+        }.value
+    }
+
     /// A Terminal command that runs the Codex CLI with this account's home.
     func copyCommand(_ account: CodexAccount) {
         let command = account.kind == .standard ? "codex" : "CODEX_HOME=\(Self.shellQuoted(account.home)) codex"

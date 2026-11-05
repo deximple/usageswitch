@@ -1,10 +1,24 @@
 # Privacy
 
-UsageSwitch runs entirely on your Mac.
+UsageSwitch stores its account-switching data on your Mac. Optional usage connections contact the corresponding provider.
 
 ## Network
 
-UsageSwitch makes no network connections of its own except one, and only if you turn it on: **Cursor usage** (⚙︎ › Cursor Usage…, off by default) sends one request to Cursor's API per refresh, authenticated with a token read from the Keychain or `~/.cursor/auth.json` and never saved. It has no analytics, telemetry, crash reporting, or update checks running in the background.
+UsageSwitch has no analytics, telemetry, crash reporting, or background update checks.
+
+**Settings > Usage Connections** offers only detected or previously connected providers. Cursor, Grok, Gemini, Devin and OpenCode usage connections are off by default. Enabling one explains the local sign-in read and read-only HTTPS requests. Disabling it cancels further collection and removes its displayed quota; an already-authorized request may finish, but its obsolete result is discarded.
+
+| Connection | Local sign-in source | Allowed HTTPS host |
+|---|---|---|
+| Cursor | Cursor's Keychain entry, then its bounded `auth.json` fallback | `api2.cursor.sh` |
+| Grok | The Grok CLI sign-in file | `cli-chat-proxy.grok.com` |
+| Gemini | Gemini CLI OAuth sign-in | `cloudcode-pa.googleapis.com` |
+| Devin | Devin CLI credentials and a local CLI version probe | `server.codeium.com` |
+| OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` |
+
+Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Cursor and Gemini can each make two HTTPS requests per successful refresh. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
+
+These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Live-account compatibility for the newly added adapters has not been verified in this development branch. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.
 
 Your browser goes online in two cases, and only when you ask:
 - **⚙︎ › Check for Updates…** opens the GitHub releases page in your browser.
@@ -34,7 +48,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
 | `codex-app-data/` | The Codex app's data for homes added from **Found on this Mac**. A home that already has its own Codex app-data folder in `~/Library/Application Support` keeps using that one instead. |
 | `codex-accounts.json` | Names, the homes you added from this Mac, and the homes you hid. |
 
-**Settings:** `settings.json` holds the language and display options. The window position and a few launch details are kept in macOS preferences (`com.jaysong.usageswitch`).
+**Settings:** `settings.json` holds the language, display options and usage-connection grants, not provider tokens. The window position and a few launch details are kept in macOS preferences (`com.jaysong.usageswitch`).
 
 ## What UsageSwitch reads
 
@@ -50,13 +64,14 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
   - the claims in the ID token: email, name, plan and account ID;
   - whether an API key is set, without reading the key itself.
 
-  Tokens are never stored elsewhere, copied or printed.
-- **Usage reads:** the Usage tab asks the `claude` CLI for `/usage` output and runs `codex app-server` for each listed ChatGPT sign-in, in each vendor's own home with its own credentials. Only the answer's percentages, window durations, reset times and plan names are read — never account IDs, emails or error text. The latest read is kept in `usage-snapshot.json` (percentages and reset times only, labels always email-masked regardless of the app's show-emails setting) so `UsageSwitch --cli usage` can print it without running the vendor tools again. If **Usage Alerts** is on, a window crossing the warn level also posts a macOS notification with the same masked label and percentage.
+  These identity reads do not write tokens elsewhere or print them.
+- **Usage reads:** Claude uses CLI `/usage`; Codex uses `codex app-server` for listed ChatGPT sign-ins, in the vendor's own home. Optional connections use the read paths listed above. The latest reading in `usage-snapshot.json` includes provider/account references, quota windows, plan, state, timestamps and tool version. Labels are email-masked on write and load regardless of the app's show-emails setting. It contains no provider credential, raw HTTP body or opaque login identity marker; the marker used for safe in-memory comparisons is never persisted. `UsageSwitch --cli usage` prints that last-collected snapshot without running vendor tools. Editing a display name updates the account registry and current UI, not the snapshot or its collection timestamp; the next normal refresh picks up the new name.
+- **Usage alerts:** when enabled, a trustworthy window crossing the warning level may post a macOS notification with the masked label and percentage. Unknown or stale readings are not presented as healthy quota.
 
 ## What UsageSwitch never does
 
 - Decrypt cookies, or read or write the Keychain — except the one Cursor entry when Cursor usage is on.
-- Print, log, or send credentials anywhere.
+- Print or log usage credentials, or forward them to unrelated services. An enabled usage connection sends its credential only to the corresponding allowlisted provider host.
 - Write to `~/.claude`, to other apps' data, or to Codex homes it didn't create. Those homes change only when you sign in or out, and Codex's CLI makes the change.
 - Sign you out on the server.
 

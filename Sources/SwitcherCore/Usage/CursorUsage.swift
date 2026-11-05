@@ -83,13 +83,18 @@ public struct CursorUsageCollector: Sendable {
     private let home: URL
     private let endpoint: URL
     private let now: @Sendable () -> Date
+    /// Bounded read of `.cursor/auth.json` — the Keychain probe stays a bounded
+    /// process call; this reader only bounds the file fallback.
+    private let credentials: any UsageCredentialReading
 
     /// `endpoint` defaults to the `CURSOR_API_ENDPOINT` environment variable or Cursor's API host.
     public init(enabled: Bool, runner: any UsageProcessRunner, http: any UsageHTTP,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 endpoint: URL? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                credentials: any UsageCredentialReading = UsageFileCredentialReader()) {
         self.enabled = enabled; self.runner = runner; self.http = http; self.home = home
+        self.credentials = credentials
         self.endpoint = endpoint ?? ProcessInfo.processInfo.environment["CURSOR_API_ENDPOINT"]
             .flatMap(URL.init(string:)) ?? URL(string: "https://api2.cursor.sh")!
         self.now = now
@@ -126,23 +131,34 @@ public struct CursorUsageCollector: Sendable {
         return [finish(.ok, windows)]
     }
 
-    /// The Cursor sign-in token: Keychain first, then the auth file. nil when neither holds one.
+    /// The Cursor sign-in token: a bounded Keychain probe first, then the bounded
+    /// auth-file read. A present-but-invalid or overflowing Keychain answer is
+    /// authoritative — it never falls through to a different file's account.
     private func token() -> String? {
         let request = UsageProcessRequest(
             executable: URL(fileURLWithPath: "/usr/bin/security"),
             arguments: ["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"],
             environment: SystemClaudeAppControl.cleanEnvironment(from: ProcessInfo.processInfo.environment),
             workingDirectory: FileManager.default.temporaryDirectory,
+            maxOutputBytes: 4098,
             timeout: 3)
         let result = runner.run(request)
-        if case .exited(0) = result.outcome {
-            let token = result.lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !token.isEmpty { return token }
+        switch result.outcome {
+        case .exited(0):
+            let raw = result.lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty {
+                // a nonempty answer that fails token validation is malformed — no fallback
+                return UsageJSON.token(raw)
+            }
+        case .outputLimit:
+            return nil // overflowed keychain value is authoritative-bad, not a file's account
+        default:
+            break // ordinary failure/empty -> file fallback below
         }
         let auth = home.appendingPathComponent(".cursor/auth.json")
-        guard let data = FileManager.default.contents(atPath: auth.path),
+        guard let data = credentials.read(auth),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let token = object["accessToken"] as? String, !token.isEmpty
+              let token = UsageJSON.token(object["accessToken"])
         else { return nil }
         return token
     }

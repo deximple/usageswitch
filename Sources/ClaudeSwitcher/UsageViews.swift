@@ -84,7 +84,7 @@ struct UsageContent: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: Theme.gapGroup) {
-                if model.usages.isEmpty {
+                if presentations.isEmpty {
                     emptyState
                 } else {
                     if model.guideExpanded { guide(now: context.date) }
@@ -118,11 +118,7 @@ struct UsageContent: View {
     /// the Claude collector only sees the current CLI sign-in; registered Codex homes are the
     /// ones the App can open. Neither implies the other environment doesn't exist.
     private func environment(of usage: AccountUsage) -> String? {
-        switch usage.provider {
-        case .claude: return L10n.t(.usageEnvCLI)
-        case .codex: return L10n.t(.usageEnvApp)
-        case .cursor, .grok, .gemini, .devin, .opencode: return nil
-        }
+        environmentBadge(presentations.first { $0.id == usage.id })
     }
 
     /// One billing line per account: subscription name+plan, API key billed elsewhere, or a
@@ -131,14 +127,14 @@ struct UsageContent: View {
     private func billing(of usage: AccountUsage) -> some View {
         switch usage.authentication {
         case .subscription:
-            Text(UsageText.planName(usage.plan).map { "\(L10n.t(.usageAuthSubscription)) · \($0)" }
-                ?? L10n.t(.usageAuthSubscription))
-                .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            if let plan = UsageText.planName(usage.plan) {
+                Text(plan).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            }
         case .apiKey:
-            Text(L10n.t(.usageAuthApi)).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            Text("API").font(Theme.caption).foregroundStyle(Theme.inkMuted)
         case .unknown:
             if let plan = UsageText.planName(usage.plan) {
-                Text("\(L10n.t(.usagePlanLabel)) · \(plan)")
+                Text(plan)
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
             }
         }
@@ -153,13 +149,13 @@ struct UsageContent: View {
         let warnAt = Double(settings.usageWarnPercent)
         var items: [(String, String, Bool)] = []
         for usage in model.usages {
-            let label = model.label(of: usage)
+            let label = currentLabel(usage)
             switch usage.state {
             case .failed, .unavailable:
-                // connectionRequired is a neutral consent prompt, never an orange failure
-                let warn: Bool = { if case .unavailable(.connectionRequired) = usage.state { return false }; return true }()
+                // connectionRequired is per-row neutral only — never a global notice
+                if case .unavailable(.connectionRequired) = usage.state { continue }
                 if let reason = UsageText.reason(usage.state, provider: usage.provider) {
-                    items.append(("\(usage.id)/state", "\(label) — \(reason)", warn))
+                    items.append(("\(usage.id)/state", "\(label) — \(reason)", true))
                 }
             case .notReporting:
                 if let reason = UsageText.reason(usage.state, provider: usage.provider) {
@@ -232,7 +228,7 @@ struct UsageContent: View {
                     Text("· \(env)").font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
             }
-            Text(model.label(of: usage))
+            Text(currentLabel(usage))
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
                 .lineLimit(2)
             billing(of: usage)
@@ -255,13 +251,10 @@ struct UsageContent: View {
             .font(Theme.caption).foregroundStyle(Theme.inkMuted)
             HStack {
                 Spacer()
-                Button(L10n.t(.usageViewAccount)) {
-                    tabs.tab = .codex
-                    codex.focusedAccountID = usage.accountRef
+                Button(L10n.t(.uiDetails)) {
+                    AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
                 .buttonStyle(ActionButtonStyle(tint: Theme.active))
-                .disabled(codex.isBusy
-                          || !(codex.status?.accounts.contains { $0.id == usage.accountRef } ?? false))
             }
             DisclosureGroup(L10n.t(.usageGuideBasis)) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -320,13 +313,23 @@ struct UsageContent: View {
     // MARK: - All Usage
 
     /// Accounts in collector order (Claude, then Codex, then Cursor), grouped by provider.
-    private var providerGroups: [(UsageProvider, [AccountUsage])] {
-        var groups: [(UsageProvider, [AccountUsage])] = []
-        for usage in model.usages {
-            if groups.last?.0 == usage.provider { groups[groups.count - 1].1.append(usage) }
-            else { groups.append((usage.provider, [usage])) }
+    private var presentations: [UsageAccountPresentation] {
+        model.presentations(claude: settings.status, codex: codex.status, now: Date())
+    }
+
+    private func currentLabel(_ usage: AccountUsage) -> String {
+        guard let presentation = presentations.first(where: { $0.id == usage.id }) else {
+            return model.label(of: usage)
         }
-        return groups
+        return displayedName(presentation, fallback: usage)
+    }
+
+    private var providerGroups: [(UsageProvider, [AccountUsage])] {
+        let rows = presentations
+        return UsageProvider.allCases.compactMap { provider in
+            let usages = rows.filter { $0.usage.provider == provider }.map(\.usage)
+            return usages.isEmpty ? nil : (provider, usages)
+        }
     }
 
     @ViewBuilder
@@ -340,7 +343,8 @@ struct UsageContent: View {
                             .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
                     }
                     ForEach(usages) { usage in
-                        accountBlock(usage, now: now)
+                        accountBlock(usage, now: now,
+                                     presentation: presentations.first { $0.id == usage.id })
                         if usage.id != usages.last?.id { Divider().overlay(Theme.hairline) }
                     }
                 }
@@ -350,30 +354,63 @@ struct UsageContent: View {
 
     /// One account: label + billing + confirmed environment + plan, then its windows —
     /// remaining share on a plain bar. Non-reporting accounts stay listed; nothing disappears.
-    private func accountBlock(_ usage: AccountUsage, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(model.label(of: usage))
+    private func accountBlock(_ usage: AccountUsage, now: Date,
+                              presentation p: UsageAccountPresentation? = nil) -> some View {
+        let p = p ?? presentations.first { $0.id == usage.id }
+        return VStack(alignment: .leading, spacing: 6) {
+            // line 1: masked name + lock + env badge + plan — all from current registry
+            HStack(spacing: 5) {
+                Text(displayedName(p, fallback: usage))
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.ink)
                     .lineLimit(1).truncationMode(.middle)
-                if let env = environment(of: usage) {
-                    Text(env).font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                lockIcon(p)
+                if let env = environmentBadge(p) {
+                    Text(env).font(.system(size: 10))
+                        .foregroundStyle(p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background((p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted).opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 3))
+                        .fixedSize()
+                        .help(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : env)
+                        .accessibilityValue(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : "")
+                }
+                if let plan = shortPlan(usage) {
+                    Text(plan).font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                        .lineLimit(1).fixedSize()
                 }
                 Spacer(minLength: 8)
             }
-            billing(of: usage)
-            ForEach(usage.windows, id: \.self) { window in
+            // line 2: masked email + Details — every row opens the read-only detail
+            HStack {
+                if let email = p?.email, email != p?.name {
+                    Text(settings.showEmails ? email : Privacy.maskEmails(in: email))
+                        .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Button(L10n.t(.uiDetails)) { AppDelegate.shared?.showUsageDetail(id: usage.id) }
+                    .font(.system(size: 10)).foregroundStyle(Theme.active)
+                    .buttonStyle(.plain).fixedSize()
+            }
+            if p?.environment == .app, usage.provider == .claude {
+                Text(L10n.t(.usageNotLinked)).font(.system(size: 10))
+                    .foregroundStyle(Theme.inkMuted)
+            }
+            let shown = compact ? UsagePresentations.compactWindows(usage, now: now) : usage.windows
+            ForEach(shown, id: \.self) { window in
                 UsageBarRow(usage: usage, window: window, settings: settings, now: now,
                             compact: compact, fresh: fresh(usage, now: now),
                             pace: model.pace[UsagePriority.key(usage, window)])
             }
-            if usage.authentication == .apiKey {
-                if let url = Self.billingURL(for: usage.provider) {
-                    Link(L10n.t(.usageBillingConsole), destination: url)
-                        .font(.system(size: 11)).foregroundStyle(Theme.active)
+            if compact, usage.windows.count > shown.count {
+                Button(L10n.t(.usageMoreLimits, usage.windows.count - shown.count)) {
+                    AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
+                .font(.system(size: 11)).foregroundStyle(Theme.active)
             }
-            if let reason = UsageText.reason(usage.state, provider: usage.provider) {
+            if usage.accountRef.hasPrefix("app:"), usage.provider == .claude {
+                EmptyView()
+            } else if let reason = UsageText.reason(usage.state, provider: usage.provider) {
                 Text(reason).font(.system(size: 11))
                     .foregroundStyle(usage.state == .ok || usage.state == .notReporting
                         ? Theme.inkMuted
@@ -382,16 +419,40 @@ struct UsageContent: View {
         }
     }
 
-    /// The provider's own billing console — the only place a balance claim can be verified.
-    /// nil for providers that have no self-serve billing page.
-    static func billingURL(for provider: UsageProvider) -> URL? {
-        switch provider {
-        case .codex: return URL(string: "https://platform.openai.com/settings/organization/billing/overview")!
-        case .claude: return URL(string: "https://platform.claude.com/settings/billing")!
-        case .cursor: return URL(string: "https://cursor.com/dashboard")!
-        case .grok, .gemini, .devin, .opencode:
-            return nil
+    private func displayedName(_ p: UsageAccountPresentation?, fallback: AccountUsage) -> String {
+        let raw = p?.name ?? model.label(of: fallback)
+        return !settings.showEmails && raw.contains("@") ? Privacy.maskEmails(in: raw) : raw
+    }
+
+    @ViewBuilder private func lockIcon(_ p: UsageAccountPresentation?) -> some View {
+        switch p?.login {
+        case .verified: Image(systemName: "lock.open.fill").font(.system(size: 9))
+                .foregroundStyle(Theme.active)
+                .help(L10n.t(.usageLockVerified))
+                .accessibilityLabel(L10n.t(.usageLockVerified))
+        case .saved: Image(systemName: "lock.open.fill").font(.system(size: 9))
+                .foregroundStyle(Theme.inkMuted)
+                .help(L10n.t(.usageLockSaved))
+                .accessibilityLabel(L10n.t(.usageLockSaved))
+        case .requiresSignIn: Image(systemName: "lock.fill").font(.system(size: 9))
+                .foregroundStyle(Theme.inkMuted)
+                .help(L10n.t(.usageLockRequired))
+                .accessibilityLabel(L10n.t(.usageLockRequired))
+        default: EmptyView() // unknown login makes no claim
         }
+    }
+
+    private func environmentBadge(_ p: UsageAccountPresentation?) -> String? {
+        switch p?.environment {
+        case .cli: return L10n.t(.usageEnvCLI)
+        case .app: return L10n.t(.usageEnvApp)
+        case nil: return nil
+        }
+    }
+
+    private func shortPlan(_ usage: AccountUsage) -> String? {
+        if usage.authentication == .apiKey { return "API" }
+        return UsageText.planName(usage.plan)
     }
 
     private func isFailure(_ state: UsageState) -> Bool {
@@ -487,15 +548,33 @@ struct UsageBarRow: View {
         return parts.compactMap { $0 }.joined(separator: ", ")
     }
 
+    /// Gemini metric scopes like `gemini-2.5-pro [input]` are unreadably long —
+    /// label them `IN <model>`/`OUT <model>` by stripping the exact bracketed
+    /// metric suffix and only the leading `gemini-` vendor prefix, preserving all
+    /// remaining model/version text. Any other provider/shape uses the full name.
+    private var windowLabel: String {
+        let fallback = compact
+            ? (window.scope ?? UsageText.name(of: window, scoped: false))
+            : UsageText.name(of: window)
+        guard usage.provider == .gemini, let scope = window.scope else { return fallback }
+        for (suffix, tag) in [(" [input]", "IN"), (" [output]", "OUT")] where scope.hasSuffix(suffix) {
+            var stem = String(scope.dropLast(suffix.count))
+            if stem.hasPrefix("gemini-") { stem.removeFirst("gemini-".count) }
+            let trimmed = stem.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? fallback : "\(tag) \(trimmed)"
+        }
+        return fallback
+    }
+
     /// One line: name 60 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
     /// the main window) · marker + percent 58 · reset 52 (full text in the main window), 8pt
     /// gaps; the compact cells flex so percent and reset sit on the row's right edge.
     var body: some View {
         HStack(spacing: 8) {
-            Text(compact ? (window.scope ?? UsageText.name(of: window, scoped: false))
-                         : UsageText.name(of: window))
+            Text(windowLabel)
                 .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
                 .lineLimit(1).truncationMode(.tail)
+                .minimumScaleFactor(usage.provider == .gemini ? 0.8 : 1)
                 .frame(width: compact ? 60 : 96, alignment: .leading)
             ZStack(alignment: .leading) {
                 GeometryReader { proxy in

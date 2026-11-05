@@ -63,6 +63,7 @@ final class SwitcherModel: ObservableObject {
 
     private let switcher: Switcher
     private var timer: Timer?
+    private var refreshGeneration = 0
 
     init(switcher: Switcher = Switcher(), demo: SwitcherStatus? = nil, demoPhase: Phase = .idle,
          demoSteps: [SwitchStep] = [], demoBanner: Banner? = nil) {
@@ -116,10 +117,14 @@ final class SwitcherModel: ObservableObject {
 
     func refresh() {
         guard !isDemo else { return }
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let switcher = self.switcher
         Task.detached(priority: .userInitiated) {
             let s = switcher.status()
-            await MainActor.run { self.apply(s) }
+            await MainActor.run {
+                if generation == self.refreshGeneration { self.apply(s) }
+            }
         }
     }
 
@@ -349,6 +354,60 @@ final class SwitcherModel: ObservableObject {
             $0.usageConnections = self.usageConnections.isEmpty
                 ? nil : self.usageConnections.map { $0.rawValue }.sorted()
         }) { usageConnections = before }
+    }
+
+    /// Detail-window name editing: nil restores the default name. Reuses the
+    /// existing locked rename paths; demo writes fixture copies only.
+    @MainActor func renameDisplayName(_ id: String, to name: String?) async throws {
+        guard !isBusy, pendingConfirmation == nil, renaming == nil else {
+            throw SwitcherError.anotherSwitchInProgress
+        }
+        let normalized = try AccountNames.validated(name)
+        guard name == nil || normalized != nil else {
+            throw SwitcherError.invalidAccountName(maxLength: AccountNames.maxLength)
+        }
+        guard !isDemo else {
+            // demo applies the same validation + duplicate policy on fixture copies
+            guard let status, status.accounts.contains(where: { $0.id == id }) else {
+                throw SwitcherError.unknownAccount(id)
+            }
+            if let name = normalized {
+                let folded = SwitcherAccount.fold(name)
+                let dup = status.accounts.contains {
+                    $0.id != id && (SwitcherAccount.fold($0.label) == folded
+                        || SwitcherAccount.fold($0.defaultName) == folded
+                        || $0.email.map { SwitcherAccount.fold($0) } == folded)
+                }
+                if dup { throw SwitcherError.duplicateAccountName(name) }
+            }
+            self.status = SwitcherStatus(
+                claude: status.claude,
+                accounts: status.accounts.map { a in
+                    a.id == id
+                        ? AccountStatus(id: a.id, label: normalized ?? a.defaultName,
+                                        customName: normalized, defaultName: a.defaultName,
+                                        email: a.email, accountUuid: a.accountUuid,
+                                        orgUuid: a.orgUuid, isActive: a.isActive,
+                                        snapshot: a.snapshot, capturedAt: a.capturedAt,
+                                        sessionExpiresAt: a.sessionExpiresAt)
+                        : a
+                },
+                relaunchers: status.relaunchers,
+                suspendedRelaunchers: status.suspendedRelaunchers,
+                originalBackup: status.originalBackup,
+                pendingJournal: status.pendingJournal,
+                nativeMultiAccount: status.nativeMultiAccount,
+                warnings: status.warnings)
+            return
+        }
+        let switcher = self.switcher
+        phase = .working(action: L10n.t(.usageRename))
+        refreshGeneration += 1
+        defer { phase = .idle }
+        status = try await Task.detached {
+            try switcher.renameAccount(id, to: normalized)
+            return switcher.status()
+        }.value
     }
 
     /// Fixture-only: mark the providers a demo fixture shows as connected, in

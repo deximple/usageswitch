@@ -14,6 +14,7 @@ enum Theme {
 
     // Semantic state colors
     static let active = Color(nsColor: .controlAccentColor)
+    static let environmentActive = Color(nsColor: .systemBlue)
     static let ready = Color(nsColor: .systemGreen)
     static let relogin = Color(nsColor: .systemOrange)
     static let missing = Color(nsColor: .tertiaryLabelColor)

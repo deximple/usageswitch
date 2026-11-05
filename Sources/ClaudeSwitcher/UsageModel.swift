@@ -55,8 +55,13 @@ final class UsageModel: ObservableObject {
         self.segment = segment
         usages = demo
         // Inventory comes from the fixture rows only — a demo never runs live discovery.
+        let fixtureRoot = URL(fileURLWithPath: "/usage-switch-fixture")
         installations = UsageProvider.allCases.filter { provider in demo.contains { $0.provider == provider } }
-            .map { UsageInstallation(provider: $0, cli: nil, app: nil) }
+            .map {
+                UsageInstallation(provider: $0, cli: fixtureRoot.appendingPathComponent("bin/\($0.rawValue)"),
+                                  app: [.claude, .codex, .cursor].contains($0)
+                                    ? fixtureRoot.appendingPathComponent("\($0.rawValue).app") : nil)
+            }
         demoRows = demo
         self.isRefreshing = isRefreshing
         isDemo = true
@@ -205,6 +210,21 @@ final class UsageModel: ObservableObject {
             clearPace(provider)
         }
         refresh()
+    }
+
+    /// Identity presentations for the current readings. Demo passes registry
+    /// metadata ONLY for providers present in its fixture inventory — canned
+    /// accounts can never leak into a fixture that doesn't show that provider.
+    func presentations(claude: SwitcherStatus?, codex: CodexStatus?, now: Date = Date())
+        -> [UsageAccountPresentation] {
+        var claude = claude, codex = codex
+        if isDemo {
+            let present = Set(installations.map { $0.provider })
+            if !present.contains(.claude) { claude = nil }
+            if !present.contains(.codex) { codex = nil }
+        }
+        return UsagePresentations.accounts(readings: usages, installations: installations,
+                                           claude: claude, codex: codex, now: now)
     }
 
     /// A single provider's fresh rows replace its previous rows in place; the

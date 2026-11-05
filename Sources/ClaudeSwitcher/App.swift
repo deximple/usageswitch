@@ -98,6 +98,49 @@ extension AppAppearance {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static private(set) weak var shared: AppDelegate?
+    private var detailWindow: NSWindow?
+    private var detailID: String?
+
+    /// The single read-only usage detail window: same visible id just focuses;
+    /// a new id or reopen after close starts a fresh draft.
+    func showUsageDetail(id: String) {
+        // same visible id: just focus — an unsaved draft must survive re-click
+        if detailWindow?.isVisible == true, detailID == id {
+            detailWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+        if detailWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 420),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.title = L10n.t(.uiDetails)
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            detailWindow = window
+        }
+        detailID = id
+        guard let window = detailWindow else { return }
+        window.contentViewController = NSHostingController(
+            rootView: LanguageScoped(model: AppModel.shared) {
+                UsageDetailView(model: AppModel.shared, usage: AppModel.usage,
+                                codex: AppModel.codex, id: id,
+                                onClose: { [weak self] in self?.detailWindow?.close() })
+            })
+        window.makeKeyAndOrderFront(nil)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow else { return }
+        if closing === detailWindow { detailWindow = nil; detailID = nil }
+        // only OUR two owned windows decide the policy — menus/alerts never count
+        let stillOpen = [window, detailWindow].contains {
+            $0 !== closing && $0?.isVisible == true
+        }
+        NSApp.setActivationPolicy(stillOpen ? .regular : .accessory)
+    }
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -245,10 +288,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate()
     }
 
-    func windowWillClose(_ notification: Notification) {
-        // Back to a menu-bar-only app once the window is closed.
-        NSApp.setActivationPolicy(.accessory)
-    }
 }
 
 struct ClaudeSwitcherApp: App {
