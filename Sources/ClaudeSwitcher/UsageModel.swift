@@ -9,6 +9,8 @@ final class UsageModel: ObservableObject {
     enum Segment: String { case guide, all }
 
     @Published private(set) var usages: [AccountUsage] = []
+    /// Which providers are on this Mac; empty until the first refresh finishes.
+    @Published private(set) var installations: [UsageInstallation] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var nextRefresh = Date().addingTimeInterval(300)
     /// Drain speed per window key; `unknown` until two readings line up.
@@ -47,6 +49,9 @@ final class UsageModel: ObservableObject {
         self.settings = settings
         self.segment = segment
         usages = demo
+        // Inventory comes from the fixture rows only — a demo never runs live discovery.
+        installations = UsageProvider.allCases.filter { provider in demo.contains { $0.provider == provider } }
+            .map { UsageInstallation(provider: $0, cli: nil, app: nil) }
         self.isRefreshing = isRefreshing
         isDemo = true
     }
@@ -106,21 +111,62 @@ final class UsageModel: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let env = SwitcherEnvironment.live()
             let runner = SystemUsageProcessRunner()
-            var next = [ClaudeUsageCollector(runner: runner).collect()]
-            next += CodexUsageCollector(status: { CodexManager().status() }, runner: runner,
-                                        codexCLI: env.codexCLI, clientVersion: version).collect()
-            next += CursorUsageCollector(enabled: cursorEnabled, runner: runner,
-                                         http: SystemUsageHTTP(), home: env.home).collect()
-            await MainActor.run { self.finish(next, generation: generation, env: env) }
+            let installed = UsageInstallations.discover(
+                home: env.home, path: ProcessInfo.processInfo.environment["PATH"] ?? "",
+                bundledCodexCLI: env.codexCLI)
+            // Inventory first: uninstalled providers vanish before any subprocess starts.
+            await MainActor.run { self.publishInventory(installed, generation: generation) }
+            func installation(_ provider: UsageProvider) -> UsageInstallation? {
+                installed.first { $0.provider == provider }
+            }
+            var next: [AccountUsage] = []
+            // App-only Claude gets an empty path list: an honest cliMissing, never a guessed binary.
+            if let claude = installation(.claude) {
+                next.append(ClaudeUsageCollector(runner: runner,
+                                                 binaryPaths: claude.cli.map { [$0] } ?? []).collect())
+            }
+            // App-only Codex falls back to the bundled path, which reports the existing missing state.
+            if let codex = installation(.codex) {
+                next += CodexUsageCollector(status: { CodexManager().status() }, runner: runner,
+                                            codexCLI: codex.cli ?? env.codexCLI,
+                                            clientVersion: version).collect()
+            }
+            if installation(.cursor) != nil {
+                if cursorEnabled {
+                    next += CursorUsageCollector(enabled: true, runner: runner,
+                                                 http: SystemUsageHTTP(), home: env.home).collect()
+                } else {
+                    next.append(Self.cursorConnectionRequired())
+                }
+            }
+            await MainActor.run {
+                self.finish(next, installed: installed, generation: generation, env: env)
+            }
         }
     }
 
-    private func finish(_ fresh: [AccountUsage], generation: Int, env: SwitcherEnvironment) {
+    /// The single installed-but-not-connected Cursor row; no credential is read to make it.
+    nonisolated private static func cursorConnectionRequired() -> AccountUsage {
+        AccountUsage(id: CursorUsageCollector.rowID, provider: .cursor,
+                     accountRef: CursorUsageCollector.rowAccountRef, label: "Cursor",
+                     plan: nil, windows: [], state: .unavailable(.connectionRequired),
+                     readAt: Date(), toolVersion: nil)
+    }
+
+    private func publishInventory(_ installed: [UsageInstallation], generation: Int) {
+        guard generation == self.generation else { return }
+        installations = installed
+        usages = UsageInstallations.visible(usages, installations: installed)
+    }
+
+    private func finish(_ fresh: [AccountUsage], installed: [UsageInstallation],
+                        generation: Int, env: SwitcherEnvironment) {
         guard generation == self.generation else { return }
         let now = Date()
+        installations = installed
         // Same-login subscription readings keep their previous windows on failure; every other
         // case stands on its own — AccountUsage.retainingWindows decides, fail-closed.
-        usages = fresh.map { reading in
+        usages = UsageInstallations.visible(fresh, installations: installed).map { reading in
             reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
         updatePace()

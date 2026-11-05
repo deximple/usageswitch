@@ -7,6 +7,7 @@ public enum UsageText {
         let base: String
         switch window.kind {
         case .session: base = L10n.t(.usageWinSession)
+        case .daily: base = L10n.t(.usageWinDaily)
         case .weekly: base = L10n.t(.usageWinWeekly)
         case .monthly: base = L10n.t(.usageWinMonthly)
         case .other: base = L10n.t(.usageWinOther)
@@ -93,6 +94,7 @@ public enum UsageText {
         case .network: return L10n.t(.usageReasonNetwork)
         case .schemaChanged: return L10n.t(.usageReasonSchemaChanged, providerName(provider))
         case .rateLimited: return L10n.t(.usageReasonRateLimited)
+        case .connectionRequired: return L10n.t(.usageReasonConnectionRequired)
         }
     }
 
@@ -101,6 +103,10 @@ public enum UsageText {
         case .claude: return "Claude"
         case .codex: return "Codex"
         case .cursor: return "Cursor"
+        case .grok: return "Grok"
+        case .gemini: return "Gemini"
+        case .devin: return "Devin"
+        case .opencode: return "OpenCode"
         }
     }
 
@@ -110,6 +116,10 @@ public enum UsageText {
         case .claude: return "asterisk"
         case .codex: return "hexagon"
         case .cursor: return "cube"
+        case .grok: return "star"
+        case .gemini: return "sparkle"
+        case .devin: return "diamond"
+        case .opencode: return "circle"
         }
     }
 

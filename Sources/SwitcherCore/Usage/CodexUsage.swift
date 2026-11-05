@@ -163,6 +163,7 @@ public struct CodexUsageCollector: Sendable {
         switch result.outcome {
         case .timedOut: return finish(.failed(.timeout))
         case .failedToStart: return finish(.unavailable(.cliMissing))
+        case .outputLimit: return finish(.unavailable(.refused))
         case .stopped, .exited:
             switch CodexRateLimitsParser.read(result.lines) {
             case .success(let parsed): return finish(.ok, parsed.windows, plan: parsed.plan)

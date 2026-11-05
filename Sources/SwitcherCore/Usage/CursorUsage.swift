@@ -8,31 +8,18 @@ public protocol UsageHTTP: Sendable {
 }
 
 public struct SystemUsageHTTP: UsageHTTP {
-    public init() {}
+    private let transport: any UsageHTTPTransport
+    public init(transport: any UsageHTTPTransport = SystemUsageHTTPTransport()) {
+        self.transport = transport
+    }
 
     public func post(url: URL, bearer: String, timeout: TimeInterval) -> (status: Int, body: Data)? {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = timeout
-        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
-        final class Box: @unchecked Sendable {
-            private let lock = NSLock()
-            private var result: (status: Int, body: Data)?
-            func set(_ value: (status: Int, body: Data)?) { lock.lock(); result = value; lock.unlock() }
-            var value: (status: Int, body: Data)? { lock.lock(); defer { lock.unlock() }; return result }
-        }
-        let box = Box()
-        let semaphore = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let http = response as? HTTPURLResponse, let data {
-                box.set((status: http.statusCode, body: data))
-            }
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + timeout + 5)
-        return box.value
+        let request = UsageHTTPRequest(
+            url: url, method: .post,
+            headers: ["Authorization": "Bearer \(bearer)", "Content-Type": "application/json"],
+            body: Data("{}".utf8), timeout: timeout)
+        guard let response = transport.send(request) else { return nil }
+        return (status: response.status, body: response.body)
     }
 }
 
@@ -108,9 +95,14 @@ public struct CursorUsageCollector: Sendable {
         self.now = now
     }
 
+    /// Row identifiers shared with the installed-but-disabled placeholder so a consent change
+    /// keeps the same row identity.
+    public static let rowID = "cursor:cursor"
+    public static let rowAccountRef = "cursor"
+
     public func collect() -> [AccountUsage] {
         func finish(_ state: UsageState, _ windows: [UsageWindow] = []) -> AccountUsage {
-            AccountUsage(id: "cursor:cursor", provider: .cursor, accountRef: "cursor", label: "Cursor",
+            AccountUsage(id: Self.rowID, provider: .cursor, accountRef: Self.rowAccountRef, label: "Cursor",
                          plan: nil, windows: windows, state: state, readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }

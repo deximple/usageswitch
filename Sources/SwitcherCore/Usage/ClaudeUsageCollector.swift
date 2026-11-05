@@ -61,6 +61,7 @@ public struct ClaudeUsageCollector: Sendable {
         switch result.outcome {
         case .timedOut: return finish(.failed(.timeout), toolVersion: toolVersion)
         case .failedToStart: return finish(.unavailable(.cliMissing), toolVersion: toolVersion)
+        case .outputLimit: return finish(.unavailable(.refused), toolVersion: toolVersion)
         case .stopped, .exited:
             switch ClaudeUsageOutput.text(in: result.lines) {
             case .failure:

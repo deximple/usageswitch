@@ -2,7 +2,7 @@ import Foundation
 
 /// Where a usage reading came from.
 public enum UsageProvider: String, Codable, Sendable, CaseIterable {
-    case claude, codex, cursor
+    case claude, codex, cursor, grok, gemini, devin, opencode
 }
 
 /// How the account authenticates to the provider. Subscription and API-key accounts are billed
@@ -13,7 +13,7 @@ public enum UsageAuthentication: String, Codable, Sendable {
 
 /// One reported usage window (a session, a week, a billing month, …).
 public struct UsageWindow: Codable, Hashable, Sendable {
-    public enum Kind: String, Codable, Sendable { case session, weekly, monthly, other }
+    public enum Kind: String, Codable, Sendable { case session, daily, weekly, monthly, other }
 
     /// Classified from `durationMinutes`, never from which slot a channel reported it in.
     public let kind: Kind
@@ -36,6 +36,7 @@ public struct UsageWindow: Codable, Hashable, Sendable {
         guard let minutes = durationMinutes else { return .other }
         switch minutes {
         case 1...300: return .session
+        case 1440: return .daily
         case 10080: return .weekly
         case 40320...44640: return .monthly
         default: return .other
@@ -52,6 +53,8 @@ public struct UsageWindow: Codable, Hashable, Sendable {
 /// can carry account identity, so their text is never surfaced.
 public enum UsageProblem: String, Codable, Sendable {
     case noSignIn, cliMissing, managed, refused, timeout, network, schemaChanged, rateLimited
+    /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
+    case connectionRequired
 }
 
 public enum UsageState: Equatable, Sendable {

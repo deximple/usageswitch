@@ -12,13 +12,16 @@ public struct UsageProcessRequest: Sendable {
     public var stdinLines: [String]?
     /// Checked against each stdout line; the first match ends the run. nil = run to exit.
     public var stopWhen: (@Sendable (String) -> Bool)?
+    /// Bound on collected stdout bytes; crossing it terminates the run. Default 1 MiB.
+    public var maxOutputBytes: Int
     public var timeout: TimeInterval
 
     public init(executable: URL, arguments: [String], environment: [String: String], workingDirectory: URL,
-                stdinLines: [String]? = nil, stopWhen: (@Sendable (String) -> Bool)? = nil, timeout: TimeInterval) {
+                stdinLines: [String]? = nil, stopWhen: (@Sendable (String) -> Bool)? = nil,
+                maxOutputBytes: Int = 1_048_576, timeout: TimeInterval) {
         self.executable = executable; self.arguments = arguments; self.environment = environment
         self.workingDirectory = workingDirectory; self.stdinLines = stdinLines
-        self.stopWhen = stopWhen; self.timeout = timeout
+        self.stopWhen = stopWhen; self.maxOutputBytes = maxOutputBytes; self.timeout = timeout
     }
 }
 
@@ -29,6 +32,7 @@ public struct UsageProcessResult: Sendable {
         case exited(Int32)
         case timedOut
         case failedToStart
+        case outputLimit
     }
     /// The stdout lines read before the run ended. Stderr is never captured (it may carry identity).
     public var lines: [String]
@@ -52,8 +56,24 @@ final class UsageLineBox: @unchecked Sendable {
 
     var lines: [String] { lock.lock(); defer { lock.unlock() }; return _lines }
     var matched: Bool { lock.lock(); defer { lock.unlock() }; return _matched }
+    private var bytes = 0
+    var overflowed: Bool { lock.lock(); defer { lock.unlock() }; return _overflowed }
+    private var _overflowed = false
 
     func append(_ line: String) { lock.lock(); _lines.append(line); lock.unlock() }
+
+    /// Budget raw chunks before line splitting, including output without any newline.
+    func accepts(_ count: Int, limit: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !_overflowed else { return false }
+        guard count <= limit - bytes else {
+            _overflowed = true
+            _matched = true
+            return false
+        }
+        bytes += count
+        return true
+    }
     func match() { lock.lock(); _matched = true; lock.unlock() }
 }
 
@@ -61,6 +81,10 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
     public init() {}
 
     public func run(_ request: UsageProcessRequest) -> UsageProcessResult {
+        guard request.maxOutputBytes > 0, request.timeout.isFinite, request.timeout > 0,
+              !Task.isCancelled else {
+            return UsageProcessResult(lines: [], outcome: .failedToStart)
+        }
         let process = Process()
         process.executableURL = request.executable
         process.arguments = request.arguments
@@ -82,7 +106,10 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
             box.append(line)
             if request.stopWhen?(line) == true { box.match() }
         }
-        stdout.fileHandleForReading.readabilityHandler = { handle in splitter.append(handle.availableData) }
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if box.accepts(data.count, limit: request.maxOutputBytes) { splitter.append(data) }
+        }
         do { try process.run() } catch {
             stdout.fileHandleForReading.readabilityHandler = nil
             return UsageProcessResult(lines: [], outcome: .failedToStart)
@@ -107,19 +134,22 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
                     kill(process.processIdentifier, SIGKILL)
                     process.waitUntilExit()
                 }
-                drain(stdout, into: splitter)
-                return UsageProcessResult(lines: box.lines, outcome: box.matched ? .stopped : .timedOut)
+                drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
+                let outcome: UsageProcessResult.Outcome = box.overflowed ? .outputLimit
+                    : box.matched ? .stopped : .timedOut
+                return UsageProcessResult(lines: box.lines, outcome: outcome)
             }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        drain(stdout, into: splitter)
-        return UsageProcessResult(lines: box.lines, outcome: .exited(process.terminationStatus))
+        drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
+        return UsageProcessResult(lines: box.lines,
+                                  outcome: box.overflowed ? .outputLimit : .exited(process.terminationStatus))
     }
 
     /// After the handler is released, reads whatever is still in the pipe without blocking — a
     /// grandchild may hold the write end open, so a plain read could hang. Feeds the splitter so a
     /// last line racing the exit is not lost.
-    private func drain(_ pipe: Pipe, into splitter: LineSplitter) {
+    private func drain(_ pipe: Pipe, into splitter: LineSplitter, budget: UsageLineBox, limit: Int) {
         let handle = pipe.fileHandleForReading
         handle.readabilityHandler = nil
         let fd = handle.fileDescriptor
@@ -129,6 +159,7 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
         while true {
             let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
             if count <= 0 { break }
+            guard budget.accepts(count, limit: limit) else { break }
             splitter.append(Data(chunk[0..<count]))
         }
         splitter.flush()

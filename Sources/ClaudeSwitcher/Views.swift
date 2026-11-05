@@ -315,16 +315,23 @@ struct MainView: View {
     @ObservedObject var usage: UsageModel
     @ObservedObject var tabs: TabSelection
 
+    private var providers: Set<UsageProvider> {
+        if usage.isDemo { return Set(usage.installations.map { $0.provider }) }
+        return TabSelection.providers(installations: usage.installations,
+                                      claudeAccounts: model.status?.accounts.count ?? 0,
+                                      codexAccounts: codex.status?.accounts ?? [])
+    }
+
     var body: some View {
         ZStack {
             Theme.canvas.ignoresSafeArea()
             VStack(spacing: 0) {
-                TabSwitcher(selection: tabs)
+                TabSwitcher(selection: tabs, visibleProviders: providers)
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .trailing) { SettingsMenu(model: model, codex: codex, usage: usage).padding(.trailing, Theme.gapGroup) }
                     .padding(.top, 14)
                     .modifier(NavChrome())
-                switch tabs.tab {
+                switch tabs.effectiveTab(providers) {
                 case .usage:
                     VStack(spacing: 0) {
                         UsageListHeader(model: usage)
@@ -459,10 +466,17 @@ struct MenuView: View {
         return min(600, (screen?.visibleFrame.height ?? 600) - 80)
     }
 
+    private var providers: Set<UsageProvider> {
+        if usage.isDemo { return Set(usage.installations.map { $0.provider }) }
+        return TabSelection.providers(installations: usage.installations,
+                                      claudeAccounts: model.status?.accounts.count ?? 0,
+                                      codexAccounts: codex.status?.accounts ?? [])
+    }
+
     /// Scroll to the account the guide pointed at, once its tab has actually laid out —
     /// the id may not exist in the ScrollView until after the tab switch renders.
     private func scrollToFocus(_ proxy: ScrollViewProxy) {
-        guard let id = codex.focusedAccountID, tabs.tab == .codex,
+        guard let id = codex.focusedAccountID, tabs.effectiveTab(providers) == .codex,
               codex.status?.accounts.contains(where: { $0.id == id }) == true else { return }
         let jump = {
             if reduceMotion { proxy.scrollTo(id, anchor: .center) }
@@ -475,14 +489,14 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.gapRow) {
             VStack(alignment: .leading, spacing: Theme.gapRow) {
-                TabSwitcher(selection: tabs).frame(maxWidth: .infinity)
-                if tabs.tab == .usage { UsageListHeader(model: usage) }
+                TabSwitcher(selection: tabs, visibleProviders: providers).frame(maxWidth: .infinity)
+                if tabs.effectiveTab(providers) == .usage { UsageListHeader(model: usage) }
             }
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { chromeTop = $0 }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.gapRow) {
-                        switch tabs.tab {
+                        switch tabs.effectiveTab(providers) {
                         case .usage: UsageContent(model: usage, settings: model, codex: codex, tabs: tabs, compact: true)
                         case .claude: claudeContent
                         case .codex: CodexMenuContent(model: codex, settings: model)
@@ -498,7 +512,7 @@ struct MenuView: View {
                 .onChange(of: tabs.tab) { _, _ in scrollToFocus(proxy) }
             }
             VStack(alignment: .leading, spacing: Theme.gapRow) {
-                if tabs.tab == .usage { UsageFooter(model: usage) }
+                if tabs.effectiveTab(providers) == .usage { UsageFooter(model: usage) }
                 Divider().overlay(Theme.hairline)
                 HStack {
                     Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }

@@ -18,26 +18,72 @@ final class TabSelection: ObservableObject {
         didSet { if remembers { UserDefaults.standard.set(tab.rawValue, forKey: Self.defaultsKey) } }
     }
 
+    private let forced: AppTab?
+
     init(forced: AppTab? = nil) {
+        self.forced = forced
         remembers = forced == nil
         tab = forced ?? AppTab(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .usage
+    }
+
+    /// Tabs shown for the given providers: Usage always, then Claude / Codex when present. A forced
+    /// demo tab always stays visible so management fixtures keep rendering.
+    func visibleTabs(_ providers: Set<UsageProvider>) -> [AppTab] {
+        var tabs: [AppTab] = [.usage]
+        if providers.contains(.claude) || forced == .claude { tabs.append(.claude) }
+        if providers.contains(.codex) || forced == .codex { tabs.append(.codex) }
+        return tabs
+    }
+
+    /// The tab to show: the selection, or Usage when it has no tab. The selection itself is left
+    /// alone so a not-yet-loaded inventory never overwrites the remembered tab.
+    func effectiveTab(_ providers: Set<UsageProvider>) -> AppTab {
+        visibleTabs(providers).contains(tab) ? tab : .usage
+    }
+
+    /// Claude when installed or when it has accounts; Codex when installed or when it has a
+    /// non-default home. Never Cursor — it has no management tab.
+    static func providers(installations: [UsageInstallation], claudeAccounts: Int,
+                          codexAccounts: [CodexAccount]) -> Set<UsageProvider> {
+        var providers = Set(installations.map(\.provider)).subtracting([.cursor])
+        if claudeAccounts > 0 { providers.insert(.claude) }
+        // A phantom default home (standard, no identity) must not conjure a Codex tab.
+        if codexAccounts.contains(where: { $0.kind != .standard || $0.identity != nil }) {
+            providers.insert(.codex)
+        }
+        return providers
     }
 }
 
 struct TabSwitcher: View {
     @ObservedObject var selection: TabSelection
+    let visibleProviders: Set<UsageProvider>
 
     var body: some View {
-        Picker(selection: $selection.tab) {
-            Text(L10n.t(.tabUsage)).tag(AppTab.usage)
-            Text(L10n.t(.tabClaude)).tag(AppTab.claude)
-            Text(L10n.t(.tabCodex)).tag(AppTab.codex)
-        } label: {
-            EmptyView()
+        let tabs = selection.visibleTabs(visibleProviders)
+        if tabs.count == 1 {
+            Text(L10n.t(.tabUsage)).font(.headline)
+        } else {
+            Picker(selection: Binding(get: { selection.effectiveTab(visibleProviders) },
+                                      set: { selection.tab = $0 })) {
+                ForEach(tabs, id: \.self) { tab in
+                    Text(label(of: tab)).tag(tab)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
+    }
+
+    private func label(of tab: AppTab) -> String {
+        switch tab {
+        case .usage: return L10n.t(.tabUsage)
+        case .claude: return L10n.t(.tabClaude)
+        case .codex: return L10n.t(.tabCodex)
+        }
     }
 }
 

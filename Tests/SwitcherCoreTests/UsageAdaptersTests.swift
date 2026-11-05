@@ -1,0 +1,453 @@
+import Foundation
+import Testing
+@testable import SwitcherCore
+
+/// Spy transport: records every request, replays queued responses, never touches a network.
+final class SpyTransport: UsageHTTPTransport, @unchecked Sendable {
+    var requests: [UsageHTTPRequest] = []
+    var queue: [UsageHTTPResponse?] = []
+    func send(_ request: UsageHTTPRequest) -> UsageHTTPResponse? {
+        requests.append(request)
+        return queue.isEmpty ? nil : queue.removeFirst()
+    }
+}
+
+/// Spy credential reader: counts reads, serves synthetic files only.
+final class SpyCredentials: UsageCredentialReading, @unchecked Sendable {
+    var files: [String: Data] = [:]
+    var reads = 0
+    func read(_ url: URL) -> Data? { reads += 1; return files[url.path] }
+}
+
+@Suite("HTTP transport")
+struct UsageTransportTests {
+    @Test("non-https and disallowed hosts never reach the network")
+    func allowlist() {
+        let t = SystemUsageHTTPTransport()
+        let http = UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!,
+                                    method: .get, timeout: 1)
+        #expect(t.send(http) == nil)
+        let bad = UsageHTTPRequest(url: URL(string: "https://api.test/x")!,
+                                   method: .get, timeout: 1)
+        #expect(t.send(bad) == nil)
+    }
+}
+
+@Suite("Grok adapter")
+struct GrokAdapterTests {
+    private let home = URL(fileURLWithPath: "/tmp/grok-home")
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           enabled: Bool = true) -> GrokUsageCollector {
+        GrokUsageCollector(enabled: enabled, http: http, credentials: creds,
+                           home: home, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+    private var authJSON: String {
+        #"{"https://auth.x.ai":{"key":"k1","user_id":"u1","expires_at":"2999-01-01T00:00:00Z"}}"#
+    }
+
+    @Test("disabled does zero reads and zero requests")
+    func disabled() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("happy path sends exact request and parses percentage + weekly period")
+    func happy() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = authJSON.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"config":{"creditUsagePercent":40,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2023-11-20T00:00:00Z"},"subscriptionTier":"x"}}"#.data(using: .utf8)!)]
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].state == .ok)
+        #expect(rows[0].windows.first?.usedPercent == 40)
+        #expect(http.requests.first?.url.host == "cli-chat-proxy.grok.com")
+        #expect(http.requests.first?.method == .get)
+        #expect(http.requests.first?.headers["Authorization"] == "Bearer k1")
+        #expect(http.requests.first?.headers["x-userid"] == "u1")
+    }
+
+    @Test("money-only response is notReporting, never healthy zero")
+    func moneyOnly() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = authJSON.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"config":{"monthlyLimit":25,"used":4}}"#.data(using: .utf8)!)]
+        #expect(collector(http, creds).collect().first?.state == .notReporting)
+    }
+
+    @Test("untrusted auth origin supplies no token")
+    func untrusted() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = #"{"https://evil.example":{"key":"k1"}}"#.data(using: .utf8)
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("expired token is sign-in, not refreshed")
+    func expired() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = #"{"https://auth.x.ai":{"key":"k1","expires_at":"2020-01-01T00:00:00Z"}}"#.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+}
+
+@Suite("Gemini adapter")
+struct GeminiAdapterTests {
+    private let home = URL(fileURLWithPath: "/tmp/gemini-home")
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           enabled: Bool = true) -> GeminiUsageCollector {
+        GeminiUsageCollector(enabled: enabled, http: http, credentials: creds,
+                             home: home, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+
+    @Test("disabled does zero reads and zero requests")
+    func disabled() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("two-step flow: project id then buckets, direction inverted once, nil duration")
+    func happy() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] = #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p-123"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"gemini-pro","remainingFraction":0.2,"resetTime":"2023-11-20T00:00:00Z"},{"modelId":"gemini-flash","remainingFraction":0.9,"resetTime":"2023-11-20T00:00:00Z"}]}"#.data(using: .utf8)!),
+        ]
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].state == .ok)
+        #expect(rows[0].windows.count == 2)
+        #expect(abs((rows[0].windows[0].usedPercent) - 80) < 0.001)  // 1-0.2
+        #expect(abs((rows[0].windows[1].usedPercent) - 10) < 0.001)  // 1-0.9
+        #expect(rows[0].windows[0].durationMinutes == nil)
+        #expect(rows[0].windows[0].scope == "gemini-pro")
+        #expect(http.requests.count == 2)
+        #expect(http.requests[0].url.absoluteString.contains("loadCodeAssist"))
+        #expect(http.requests[1].url.absoluteString.contains("retrieveUserQuota"))
+        #expect(String(data: http.requests[1].body ?? Data(), encoding: .utf8) == #"{"project":"p-123"}"#)
+    }
+
+    @Test("malformed bucket fails the collection, never silently drops")
+    func malformed() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] = #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"ok","remainingFraction":0.5},{"modelId":"bad"}]}"#.data(using: .utf8)!),
+        ]
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.schemaChanged))
+    }
+
+    @Test("expired token is sign-in")
+    func expired() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] = #"{"access_token":"t1","expiry_date":1}"#.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+}
+
+@Suite("Devin adapter")
+struct DevinAdapterTests {
+    private let home = URL(fileURLWithPath: "/tmp/devin-home")
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           runner: FakeRunner = FakeRunner(),
+                           enabled: Bool = true) -> DevinUsageCollector {
+        DevinUsageCollector(enabled: enabled, http: http, credentials: creds,
+                            runner: runner, cli: URL(fileURLWithPath: "/usr/bin/devin"),
+                            clientVersion: "1.0", home: home,
+                            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+    struct FakeRunner: UsageProcessRunner {
+        var response = UsageProcessResult(lines: ["devin 2.3.4"], outcome: .exited(0))
+        func run(_ request: UsageProcessRequest) -> UsageProcessResult { response }
+    }
+    private var toml: String { #"api_key = "d1""# }
+
+    @Test("disabled does zero reads/requests/processes")
+    func disabled() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("happy path: quota plan + remaining->used, daily+weekly windows, fixed host")
+    func happy() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = toml.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"userStatus":{"planStatus":{"dailyQuotaRemainingPercent":25,"dailyQuotaResetAtUnix":1700500000,"weeklyQuotaRemainingPercent":80,"weeklyQuotaResetAtUnix":1700900000,"planInfo":{"planName":"Solo","billingStrategy":"BILLING_STRATEGY_QUOTA"}}}}"#.data(using: .utf8)!)]
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].state == .ok && rows[0].plan == "Solo")
+        #expect(rows[0].windows.count == 2)
+        #expect(rows[0].windows[0].usedPercent == 75)   // 100-25 daily
+        #expect(rows[0].windows[1].usedPercent == 20)   // 100-80 weekly
+        #expect(http.requests.first?.url.host == "server.codeium.com")
+        #expect(http.requests.first?.headers["Connect-Protocol-Version"] == "1")
+        let body = String(data: http.requests.first?.body ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("\"apiKey\":\"d1\""))
+        #expect(body.contains("\"extensionName\":\"devin-cli\""))
+        #expect(body.contains("\"extensionVersion\":\"2.3.4\""))
+    }
+
+    @Test("hidden windows are absent, not reported")
+    func hidden() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = toml.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"userStatus":{"planStatus":{"hideDailyQuota":true,"weeklyQuotaRemainingPercent":80,"weeklyQuotaResetAtUnix":1700900000,"planInfo":{"billingStrategy":"BILLING_STRATEGY_QUOTA"}}}}"#.data(using: .utf8)!)]
+        let rows = collector(http, creds).collect()
+        #expect(rows[0].windows.count == 1 && rows[0].windows[0].scope == nil)
+        #expect(rows[0].windows[0].durationMinutes == 10080)
+    }
+
+    @Test("proto3 omitted zero only on quota plan + valid reset")
+    func omittedZero() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = toml.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"userStatus":{"planStatus":{"weeklyQuotaResetAtUnix":1700900000,"planInfo":{"billingStrategy":"BILLING_STRATEGY_QUOTA"}}}}"#.data(using: .utf8)!)]
+        let rows = collector(http, creds).collect()
+        #expect(rows[0].windows.count == 1 && rows[0].windows[0].usedPercent == 100)
+    }
+
+    @Test("arbitrary configured server fails closed, no request")
+    func rogueServer() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = #"api_server_url = "https://evil.example""#.data(using: .utf8)
+        let rows = collector(http, creds).collect()
+        #expect(rows.first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+}
+
+@Suite("OpenCode adapter")
+struct OpenCodeAdapterTests {
+    private let home = URL(fileURLWithPath: "/tmp/oc-home")
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           enabled: Bool = true) -> OpenCodeUsageCollector {
+        OpenCodeUsageCollector(enabled: enabled, http: http, credentials: creds,
+                               home: home, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+
+    @Test("disabled does zero reads and zero requests")
+    func disabled() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("happy path preserves all three windows")
+    func happy() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"usage":{"rolling":{"percent":30,"resetsAt":"2023-11-15T00:00:00Z"},"weekly":{"percent":55,"resetsAt":"2023-11-20T00:00:00Z"},"monthly":{"percent":10,"resetsAt":null}}}"#.data(using: .utf8)!)]
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].state == .ok && rows[0].windows.count == 3)
+        #expect(rows[0].windows[0].usedPercent == 30)
+        #expect(http.requests.first?.url.absoluteString == "https://opencode.ai/zen/go/v1/usage")
+        #expect(http.requests.first?.headers["Authorization"] == "Bearer g1")
+    }
+
+    @Test("403 is notReporting, not logout")
+    func forbidden() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 403, body: Data())]
+        #expect(collector(http, creds).collect().first?.state == .notReporting)
+    }
+
+    @Test("other-provider key is ignored")
+    func foreignKey() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"anthropic":{"type":"api","key":"x"}}"#.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+}
+
+/// Offline protocol stub for transport tests — no real network.
+final class StubProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, Data)) = { _ in (200, Data()) }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let (status, body) = Self.handler(request)
+        let resp = HTTPURLResponse(url: request.url!, statusCode: status,
+                                   httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        // deliver in chunks to exercise the streaming bound
+        let half = body.count / 2
+        client?.urlProtocol(self, didLoad: body.prefix(half))
+        client?.urlProtocol(self, didLoad: body.suffix(body.count - half))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private func stubbed() -> SystemUsageHTTPTransport {
+    let c = URLSessionConfiguration.ephemeral
+    c.protocolClasses = [StubProtocol.self]
+    return SystemUsageHTTPTransport(configuration: c)
+}
+
+@Suite("Transport streaming bounds", .serialized)
+struct TransportStreamTests {
+    @Test("a real 200 JSON response passes through the delegate path")
+    func success() {
+        StubProtocol.handler = { _ in (200, #"{"ok":true}"#.data(using: .utf8)!) }
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 5)
+        let r = stubbed().send(req)
+        #expect(r?.status == 200)
+    }
+
+    @Test("Content-Length above cap is rejected before receive")
+    func tooBig() {
+        StubProtocol.handler = { _ in (200, Data(repeating: 1, count: 2_000_000)) }
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 5)
+        #expect(stubbed().send(req) == nil)
+    }
+
+    @Test("chunks crossing the cap mid-stream cancel")
+    func crossing() {
+        // two ~600KiB chunks land past the 1MiB bound together
+        StubProtocol.handler = { _ in (200, Data(repeating: 1, count: 1_200_000)) }
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 5)
+        #expect(stubbed().send(req) == nil)
+    }
+}
+
+@Suite("Adapter error normalization")
+struct AdapterStatusTests {
+    private let home = URL(fileURLWithPath: "/tmp/x")
+    @Test("429 and 500 normalize to failed, never a fake reading", arguments: [429, 500])
+    func statuses(_ status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/x/.grok/auth.json"] = #"{"https://auth.x.ai":{"key":"k"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        let rows = GrokUsageCollector(enabled: true, http: http, credentials: creds,
+                                      home: home).collect()
+        #expect(rows.first?.state != .ok && rows.first?.windows.isEmpty == true)
+    }
+}
+
+final class RedirectProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let r = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
+                                headerFields: ["Location": "https://evil.example"])!
+        client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: "https://evil.example")!),
+                            redirectResponse: r)
+    }
+    override func stopLoading() {}
+}
+
+@Suite("Provider edge regressions")
+struct ProviderEdgeTests {
+    private let home = URL(fileURLWithPath: "/tmp/e")
+
+    @Test("redirect refusal leaves no response")
+    func redirect() {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [RedirectProtocol.self]
+        let t = SystemUsageHTTPTransport(configuration: c)
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 5)
+        #expect(t.send(req) == nil)
+    }
+
+    @Test("grok lookalike auth origin supplies no token")
+    func grokLookalike() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.grok/auth.json"] = #"{"https://auth.x.ai.evil":{"key":"k"}}"#.data(using: .utf8)
+        let rows = GrokUsageCollector(enabled: true, http: http, credentials: creds, home: home).collect()
+        #expect(rows.first?.state == .unavailable(.noSignIn) && http.requests.isEmpty)
+    }
+
+    @Test("grok multiple trusted entries with no selection fail closed")
+    func grokAmbiguous() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.grok/auth.json"] = #"{"https://auth.x.ai":{"key":"k1"},"https://auth.x.ai::other":{"key":"k2"}}"#.data(using: .utf8)
+        let rows = GrokUsageCollector(enabled: true, http: http, credentials: creds, home: home).collect()
+        #expect(rows.first?.state == .unavailable(.noSignIn) && http.requests.isEmpty)
+    }
+
+    @Test("gemini same model with two tokenTypes stays distinct; contradiction fails")
+    func geminiTokenTypes() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.gemini/oauth_creds.json"] = #"{"access_token":"t","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"output","remainingFraction":0.7,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
+        ]
+        let rows = GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home).collect()
+        #expect(rows.first?.windows.count == 2)
+        #expect(rows.first?.windows.first?.scope == "g [input]")
+        // contradictory duplicate for the same scope fails the whole read
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"input","remainingFraction":0.9,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
+        ]
+        #expect(GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home)
+            .collect().first?.state == .unavailable(.schemaChanged))
+    }
+
+    @Test("devin malformed preferred file never falls to weaker candidate; zero probe")
+    func devinAuthoritative() {
+        struct Runner: UsageProcessRunner {
+            func run(_ r: UsageProcessRequest) -> UsageProcessResult {
+                UsageProcessResult(lines: ["devin 2.3.4"], outcome: .exited(0))
+            }
+        }
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.local/share/devin/credentials.toml"] = #"api_key = "broken\"#.data(using: .utf8)
+        creds.files["/tmp/e/.config/devin/credentials.toml"] = #"api_key = "weaker""#.data(using: .utf8)
+        let rows = DevinUsageCollector(enabled: true, http: http, credentials: creds,
+                                       runner: Runner(), cli: URL(fileURLWithPath: "/usr/bin/devin"),
+                                       clientVersion: "1.0", home: home).collect()
+        #expect(rows.first?.state != .ok && http.requests.isEmpty)
+    }
+
+    @Test("devin banner noise version produces no request")
+    func devinBadVersion() {
+        struct Runner: UsageProcessRunner {
+            func run(_ r: UsageProcessRequest) -> UsageProcessResult {
+                UsageProcessResult(lines: ["banner noise no version"], outcome: .exited(0))
+            }
+        }
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.local/share/devin/credentials.toml"] = #"api_key = "k""#.data(using: .utf8)
+        let rows = DevinUsageCollector(enabled: true, http: http, credentials: creds,
+                                       runner: Runner(), cli: URL(fileURLWithPath: "/usr/bin/devin"),
+                                       clientVersion: "1.0", home: home).collect()
+        #expect(rows.first?.state == .unavailable(.cliMissing) && http.requests.isEmpty)
+    }
+
+    @Test("opencode override data dir reads <dir>/auth.json directly")
+    func opencodeOverride() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/override/auth.json"] = #"{"opencode-go":{"type":"api","key":"g"}}"#.data(using: .utf8)
+        let c = OpenCodeUsageCollector(enabled: true, http: http, credentials: creds, home: home,
+                                       environment: ["OPENCODE_DATA_DIR": "/tmp/override"])
+        #expect(c.collect().first?.state != .unavailable(.noSignIn))
+    }
+
+    @Test("opencode successful read is subscription Go")
+    func opencodeGo() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"usage":{"weekly":{"percent":40,"resetsAt":null}}}"#.data(using: .utf8)!)]
+        let row = OpenCodeUsageCollector(enabled: true, http: http, credentials: creds, home: home)
+            .collect().first
+        #expect(row?.state == .ok && row?.plan == "Go" && row?.authentication == .subscription)
+    }
+
+    @Test("credential reader rejects Int.max limit and non-regular paths")
+    func readerBounds() {
+        #expect(UsageFileCredentialReader(limit: Int.max).read(URL(fileURLWithPath: "/tmp/e")) == nil)
+        #expect(UsageFileCredentialReader().read(URL(fileURLWithPath: "/tmp")) == nil)
+    }
+}

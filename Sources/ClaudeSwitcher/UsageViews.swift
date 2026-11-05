@@ -121,7 +121,7 @@ struct UsageContent: View {
         switch usage.provider {
         case .claude: return L10n.t(.usageEnvCLI)
         case .codex: return L10n.t(.usageEnvApp)
-        case .cursor: return nil
+        case .cursor, .grok, .gemini, .devin, .opencode: return nil
         }
     }
 
@@ -366,8 +366,10 @@ struct UsageContent: View {
                             pace: model.pace[UsagePriority.key(usage, window)])
             }
             if usage.authentication == .apiKey {
-                Link(L10n.t(.usageBillingConsole), destination: Self.billingURL(for: usage.provider))
-                    .font(.system(size: 11)).foregroundStyle(Theme.active)
+                if let url = Self.billingURL(for: usage.provider) {
+                    Link(L10n.t(.usageBillingConsole), destination: url)
+                        .font(.system(size: 11)).foregroundStyle(Theme.active)
+                }
             }
             if let reason = UsageText.reason(usage.state, provider: usage.provider) {
                 Text(reason).font(.system(size: 11))
@@ -379,11 +381,14 @@ struct UsageContent: View {
     }
 
     /// The provider's own billing console — the only place a balance claim can be verified.
-    static func billingURL(for provider: UsageProvider) -> URL {
+    /// nil for providers that have no self-serve billing page.
+    static func billingURL(for provider: UsageProvider) -> URL? {
         switch provider {
         case .codex: return URL(string: "https://platform.openai.com/settings/organization/billing/overview")!
         case .claude: return URL(string: "https://platform.claude.com/settings/billing")!
         case .cursor: return URL(string: "https://cursor.com/dashboard")!
+        case .grok, .gemini, .devin, .opencode:
+            return nil
         }
     }
 
