@@ -25,7 +25,7 @@ public struct UsageSearchRoots: Equatable, Sendable {
 }
 
 public enum UsageInstallations {
-    /// One row per installed provider, in the fixed order claude, codex, cursor. A provider counts as
+    /// One row per installed provider, in the fixed allCases order. A provider counts as
     /// installed when an executable CLI or its `.app` directory exists. Existence and executability
     /// checks only; the single directory listing is the Cursor vendor `versions/` folder.
     /// With `searchRoots`, only those directories (plus `bundledCodexCLI`) are searched: no vendor
@@ -40,11 +40,18 @@ public enum UsageInstallations {
                 var seen = Set<String>()
                 return searchRoots.executableDirectories.filter { seen.insert($0.standardizedFileURL.path).inserted }
             }
-            var list = [home.appendingPathComponent(".local/bin", isDirectory: true)]
+            // The caller's PATH wins first — an explicit PATH entry is the user's
+            // own environment, so a real binary there beats any fallback location.
+            // Then the standard user/package-manager directories in order; the
+            // standardized-path dedup keeps the first occurrence, never re-searches.
+            var list = pathDirectories
+            list.append(home.appendingPathComponent(".local/bin", isDirectory: true))
             if claudeLocal { list.append(home.appendingPathComponent(".claude/local", isDirectory: true)) }
-            list += [URL(fileURLWithPath: "/opt/homebrew/bin", isDirectory: true),
+            list += [home.appendingPathComponent(".npm-global/bin", isDirectory: true),
+                     home.appendingPathComponent(".bun/bin", isDirectory: true),
+                     home.appendingPathComponent(".volta/bin", isDirectory: true),
+                     URL(fileURLWithPath: "/opt/homebrew/bin", isDirectory: true),
                      URL(fileURLWithPath: "/usr/local/bin", isDirectory: true)]
-            list += pathDirectories
             var seen = Set<String>()
             return list.filter { seen.insert($0.standardizedFileURL.path).inserted }
         }
