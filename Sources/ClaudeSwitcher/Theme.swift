@@ -35,8 +35,8 @@ enum Theme {
 
     // Rhythm (deliberately uneven: tight inside rows, generous between groups)
     static let gapTight: CGFloat = 4
-    static let gapRow: CGFloat = 10
-    static let gapGroup: CGFloat = 22
+    static let gapRow: CGFloat = 12
+    static let gapGroup: CGFloat = 24
     static let radiusCard: CGFloat = 14
     static let radiusChip: CGFloat = 6
 

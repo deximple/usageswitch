@@ -118,6 +118,18 @@
   합성 데모·자동화 테스트와 실제 계정·VoiceOver 검증은 구분한다.
 - **DEFERRED**: API 프로필 실행, CLI 실행 키 주입, 잔액/비용 조회, OAuth/Sparkle 직접 관리.
 
+## Unslop 리뷰 — 크레딧
+
+이 제품은 차분하고 정확한 macOS 도구를 지향한다 — 최신 네이티브 폴리시는
+[heydamir/unslop](https://github.com/heydamir/unslop)(Damir Sokolovsky,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))의 9패스 체크리스트를
+웹 중심 기준에서 SwiftUI/macOS로 적응해 적용한 결과다. 처리 결과는: 간격 12/24·8/4
+조정; 시맨틱 컬러·시스템 블루 유지와 중립 보조 Details; 아이콘 18pt 정렬+실제 설치
+로고만; 카피/README 명확화(새 UI 문자열 없음); SF 타이포 의도적 유지; 컴팩트 목록
+레이아웃 유지; 상세 AX/액션 유지; 합성 네이티브 스크린샷(생성 이미지 없음); 모션·
+Reduced Motion 동작 유지. 측정된 대비·VoiceOver 주장은 하지 않는다. 업스트림 스킬
+전체를 이 저장소에 복제하지 않았다.
+
 ## 수용 게이트
 
 네이티브 수용은 실제 agent-desktop 데모 기준 — 라이브 계정 동작 없이 레이아웃/테마 보존,

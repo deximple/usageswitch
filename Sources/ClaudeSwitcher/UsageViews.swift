@@ -344,6 +344,7 @@ struct UsageContent: View {
                 VStack(alignment: .leading, spacing: Theme.gapTight) {
                     HStack(spacing: 8) {
                         ProviderIcon(provider: provider)
+                            .frame(width: 18, height: 18)
                         Text(UsageText.providerName(provider))
                             .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
                     }
@@ -364,9 +365,9 @@ struct UsageContent: View {
         let p = p ?? presentations.first { $0.id == usage.id }
         let accessibilityContext =
             "\(UsageText.providerName(usage.provider)), \(displayedName(p, fallback: usage))"
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             // line 1: masked name + lock + env badge + plan — all from current registry
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Text(displayedName(p, fallback: usage))
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.ink)
                     .lineLimit(1).truncationMode(.middle)
@@ -396,7 +397,7 @@ struct UsageContent: View {
                 }
                 Spacer()
                 Button(L10n.t(.uiDetails)) { AppDelegate.shared?.showUsageDetail(id: usage.id) }
-                    .font(.system(size: 10)).foregroundStyle(Theme.active)
+                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
                     .buttonStyle(.plain).fixedSize()
                     .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
