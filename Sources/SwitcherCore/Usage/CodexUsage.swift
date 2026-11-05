@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reads the `account/rateLimits/read` answer out of `codex app-server` output. Only windows, the plan
@@ -124,10 +125,25 @@ public struct CodexUsageCollector: Sendable {
     }
 
     private func read(_ account: CodexAccount, toolVersion: String?) -> AccountUsage {
+        let authentication: UsageAuthentication = switch account.identity?.mode {
+        case .chatgpt: .subscription
+        case .apiKey: .apiKey
+        case .unknown, nil: .unknown
+        }
+        // An opaque login fingerprint: two accounts may share a display name, and name edits
+        // must not break pace history. SHA256 of accountId|email, both required — memory only.
+        let identityKey: String? = {
+            guard account.identity?.mode == .chatgpt,
+                  let accountId = account.identity?.accountId, !accountId.isEmpty,
+                  let email = account.identity?.email, !email.isEmpty else { return nil }
+            let digest = SHA256.hash(data: Data("\(accountId)|\(email.lowercased())".utf8))
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }()
         func finish(_ state: UsageState, _ windows: [UsageWindow] = [], plan: String? = nil) -> AccountUsage {
             AccountUsage(id: "codex:\(account.id)", provider: .codex, accountRef: account.id,
                          label: account.label, plan: plan, windows: windows, state: state,
-                         readAt: now(), toolVersion: toolVersion)
+                         readAt: now(), toolVersion: toolVersion,
+                         authentication: authentication, identityKey: identityKey)
         }
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }

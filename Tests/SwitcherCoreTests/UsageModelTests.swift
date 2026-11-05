@@ -100,10 +100,12 @@ struct UsageModelTests {
 
 @Suite("Menu bar usage title")
 struct MenuBarUsageTests {
-    @Test("usage title is the localized window name plus the rounded percent")
+    init() { L10n.language = .en }
+
+    @Test("usage title shows the REMAINING share, localized")
     func usageTitle() {
-        #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4) == "Weekly 75%")
-        #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6) == "Session 100%")
+        #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4) == "Weekly 25% left")
+        #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6) == "Session 0% left")
     }
 }
 

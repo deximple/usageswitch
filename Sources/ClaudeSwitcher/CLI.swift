@@ -32,6 +32,12 @@ enum CLI {
             case "status", "list":
                 switcher.recoverIfNeeded().forEach { FileHandle.standardError.write(Data("note: \($0)\n".utf8)) }
                 return emit(switcher.status())
+            case "usage":
+                // The app's last read, from its file — no vendor tool, Keychain or network here.
+                guard let snapshot = UsageSnapshot.load(env: switcher.env) else {
+                    return fail("no_usage", L10n.t(.cliUsageNoData), exit: 1)
+                }
+                return emit(snapshot)
             case "switch":
                 guard args.count >= 2, !args[1].hasPrefix("--") else { return fail("usage", usage, exit: 64) }
                 let fault = value(after: "--inject-fault", in: args).flatMap(InjectedFault.init(rawValue:))

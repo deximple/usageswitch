@@ -95,6 +95,8 @@ public struct SwitcherEnvironment: Sendable {
     public var settingsLockFile: URL { storeDir.appendingPathComponent("settings.lock") }
     public var accountNamesFile: URL { storeDir.appendingPathComponent("account-names.json") }
     public var accountNamesLockFile: URL { storeDir.appendingPathComponent("account-names.lock") }
+    /// Last usage read, for `--cli usage` — percentages and reset times only.
+    public var usageSnapshotFile: URL { storeDir.appendingPathComponent("usage-snapshot.json") }
 
     // Codex: each account has its own Codex home; the standard one is ~/.codex.
     public var codexStandardHome: URL { home.appendingPathComponent(".codex", isDirectory: true) }

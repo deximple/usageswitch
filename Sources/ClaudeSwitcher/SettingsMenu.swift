@@ -20,6 +20,13 @@ struct SettingsMenu: View {
             }
             .pickerStyle(.menu)
             .disabled(model.isBusy)   // the language is applied to everything at once; not during a switch
+            Picker(L10n.t(.uiAppearance), selection: Binding(
+                get: { model.appearanceChoice }, set: { model.setAppearance($0) })) {
+                Text(L10n.t(.uiAppearanceSystem)).tag(AppAppearance.system)
+                Text(L10n.t(.uiAppearanceLight)).tag(AppAppearance.light)
+                Text(L10n.t(.uiAppearanceDark)).tag(AppAppearance.dark)
+            }
+            .pickerStyle(.menu)
             Divider()
             Toggle(L10n.t(.uiLaunchAtLogin), isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 .disabled(model.isDemo)
@@ -30,6 +37,15 @@ struct SettingsMenu: View {
             }))
             Toggle(L10n.t(.uiSettingShowUsage), isOn: Binding(get: { model.menuBarShowsUsage },
                                                             set: { model.setMenuBarShowsUsage($0) }))
+            Toggle(L10n.t(.uiSettingUsageAlerts), isOn: Binding(get: { model.usageAlertsEnabled },
+                                                              set: { model.setUsageAlertsEnabled($0) }))
+            Picker(L10n.t(.uiSettingWarnLevel), selection: Binding(
+                get: { model.usageWarnPercent }, set: { model.setUsageWarnPercent($0) })) {
+                Text(L10n.t(.usageUsedPercent, 70)).tag(70)
+                Text(L10n.t(.usageUsedPercent, 80)).tag(80)
+                Text(L10n.t(.usageUsedPercent, 90)).tag(90)
+            }
+            .pickerStyle(.menu)
             // On-by-confirmation only: this toggle reads Cursor's sign-in and calls Cursor's API.
             Toggle(L10n.t(.uiSettingCursorUsage), isOn: Binding(get: { model.cursorUsageEnabled }, set: { on in
                 if on { confirmCursorUsage() } else { model.setCursorUsageEnabled(false); usage.refresh() }

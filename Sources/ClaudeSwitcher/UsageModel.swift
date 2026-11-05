@@ -6,12 +6,14 @@ import SwitcherCore
 /// a newer one. Usage is display-only: nothing switches, launches or signs out on a limit.
 @MainActor
 final class UsageModel: ObservableObject {
-    enum Segment: String { case priority, all }
+    enum Segment: String { case guide, all }
 
     @Published private(set) var usages: [AccountUsage] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var nextRefresh = Date().addingTimeInterval(300)
-    /// Priority / All Usage, not persisted.
+    /// Drain speed per window key; `unknown` until two readings line up.
+    @Published private(set) var pace: [String: UsagePace.Reading] = [:]
+    /// Guide / All Usage, not persisted.
     @Published var segment: Segment
     let isDemo: Bool
 
@@ -20,13 +22,17 @@ final class UsageModel: ObservableObject {
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
     private var lastReadStartedAt: Date?
+    /// Last ok sample per window key, for pace. Session-scoped: a restart starts over.
+    private var previousSamples: [String: UsagePace.Sample] = [:]
+    /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
+    private var alertedKeys: Set<String> = []
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
 
     init(settings: SwitcherModel) {
         self.settings = settings
-        segment = .priority
+        segment = .guide
         isDemo = false
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: Self.tick, repeats: true) { [weak self] _ in
@@ -34,7 +40,7 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    init(demo: [AccountUsage], segment: Segment = .priority, settings: SwitcherModel) {
+    init(demo: [AccountUsage], segment: Segment = .guide, settings: SwitcherModel) {
         self.settings = settings
         self.segment = segment
         usages = demo
@@ -59,14 +65,16 @@ final class UsageModel: ObservableObject {
         let now = Date()
         var pinned: UsageWindow?
         var best: UsageWindow?
-        for usage in usages where usage.state == .ok {
-            for window in usage.windows where !window.isStale(now: now) {
+        for usage in usages where usage.state == .ok
+            && (0...600).contains(now.timeIntervalSince(usage.readAt)) {
+            for window in usage.windows
+            where !window.isStale(now: now) && window.usedPercent.isFinite {
                 if pins.contains(UsagePriority.key(usage, window)),
                    (pinned?.usedPercent ?? -1) < window.usedPercent { pinned = window }
                 if (best?.usedPercent ?? -1) < window.usedPercent { best = window }
             }
         }
-        guard let window = pinned ?? best else { return nil }
+        guard let window = pinned ?? best, UsageText.percentLeft(window.usedPercent) != nil else { return nil }
         return MenuBarTitle.usage(windowName: UsageText.name(of: window, scoped: false),
                                 usedPercent: window.usedPercent)
     }
@@ -99,27 +107,56 @@ final class UsageModel: ObservableObject {
                                         codexCLI: env.codexCLI, clientVersion: version).collect()
             next += CursorUsageCollector(enabled: cursorEnabled, runner: runner,
                                          http: SystemUsageHTTP(), home: env.home).collect()
-            await MainActor.run { self.finish(next, generation: generation) }
+            await MainActor.run { self.finish(next, generation: generation, env: env) }
         }
     }
 
-    private func finish(_ fresh: [AccountUsage], generation: Int) {
+    private func finish(_ fresh: [AccountUsage], generation: Int, env: SwitcherEnvironment) {
         guard generation == self.generation else { return }
-        usages = fresh.compactMap { reading -> AccountUsage? in
-            if reading.state == .ok { return reading }
-            // A failed re-read keeps the previous windows, marked stale by their own readAt —
-            // never shown as current.
-            if let prev = usages.first(where: { $0.id == reading.id }), !prev.windows.isEmpty {
-                return AccountUsage(id: reading.id, provider: reading.provider,
-                                    accountRef: reading.accountRef, label: reading.label,
-                                    plan: reading.plan ?? prev.plan, windows: prev.windows,
-                                    state: reading.state, readAt: prev.readAt,
-                                    toolVersion: reading.toolVersion)
-            }
-            // Not reporting with nothing to show stays out of the list entirely.
-            return reading.state == .notReporting && reading.windows.isEmpty ? nil : reading
+        let now = Date()
+        // Same-login subscription readings keep their previous windows on failure; every other
+        // case stands on its own — AccountUsage.retainingWindows decides, fail-closed.
+        usages = fresh.map { reading in
+            reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
+        updatePace()
+        // The `--cli usage` file: percentages and reset times only, labels always email-masked.
+        try? UsageSnapshot(usages: usages, generatedAt: now, showEmails: settings.showEmails)
+            .write(env: env, fs: SafeFS(env: env))
+        deliverAlerts(now: now)
         isRefreshing = false
-        nextRefresh = Date().addingTimeInterval(Self.interval)
+        nextRefresh = now.addingTimeInterval(Self.interval)
+    }
+
+    /// Pace compares each fresh ok window with the previous sample of the same window. Samples are
+    /// rebuilt from scratch each refresh and only admitted windows (known identity, future reset)
+    /// leave one — a failure, a missing identity or a login change breaks the chain on its own.
+    private func updatePace() {
+        var readings: [String: UsagePace.Reading] = [:]
+        var nextSamples: [String: UsagePace.Sample] = [:]
+        for usage in usages where usage.state == .ok {
+            for window in usage.windows {
+                let key = UsagePriority.key(usage, window)
+                readings[key] = UsagePace.reading(window, previous: previousSamples[key],
+                                                  now: usage.readAt, identityKey: usage.identityKey)
+                guard usage.identityKey != nil,
+                      let resetsAt = window.resetsAt, resetsAt > usage.readAt else { continue }
+                nextSamples[key] = UsagePace.Sample(at: usage.readAt, usedPercent: window.usedPercent,
+                                                    identityKey: usage.identityKey,
+                                                    resetsAt: resetsAt,
+                                                    durationMinutes: window.durationMinutes)
+            }
+        }
+        previousSamples = nextSamples
+        pace = readings
+    }
+
+    private func deliverAlerts(now: Date) {
+        guard settings.usageAlertsEnabled else { return }
+        let (alerts, alerted) = UsageAlerts.update(usages: usages,
+                                                 threshold: Double(settings.usageWarnPercent),
+                                                 alerted: alertedKeys, now: now)
+        alertedKeys = alerted
+        if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }

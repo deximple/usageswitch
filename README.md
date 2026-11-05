@@ -2,14 +2,14 @@
 
 A macOS menu bar app for people who use more than one Claude or Codex account.
 
-- **Usage tab** — see every account's rate-limit windows at a glance: a Priority view (pinned, running out, used up), a full list with a bar per window, and the most constrained window in the menu bar.
+- **Usage tab** — see every account's rate-limit windows at a glance: a Guide view (one conservative next-account candidate with the comparison folded away) and a plain per-provider list with a remaining-share bar per window.
 - **Claude tab** — save each account's Claude Desktop sign-in once, then switch Claude Desktop (including its Code tab) to any of them in one click. No signing out and back in.
 - **Codex tab** — give each Codex account its own Codex home and open them side by side, each in its own window.
 
 [한국어](README.ko.md) · Download: [latest release](https://github.com/deximple/usageswitch/releases/latest) · [Privacy](PRIVACY.md) · [Changelog](CHANGELOG.md)
 
 <p>
-  <img src="docs/screenshots/usage-tab.png" width="49%" alt="Usage tab: priority view with ring gauges">
+  <img src="docs/screenshots/usage-tab.png" width="49%" alt="Usage tab: guide view">
   <img src="docs/screenshots/usage-all.png" width="49%" alt="Usage tab: all accounts with per-window bars">
 </p>
 <p>
@@ -33,7 +33,12 @@ The Usage tab reads rate-limit windows through each vendor's own tooling, read-o
 - **Codex** — `codex app-server`, once per listed ChatGPT sign-in. API-key accounts can't report usage.
 - **Cursor** — off by default. If you turn it on (⚙︎ › Cursor Usage…), UsageSwitch reads Cursor's sign-in from the Keychain or `~/.cursor/auth.json` and sends one request to Cursor's API per refresh; the token is never saved. This is the only network request UsageSwitch makes — everything else is local.
 
-Usage never switches, launches or signs out because of a limit; it's display-only.
+Usage never switches, launches or signs out because of a limit; it's display-only. What it adds on top:
+
+- **Guide** — at most one next-account candidate, from accounts that report the same kinds of common windows; percentages compare the share of each limit left, never token counts. Nothing launches or switches on its own.
+- **Pace** — when a window is draining fast enough to run dry before its reset, the row says so.
+- **Alerts** — a macOS notification when a window crosses the warn level (⚙︎ › Usage Alerts, and the "Warn at used percentage" level next to it — 80% used, by default).
+- **`--cli usage`** — prints the last read as JSON, for scripts and agents. It only reads the app's snapshot file — whose labels are always email-masked regardless of the show-emails setting — and never touches a vendor tool, Keychain or network.
 
 ## Install
 
@@ -87,6 +92,7 @@ Sign-ins are never copied or swapped between homes. Codex refresh tokens are sin
 | Setting | What it does |
 |---|---|
 | Language | System language, or one of the five app languages |
+| Appearance | Follows the system appearance by default; can be pinned to Light or Dark — the choice is remembered |
 | Open at Login | When started at login, UsageSwitch stays in the menu bar without opening its window |
 | Show Account Name in Menu Bar | Turn off to show only the icon |
 | Always Show Emails | Show emails without clicking them |
@@ -108,6 +114,7 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli rename <account> "Work" # --reset returns to the default name
 "$APP" --cli remove <account>        # delete a saved sign-in (not the one in use)
 "$APP" --cli codex status            # Codex accounts
+"$APP" --cli usage                   # last usage read
 "$APP" --cli codex open <account>
 "$APP" --cli codex add               # sign in in the browser; Ctrl-C cancels
 "$APP" --cli --lang ja status        # one-off language

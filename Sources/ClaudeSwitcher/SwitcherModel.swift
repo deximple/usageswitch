@@ -41,6 +41,10 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var menuBarShowsUsage = true
     /// Cursor usage is opt-in: it reads Cursor's sign-in and calls Cursor's API.
     @Published private(set) var cursorUsageEnabled = false
+    /// Appearance choice persisted in settings; system follows the OS live.
+    @Published private(set) var appearanceChoice: AppAppearance = .system
+    @Published private(set) var usageWarnPercent = 80
+    @Published private(set) var usageAlertsEnabled = true
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -70,6 +74,9 @@ final class SwitcherModel: ObservableObject {
         usagePins = demo == nil ? settings.effectiveUsagePins : []
         menuBarShowsUsage = demo == nil ? settings.effectiveMenuBarShowsUsage : true
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
+        appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
+        usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
+        usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
         status = demo
         phase = demoPhase
         steps = demoSteps
@@ -314,10 +321,29 @@ final class SwitcherModel: ObservableObject {
         if !saveSettings({ $0.menuBarShowsUsage = on }) { menuBarShowsUsage = before }
     }
 
+    /// system is stored as nil so old and new settings files both mean "follow macOS".
+    func setAppearance(_ choice: AppAppearance) {
+        let before = appearanceChoice
+        appearanceChoice = choice
+        if !saveSettings({ $0.appearance = choice == .system ? nil : choice.rawValue }) { appearanceChoice = before }
+    }
+
     func setCursorUsageEnabled(_ on: Bool) {
         let before = cursorUsageEnabled
         cursorUsageEnabled = on
         if !saveSettings({ $0.cursorUsageEnabled = on }) { cursorUsageEnabled = before }
+    }
+
+    func setUsageWarnPercent(_ percent: Int) {
+        let before = usageWarnPercent
+        usageWarnPercent = percent
+        if !saveSettings({ $0.usageWarnPercent = percent }) { usageWarnPercent = before }
+    }
+
+    func setUsageAlertsEnabled(_ on: Bool) {
+        let before = usageAlertsEnabled
+        usageAlertsEnabled = on
+        if !saveSettings({ $0.usageAlertsEnabled = on }) { usageAlertsEnabled = before }
     }
 
     /// Whether an email (by row id) is shown unmasked.

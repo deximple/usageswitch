@@ -57,6 +57,8 @@ struct CodexRow: View {
     var compact = false
     /// "Always show emails" is on: nothing to toggle.
     var alwaysRevealed = false
+    /// Set when the guide pointed at this account — a subtle highlight only, no action.
+    var focused = false
     @State private var hovering = false
 
     private var stateColor: Color {
@@ -80,7 +82,7 @@ struct CodexRow: View {
 
     @ViewBuilder
     private func titleView(font: Font) -> some View {
-        let text = Text(title).font(font).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.middle)
+        let text = Text(title).font(font).foregroundStyle(Theme.ink).lineLimit(compact ? 2 : 1).truncationMode(.middle)
         if titleIsMasked && !alwaysRevealed {
             Button(action: onToggleEmail) { text }
                 .buttonStyle(.plain)
@@ -90,25 +92,55 @@ struct CodexRow: View {
         }
     }
 
+    /// The home path lives behind Info so the title stays uncluttered — selectable in
+    /// the popover, and opening it never reveals a masked email.
+    @State private var showInfo = false
+
+    private var infoButton: some View {
+        Button { showInfo.toggle() } label: {
+            Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.t(.uiAccountDetails))
+        .popover(isPresented: $showInfo, arrowEdge: .top) {
+            Text(alwaysRevealed ? account.homePath : Privacy.maskEmails(in: account.homePath))
+                .font(Theme.mono).foregroundStyle(Theme.inkMuted)
+                .textSelection(.enabled).padding(10)
+        }
+    }
+
+    /// Chips hold only what must stay on one line: the readable state (fixed so a long
+    /// locale never starves it) and the App source marker. Billing moves to its own line.
     private var chips: some View {
         HStack(spacing: 6) {
-            Chip(text: stateText, color: stateColor, filled: account.state == .running).layoutPriority(1)
-            if let plan = account.identity?.plan { Chip(text: plan.capitalized, color: Theme.alias) }
-            if account.identity?.mode == .apiKey { Chip(text: L10n.t(.codexChipApiKey), color: Theme.alias) }
-            if account.kind == .standard { Chip(text: L10n.t(.codexChipStandard), color: Theme.inkMuted) }
+            Chip(text: stateText, color: stateColor, filled: account.state == .running)
+                .layoutPriority(1).fixedSize()
+            Text(L10n.t(.usageEnvApp)).font(.system(size: 10)).foregroundStyle(Theme.inkMuted).fixedSize()
+        }
+    }
+
+    /// Billing never competes for chip-row width: nil/unknown identity shows nothing,
+    /// API keys are billed separately, subscriptions name their plan when one exists.
+    private var billingText: String? {
+        switch account.identity?.mode {
+        case .apiKey:
+            return L10n.t(.usageAuthApi)
+        case .chatgpt:
+            guard let plan = account.identity?.plan, !plan.isEmpty else {
+                return L10n.t(.usageAuthSubscription)
+            }
+            return L10n.t(.usageAuthSubscription) + " · " + plan.capitalized
+        case .unknown, .none:
+            return nil
         }
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.gapRow) {
-            Capsule()
-                .fill(stateColor)
-                .frame(width: 4, height: compact ? 44 : 40)
-                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Theme.gapTight) {
                 if compact {
-                    titleView(font: .system(size: 16, weight: .semibold, design: .serif))
-                    chips
+                    titleView(font: Theme.rowTitle).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) { chips; infoButton }
                 } else {
                     HStack(spacing: 8) {
                         titleView(font: Theme.rowTitle)
@@ -121,7 +153,12 @@ struct CodexRow: View {
                         .help(L10n.t(.uiRename))
                         .accessibilityLabel(L10n.t(.uiRename))
                         chips
+                        infoButton
                     }
+                }
+                if let billingText {
+                    Text(billingText).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let email = account.email, email != account.label {
                     if alwaysRevealed {
@@ -134,13 +171,7 @@ struct CodexRow: View {
                         .help(revealed ? L10n.t(.uiEmailHide) : L10n.t(.uiEmailShow))
                     }
                 }
-                if !compact {
-                    Text(account.homePath)
-                        .font(Theme.mono)
-                        .foregroundStyle(Theme.inkMuted.opacity(0.8))
-                        .lineLimit(1).truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
+
             }
             Spacer(minLength: 8)
             trailing
@@ -149,10 +180,8 @@ struct CodexRow: View {
         .padding(.vertical, compact ? 8 : 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
-                .fill(account.state == .running ? Theme.active.opacity(0.07) : hovering ? Theme.surfaceRaised : Theme.surface))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
-                .strokeBorder(account.state == .running ? Theme.active.opacity(0.35) : Theme.hairline, lineWidth: 1))
+                .fill(account.state == .running || focused
+                    ? Theme.active.opacity(0.10) : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button(L10n.t(.uiRename), action: onRename).disabled(busy)
@@ -191,13 +220,14 @@ struct CodexRow: View {
 }
 
 extension CodexRow {
-    init(account: CodexAccount, model: CodexModel, alwaysReveal: Bool, compact: Bool = false) {
+    init(account: CodexAccount, model: CodexModel, alwaysReveal: Bool, compact: Bool = false,
+         focused: Bool = false) {
         self.init(account: account, revealed: alwaysReveal || model.revealedEmails.contains(account.id), busy: model.isBusy,
                   onOpen: { model.open(account) }, onSignIn: { model.requestReauth(account) },
                   onToggleEmail: { model.toggleEmail(account.id) }, onRename: { model.requestRename(account) },
                   onCopyCommand: { model.copyCommand(account) }, onReveal: { model.revealInFinder(account) },
                   onRemove: account.kind == .standard ? nil : { model.requestRemove(account) }, compact: compact,
-                  alwaysRevealed: alwaysReveal)
+                  alwaysRevealed: alwaysReveal, focused: focused)
     }
 }
 
@@ -241,7 +271,7 @@ struct CodexHeader: View {
             Text(L10n.t(.codexHeaderTitle)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
             if status.installed {
                 Text(L10n.t(.codexRunningCount, status.runningCount))
-                    .font(compact ? .system(size: 22, weight: .semibold, design: .serif) : Theme.display)
+                    .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
                     .foregroundStyle(status.runningCount > 0 ? Theme.active : Theme.ink)
                 if !compact, let version = status.version {
                     Label("Codex v\(version)", systemImage: "shippingbox").font(Theme.caption).foregroundStyle(Theme.inkMuted)
@@ -290,6 +320,20 @@ struct CodexMainContent: View {
     @ObservedObject var model: CodexModel
     @ObservedObject var settings: SwitcherModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Scrolls to the account the guide pointed at — only when it still exists in the list.
+    private func scrollToFocus(_ proxy: ScrollViewProxy) {
+        guard let id = model.focusedAccountID,
+              model.status?.accounts.contains(where: { $0.id == id }) == true else { return }
+        let jump = {
+            if reduceMotion { proxy.scrollTo(id, anchor: .center) }
+            else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+        }
+        jump()
+        DispatchQueue.main.async { jump() }
+    }
+
     var body: some View {
         if let status = model.status {
             VStack(alignment: .leading, spacing: 0) {
@@ -304,17 +348,21 @@ struct CodexMainContent: View {
                     }
                 }
                 .padding(Theme.gapGroup)
-                .background(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).fill(Theme.surface)
-                    .shadow(color: .black.opacity(0.06), radius: 14, y: 6))
+                .background(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).fill(Theme.surface))
                 .padding([.horizontal, .top], Theme.gapGroup)
 
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.gapGroup) {
                         if case .signingIn = model.phase { CodexSignInProgress(model: model) }
                         if let banner = model.banner { BannerView(banner: banner) }
                         VStack(alignment: .leading, spacing: Theme.gapRow) {
                             Text(L10n.t(.uiAccounts)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
-                            ForEach(status.accounts) { account in CodexRow(account: account, model: model, alwaysReveal: settings.showEmails) }
+                            ForEach(status.accounts) { account in
+                                CodexRow(account: account, model: model, alwaysReveal: settings.showEmails,
+                                         focused: model.focusedAccountID == account.id)
+                                    .id(account.id)
+                            }
                         }
                         if !status.found.isEmpty {
                             VStack(alignment: .leading, spacing: Theme.gapRow) {
@@ -327,6 +375,9 @@ struct CodexMainContent: View {
                         }
                     }
                     .padding(Theme.gapGroup)
+                }
+                .onAppear { scrollToFocus(proxy) }
+                .onChange(of: model.focusedAccountID) { _, _ in scrollToFocus(proxy) }
                 }
 
                 Divider().overlay(Theme.hairline)
@@ -357,7 +408,9 @@ struct CodexMenuContent: View {
         if let status = model.status {
             CodexHeader(status: status, compact: true).padding(.bottom, 4)
             ForEach(status.accounts) { account in
-                CodexRow(account: account, model: model, alwaysReveal: settings.showEmails, compact: true)
+                CodexRow(account: account, model: model, alwaysReveal: settings.showEmails, compact: true,
+                            focused: model.focusedAccountID == account.id)
+                    .id(account.id)
             }
             if case .signingIn = model.phase { CodexSignInProgress(model: model) }
             if let banner = model.banner { BannerView(banner: banner) }

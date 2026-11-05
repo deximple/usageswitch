@@ -51,7 +51,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
   - whether an API key is set, without reading the key itself.
 
   Tokens are never stored elsewhere, copied or printed.
-- **Usage reads:** the Usage tab asks the `claude` CLI for `/usage` output and runs `codex app-server` for each listed ChatGPT sign-in, in each vendor's own home with its own credentials. Only the answer's percentages, window durations, reset times and plan names are read — never account IDs, emails or error text. Nothing is persisted.
+- **Usage reads:** the Usage tab asks the `claude` CLI for `/usage` output and runs `codex app-server` for each listed ChatGPT sign-in, in each vendor's own home with its own credentials. Only the answer's percentages, window durations, reset times and plan names are read — never account IDs, emails or error text. The latest read is kept in `usage-snapshot.json` (percentages and reset times only, labels always email-masked regardless of the app's show-emails setting) so `UsageSwitch --cli usage` can print it without running the vendor tools again. If **Usage Alerts** is on, a window crossing the warn level also posts a macOS notification with the same masked label and percentage.
 
 ## What UsageSwitch never does
 

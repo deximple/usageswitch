@@ -21,6 +21,9 @@ final class CodexModel: ObservableObject {
     }
 
     @Published private(set) var status: CodexStatus?
+    /// Account the guide's "View account" asked the Codex tab to scroll to. Memory only —
+    /// navigation, never an open/sign-in/switch. A removed account just leaves it dangling.
+    @Published var focusedAccountID: String?
     @Published private(set) var phase: Phase = .idle
     @Published var banner: SwitcherModel.Banner?
     @Published var pending: Pending?

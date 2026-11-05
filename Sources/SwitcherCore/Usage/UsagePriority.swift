@@ -24,10 +24,11 @@ public enum UsagePriority {
         "\(usage.id)/\(window.kind.rawValue)/\(window.scope ?? "")"
     }
 
-    /// Pinned windows appear under Pinned only, stale or not. The rest: 80–99% used is Running Out,
-    /// 100%+ with the reset still ahead is Used Up. A stale window (reset passed) claims nothing —
-    /// its number no longer says where the window stands.
-    public static func sections(_ usages: [AccountUsage], pins: Set<String>, now: Date) -> Sections {
+    /// Pinned windows appear under Pinned only, stale or not. The rest: `runningOutAt`–99% used is
+    /// Running Out, 100%+ with the reset still ahead is Used Up. A stale window (reset passed)
+    /// claims nothing — its number no longer says where the window stands.
+    public static func sections(_ usages: [AccountUsage], pins: Set<String>, now: Date,
+                                runningOutAt: Double = 80) -> Sections {
         var pinned: [Row] = []
         var runningOut: [Row] = []
         var usedUp: [Row] = []
@@ -38,7 +39,7 @@ public enum UsagePriority {
                     pinned.append(row)
                 } else if window.usedPercent >= 100 {
                     if let resetsAt = window.resetsAt, resetsAt > now { usedUp.append(row) }
-                } else if window.usedPercent >= 80 && !window.isStale(now: now) {
+                } else if window.usedPercent >= runningOutAt && !window.isStale(now: now) {
                     runningOut.append(row)
                 }
             }

@@ -10,8 +10,10 @@ public enum MenuBarTitle {
         return shown.count > limit ? String(shown.prefix(limit - 1)) + "…" : shown
     }
 
-    /// The most constrained window's short title, e.g. "Weekly 75%". The name comes in already localized.
+    /// The most constrained window's short title, e.g. "Weekly 25% left". `usedPercent` keeps its
+    /// JSON/collector meaning (share consumed); what the bar shows is the REMAINING share.
     public static func usage(windowName: String, usedPercent: Double) -> String {
-        "\(windowName) \(Int(usedPercent.rounded()))%"
+        UsageText.percentLeft(usedPercent)
+            .map { "\(windowName) \(L10n.t(.usageLeft, $0))" } ?? "\(windowName) —"
     }
 }

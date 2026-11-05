@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.0 — usage guide, alerts, CLI
+
+**Guide (new section in Priority):**
+- Which account is best placed for each kind of work — long work (weekly/monthly windows),
+  heavy bursts (session windows) and dedicated pools (model-scoped windows like Fable or Auto) —
+  from each account's tightest fresh window.
+- A "best for …" badge on the winning account's card in All Usage (hidden under 25% left),
+  and a "weekly is tight — keep it to bursts" hint when the long-work pool is nearly out.
+
+**Pace:**
+- Compares each fresh read with the previous one; a window draining fast enough to run dry
+  before its reset shows the projected exhaustion instead of the reset countdown.
+
+**Alerts and threshold:**
+- macOS notification when a window crosses the warn level — ⚙︎ › Usage Alerts (on by default).
+- The "Running Out" level is configurable (70/80/90%) — ⚙︎ › next to it.
+
+**CLI:**
+- `UsageSwitch --cli usage` prints the app's last read as JSON, for scripts and agents.
+  It only reads the snapshot file the app writes per refresh — never a vendor tool, the
+  Keychain or the network.
+
 ## 2.0.0 — usage
 
 **Usage tab (new first tab):**

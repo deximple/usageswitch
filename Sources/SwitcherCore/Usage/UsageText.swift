@@ -15,9 +15,16 @@ public enum UsageText {
         return L10n.t(.usageWinScope, base, scope)
     }
 
-    /// "58% left", rounded.
+    /// Remaining share 0…100 as an Int, or nil for non-finite or negative input. 104% used is
+    /// still 0 left; a runaway value never overflows into a fake hundred.
+    public static func percentLeft(_ usedPercent: Double) -> Int? {
+        guard usedPercent.isFinite, usedPercent >= 0 else { return nil }
+        return Int(max(0, min(100, 100 - usedPercent)).rounded())
+    }
+
+    /// "58% left", rounded — "—" for a reading whose percent isn't a real number.
     public static func left(_ window: UsageWindow) -> String {
-        L10n.t(.usageLeft, Int((100 - window.usedPercent).rounded()))
+        percentLeft(window.usedPercent).map { L10n.t(.usageLeft, $0) } ?? "—"
     }
 
     /// "2d 4h" / "1h 13m" / "5m"; a reset in the past or under a minute away is "now".

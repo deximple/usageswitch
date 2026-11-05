@@ -136,13 +136,19 @@ enum Fixtures {
                               settings: settings)
         case "usage-stale":
             return UsageModel(demo: staleUsages(), segment: .all, settings: settings)
+        case "usage-failed":
+            return UsageModel(demo: staleUsages(), segment: .guide, settings: settings)
+        case "usage-guide":
+            return UsageModel(demo: guideUsages(), segment: .guide, settings: settings)
+        case "usage-many-long":
+            return UsageModel(demo: manyLongUsages(), segment: .all, settings: settings)
         default:
             settings.setUsagePins([personalWeeklyKey])
             return UsageModel(demo: usages(), settings: settings)
         }
     }
 
-    private static let personalWeeklyKey = "codex:personal/weekly/"
+    private static let personalWeeklyKey = "codex:standard/weekly/"
 
     private static func window(_ minutes: Int?, _ used: Double, scope: String? = nil,
                                resetsIn: TimeInterval) -> UsageWindow {
@@ -152,10 +158,12 @@ enum Fixtures {
 
     private static func account(_ provider: UsageProvider, _ ref: String, _ label: String,
                                 _ state: UsageState, plan: String? = nil, toolVersion: String? = nil,
+                                auth: UsageAuthentication = .unknown, identityKey: String? = nil,
                                 readAgo: TimeInterval = 0, windows: [UsageWindow] = []) -> AccountUsage {
         AccountUsage(id: "\(provider.rawValue):\(ref)", provider: provider, accountRef: ref,
                      label: label, plan: plan, windows: windows, state: state,
-                     readAt: Date().addingTimeInterval(-readAgo), toolVersion: toolVersion)
+                     readAt: Date().addingTimeInterval(-readAgo), toolVersion: toolVersion,
+                     authentication: auth, identityKey: identityKey)
     }
 
     /// Claude weekly 75% + Fable 3%; Codex Personal 31% (pinned), Work session 92% + weekly 64%,
@@ -166,24 +174,86 @@ enum Fixtures {
                 window(10080, 75, resetsIn: 2 * 86400 + 4 * 3600),
                 window(10080, 3, scope: "Fable", resetsIn: 2 * 86400 + 4 * 3600),
             ]),
-            account(.codex, "personal", "alex.kim@example.com", .ok, plan: "prolite",
-                    toolVersion: "0.166.0-alpha.5.1", windows: [
+            account(.codex, "standard", "alex.kim@example.com", .ok, plan: "prolite",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-personal", windows: [
+                window(300, 20, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 31, resetsIn: 4 * 86400 + 9 * 3600),
             ]),
-            account(.codex, "work", "Work", .ok, plan: "team", toolVersion: "0.166.0-alpha.5.1", windows: [
+            account(.codex, "found:.codex-work", "Work", .ok, plan: "team", toolVersion: "0.166.0-alpha.5.1",
+                    auth: .subscription, identityKey: "fixture-work", windows: [
                 window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 64, resetsIn: 3 * 86400 + 2 * 3600),
             ]),
-            account(.codex, "side", "Side project", .ok, plan: "plus",
-                    toolVersion: "0.166.0-alpha.5.1", windows: [
+            account(.codex, "m-3c4d5e6f", "Side project", .ok, plan: "plus",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-side", windows: [
                 window(300, 100, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 41, resetsIn: 5 * 86400 + 7 * 3600),
             ]),
+            // An API-key profile: billed separately, no subscription window — stays listed.
+            account(.codex, "found:.codex_second", "API profile", .notReporting, auth: .apiKey),
             account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
                 window(43200, 54, scope: "Auto", resetsIn: 21 * 86400 + 5 * 3600),
                 window(43200, 12, scope: "API", resetsIn: 21 * 86400 + 5 * 3600),
             ]),
         ]
+    }
+
+    /// Two comparable subscription accounts plus a warning account and an API profile:
+    /// personal min(80,69)=69 beats side min(55,59)=55; plans differ (Pro Lite vs Plus).
+    private static func guideUsages() -> [AccountUsage] {
+        [
+            account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
+                window(10080, 75, resetsIn: 2 * 86400 + 4 * 3600),
+            ]),
+            account(.codex, "standard", "alex.kim@example.com", .ok, plan: "prolite",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-personal", windows: [
+                window(300, 20, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 31, resetsIn: 4 * 86400 + 9 * 3600),
+            ]),
+            account(.codex, "found:.codex-work", "Work", .ok, plan: "team",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-work", windows: [
+                window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 64, resetsIn: 3 * 86400 + 2 * 3600),
+            ]),
+            account(.codex, "m-3c4d5e6f", "Side project", .ok, plan: "plus",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-side", windows: [
+                window(300, 45, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 41, resetsIn: 5 * 86400 + 7 * 3600),
+            ]),
+            account(.codex, "found:.codex_second", "API profile", .notReporting, auth: .apiKey),
+        ]
+    }
+
+    /// Many demo Codex readings — unique ids, deliberately long masked email labels, mixed
+    /// states (ok / notReporting API / failed-kept) to prove the compact list scrolls and clamps.
+    private static func manyLongUsages() -> [AccountUsage] {
+        var usages = guideUsages()
+        for i in 1...14 {
+            let id = "m-long-\(i)"
+            if i == 7 {
+                usages.append(account(.codex, id,
+                    "api.key.holder.account.number.seven@example-domain.org", .notReporting,
+                    auth: .apiKey))
+            } else if i == 11 {
+                usages.append(account(.codex, id,
+                    "eleventh.codex.subscription.holder@example-company.net", .failed(.timeout),
+                    auth: .subscription, identityKey: "fixture-long-\(i)", readAgo: 30 * 60,
+                    windows: [window(10080, 55, resetsIn: 2 * 86400)]))
+            } else {
+                usages.append(account(.codex, id,
+                    "very.long.masked.account.holder.number.\(i)@example-domain.org", .ok,
+                    plan: i % 3 == 0 ? "pro" : "plus", auth: .subscription,
+                    identityKey: "fixture-long-\(i)",
+                    windows: [window(300, Double(10 + i * 4), resetsIn: 2 * 3600),
+                              window(10080, Double(15 + i * 3), resetsIn: 4 * 86400)]))
+            }
+        }
+        return usages
     }
 
     /// A timed-out re-read that kept its previous windows: the windows' resets are still in the
@@ -193,8 +263,9 @@ enum Fixtures {
             account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
                 window(10080, 40, resetsIn: 3 * 86400),
             ]),
-            account(.codex, "work", "Work", .failed(.timeout), plan: "team",
-                    toolVersion: "0.166.0-alpha.5.1", readAgo: 40 * 60, windows: [
+            account(.codex, "found:.codex-work", "Work", .failed(.timeout), plan: "team",
+                    toolVersion: "0.166.0-alpha.5.1", auth: .subscription,
+                    identityKey: "fixture-work", readAgo: 40 * 60, windows: [
                 window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 64, resetsIn: 2 * 86400 + 4 * 3600),
             ]),

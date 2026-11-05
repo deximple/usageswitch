@@ -2,14 +2,14 @@
 
 Claude 나 Codex 계정을 여러 개 쓰는 사람을 위한 macOS 메뉴바 앱입니다.
 
-- **사용량 탭** — 모든 계정의 사용량 창을 한눈에: 우선순위(고정·거의 다 씀·다 씀) 보기, 창별 진행 막대 목록, 메뉴바의 가장 빠듯한 창.
+- **사용량 탭** — 모든 계정의 사용량 창을 한눈에: 가이드(다음 계정 후보 하나와 접히는 비교 근거) 보기와 제공자별 계정 목록, 창별 남은 비율 막대, 메뉴바의 가장 빠듯한 창.
 - **Claude 탭**: 계정마다 Claude Desktop 로그인을 한 번 저장해 두면, 클릭 한 번으로 Claude Desktop(Code 탭 포함)을 그 계정으로 전환합니다. 로그아웃했다가 다시 로그인할 필요가 없습니다.
 - **Codex 탭**: Codex 계정마다 자기 Codex 홈을 두고, 각각 별도 창으로 나란히 엽니다.
 
 [English](README.md) · 내려받기: [최신 릴리스](https://github.com/deximple/usageswitch/releases/latest) · [개인정보](PRIVACY.md) · [변경 내역](CHANGELOG.md)
 
 <p>
-  <img src="docs/screenshots/usage-tab.png" width="49%" alt="사용량 탭: 링 게이지가 있는 우선순위 보기">
+  <img src="docs/screenshots/usage-tab.png" width="49%" alt="사용량 탭: 가이드 보기">
   <img src="docs/screenshots/usage-all.png" width="49%" alt="사용량 탭: 계정별 창 진행 막대">
 </p>
 <p>
@@ -29,7 +29,12 @@ Claude 나 Codex 계정을 여러 개 쓰는 사람을 위한 macOS 메뉴바 �
 - **Codex** — 목록에 있는 ChatGPT 로그인마다 `codex app-server` 를 한 번씩 실행합니다. API 키 계정은 사용량을 알리지 않습니다.
 - **Cursor** — 기본 꺼짐. 켜면(⚙︎ › Cursor 사용량…) UsageSwitch 가 키체인 또는 `~/.cursor/auth.json` 에서 Cursor 로그인을 읽고 갱신마다 Cursor API 에 요청 한 번을 보냅니다. 토큰은 저장되지 않습니다. 이것이 UsageSwitch 가 직접 하는 유일한 네트워크 요청이고, 나머지는 모두 로컬입니다.
 
-사용량은 보여주기만 합니다. 한도 때문에 계정을 바꾸거나 앱을 실행·로그아웃하지 않습니다.
+사용량은 보여주기만 합니다. 한도 때문에 계정을 바꾸거나 앱을 실행·로그아웃하지 않습니다. 그 위에 이런 기능이 더해집니다:
+
+- **가이드** — 같은 종류·길이의 공통 한도를 보고한 계정끼리만 비교해 다음 계정 후보를 최대 하나만 제시합니다. 비율은 각 한도의 남은 비중 비교이며 토큰 수가 아닙니다. 저절로 앱을 열거나 전환하지 않습니다.
+- **페이스** — 리셋 전에 소진될 만큼 빠르게 줄어드는 창이 있으면 그 행에 표시합니다.
+- **알림** — 창이 경고 기준을 넘으면 macOS 알림을 띄웁니다(⚙︎ › 사용량 알림, 옆의 '사용률 경고 기준' — 기본 80% 사용 시).
+- **`--cli usage`** — 마지막으로 읽은 사용량을 JSON 으로 출력합니다. 스크립트·에이전트용입니다. 스냅샷 파일만 읽는데, 레이블은 이메일 표시 설정과 무관하게 항상 마스킹되어 있습니다. 벤더 도구·키체인·네트워크에는 닿지 않습니다.
 
 ## 설치
 
@@ -96,6 +101,7 @@ Codex 는 로그인을 Codex 홈(기본 `~/.codex`)에 저장합니다. UsageSwi
 | 설정 | 하는 일 |
 |---|---|
 | 언어 | 시스템 언어, 또는 앱의 5개 언어 중 하나 |
+| 외관 | 기본은 시스템 설정을 따르고, 라이트·다크로 고정할 수 있습니다(선택은 저장됩니다) |
 | 로그인 시 자동 실행 | 로그인 때 실행되면 창 없이 메뉴바에만 뜹니다 |
 | 메뉴바에 계정 이름 표시 | 끄면 아이콘만 보입니다 |
 | 이메일 항상 보이기 | 클릭하지 않아도 이메일을 보여 줍니다 |
@@ -117,6 +123,7 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli rename <계정> "회사"      # --reset: 기본 이름으로
 "$APP" --cli remove <계정>            # 저장된 로그인 삭제(사용 중인 계정은 불가)
 "$APP" --cli codex status            # Codex 계정 목록
+"$APP" --cli usage                   # 마지막으로 읽은 사용량
 "$APP" --cli codex open <계정>
 "$APP" --cli codex add               # 브라우저 로그인, Ctrl-C 로 취소
 "$APP" --cli --lang ko status        # 이번 실행만 다른 언어로

@@ -50,15 +50,25 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var menuBarShowsUsage: Bool?
     /// Allow reading Cursor's sign-in for its usage (default off: no Keychain read, no request).
     public var cursorUsageEnabled: Bool?
+    /// Saved appearance choice: nil or unknown values mean system.
+    public var appearance: String?
+    /// Percent used at which a window counts as Running Out (and alerts fire; default 80).
+    public var usageWarnPercent: Int?
+    /// Post a notification when a window crosses the warn percent (default on).
+    public var usageAlertsEnabled: Bool?
 
     public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil,
-                usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil) {
+                usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil, appearance: String? = nil,
+                usageWarnPercent: Int? = nil, usageAlertsEnabled: Bool? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
         self.usagePins = usagePins
         self.menuBarShowsUsage = menuBarShowsUsage
         self.cursorUsageEnabled = cursorUsageEnabled
+        self.appearance = appearance
+        self.usageWarnPercent = usageWarnPercent
+        self.usageAlertsEnabled = usageAlertsEnabled
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
@@ -81,4 +91,12 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var effectiveUsagePins: [String] { usagePins ?? [] }
     public var effectiveMenuBarShowsUsage: Bool { menuBarShowsUsage ?? true }
     public var effectiveCursorUsageEnabled: Bool { cursorUsageEnabled ?? false }
+    /// Appearance stored as a raw string so unknown values decode to system without a migration.
+    public var effectiveAppearance: AppAppearance { AppAppearance(rawValue: appearance ?? "") ?? .system }
+    /// Kept to the sane range the settings menu offers; a hand-edited value outside it falls back.
+    public var effectiveUsageWarnPercent: Int {
+        guard let usageWarnPercent, (50...99).contains(usageWarnPercent) else { return 80 }
+        return usageWarnPercent
+    }
+    public var effectiveUsageAlertsEnabled: Bool { usageAlertsEnabled ?? true }
 }

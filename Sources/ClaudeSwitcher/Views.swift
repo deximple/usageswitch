@@ -25,7 +25,7 @@ struct AccountRow: View {
 
     @ViewBuilder
     private func titleView(font: Font) -> some View {
-        let text = Text(title).font(font).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.middle)
+        let text = Text(title).font(font).foregroundStyle(Theme.ink).lineLimit(compact ? 2 : 1).truncationMode(.middle)
         if titleIsMasked && !alwaysRevealed {
             Button(action: onToggleEmail) { text }
                 .buttonStyle(.plain)
@@ -39,8 +39,27 @@ struct AccountRow: View {
     private var title: String { revealed ? account.label : SwitcherModel.displayLabel(account) }
 
     private var chips: some View {
-        Chip(text: Theme.label(for: account.snapshot, active: account.isActive), color: stateColor, filled: account.isActive)
+        HStack(spacing: 6) {
+            Chip(text: Theme.label(for: account.snapshot, active: account.isActive), color: stateColor, filled: account.isActive)
+            Text(L10n.t(.usageEnvApp)).font(.system(size: 10)).foregroundStyle(Theme.inkMuted).fixedSize()
+        }
     }
+
+    /// The account UUID lives behind Info so the row stays a single title line; the popover
+    /// keeps it selectable and never reveals a masked email.
+    private var infoButton: some View {
+        Button { showInfo.toggle() } label: {
+            Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.t(.uiAccountDetails))
+        .popover(isPresented: $showInfo, arrowEdge: .top) {
+            Text(alwaysRevealed ? account.accountUuid : Privacy.maskEmails(in: account.accountUuid))
+                .font(Theme.mono).foregroundStyle(Theme.inkMuted)
+                .textSelection(.enabled).padding(10)
+        }
+    }
+    @State private var showInfo = false
 
     /// Shown on hover next to the name, so renaming is discoverable without the context menu.
     @ViewBuilder
@@ -61,19 +80,16 @@ struct AccountRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.gapRow) {
-            Capsule()
-                .fill(stateColor)
-                .frame(width: 4, height: compact ? 44 : 40)
-                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Theme.gapTight) {
                 if compact {
-                    titleView(font: .system(size: 16, weight: .semibold, design: .serif))
-                    chips
+                    titleView(font: Theme.rowTitle).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) { chips; infoButton }
                 } else {
                     HStack(spacing: 8) {
                         titleView(font: Theme.rowTitle)
                         renameButton
                         chips
+                        infoButton
                     }
                 }
                 if let email = account.email {
@@ -90,12 +106,7 @@ struct AccountRow: View {
                         .accessibilityLabel(revealed ? L10n.t(.uiEmailAxRevealed, email) : L10n.t(.uiEmailAxMasked))
                     }
                 }
-                if !compact {
-                    Text(account.accountUuid)
-                        .font(Theme.mono)
-                        .foregroundStyle(Theme.inkMuted.opacity(0.8))
-                        .textSelection(.enabled)
-                }
+
             }
             Spacer(minLength: 8)
             trailing
@@ -104,10 +115,7 @@ struct AccountRow: View {
         .padding(.vertical, compact ? 8 : 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
-                .fill(account.isActive ? Theme.active.opacity(0.07) : hovering ? Theme.surfaceRaised : Theme.surface))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
-                .strokeBorder(account.isActive ? Theme.active.opacity(0.35) : Theme.hairline, lineWidth: 1))
+                .fill(account.isActive ? Theme.active.opacity(0.10) : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             if let onRename {
@@ -178,7 +186,7 @@ struct ActiveHeader: View {
             if let active = status.activeAccount {
                 Text(status.accounts.filter(\.isActive)
                     .map { revealed ? $0.label : SwitcherModel.displayLabel($0) }.joined(separator: " · "))
-                    .font(compact ? .system(size: 24, weight: .semibold, design: .serif) : .system(size: 40, weight: .semibold, design: .serif))
+                    .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
                     .foregroundStyle(Theme.active)
                     .lineLimit(1).truncationMode(.middle)
                 if let address = active.email {
@@ -188,15 +196,15 @@ struct ActiveHeader: View {
                 }
             } else if let address = status.claude.activeEmail {
                 email(address)
-                    .font(compact ? .system(size: 20, weight: .semibold, design: .serif) : Theme.display)
+                    .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
                     .foregroundStyle(Theme.ink)
             } else if status.claude.activeAccountUuid != nil {
                 Text(L10n.t(.uiHeaderNotInList))
-                    .font(compact ? .system(size: 20, weight: .semibold, design: .serif) : Theme.display)
+                    .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
                     .foregroundStyle(Theme.ink)
             } else {
                 Text(status.claude.running ? L10n.t(.uiHeaderSignedOut) : L10n.t(.uiHeaderClaudeOff))
-                    .font(compact ? .system(size: 20, weight: .semibold, design: .serif) : Theme.display)
+                    .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
                     .foregroundStyle(Theme.inkMuted)
             }
             if !compact {
@@ -315,13 +323,21 @@ struct MainView: View {
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .trailing) { SettingsMenu(model: model, codex: codex, usage: usage).padding(.trailing, Theme.gapGroup) }
                     .padding(.top, 14)
+                    .modifier(NavChrome())
                 switch tabs.tab {
                 case .usage:
-                    ScrollView {
-                        UsageContent(model: usage, settings: model)
-                            .frame(maxWidth: 560, alignment: .top)
-                            .frame(maxWidth: .infinity)
-                            .padding(Theme.gapGroup)
+                    VStack(spacing: 0) {
+                        UsageSegmentPicker(model: usage)
+                            .padding([.horizontal, .top], Theme.gapGroup)
+                        ScrollView {
+                            UsageContent(model: usage, settings: model, codex: codex, tabs: tabs)
+                                .frame(maxWidth: 560, alignment: .top)
+                                .frame(maxWidth: .infinity)
+                                .padding([.horizontal, .bottom], Theme.gapGroup)
+                        }
+                        UsageFooter(model: usage)
+                            .padding(.horizontal, Theme.gapGroup)
+                            .padding(.bottom, 12)
                     }
                 case .claude:
                     if let status = model.status {
@@ -427,27 +443,74 @@ struct MenuView: View {
     @ObservedObject var codex: CodexModel
     @ObservedObject var usage: UsageModel
     @ObservedObject var tabs: TabSelection
+    /// Measured heights: the scrolling body shares one 600-pt panel budget with the fixed
+    /// top (navigation + segment picker) and bottom (usage footer + controls) chrome, so the
+    /// complete menu can never push controls off the screen under the pointer.
+    @State private var bodyHeight: CGFloat = 120
+    @State private var chromeTop: CGFloat = 60
+    @State private var chromeHeight: CGFloat = 140
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var panelCap: CGFloat {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        return min(600, (screen?.visibleFrame.height ?? 600) - 80)
+    }
+
+    /// Scroll to the account the guide pointed at, once its tab has actually laid out —
+    /// the id may not exist in the ScrollView until after the tab switch renders.
+    private func scrollToFocus(_ proxy: ScrollViewProxy) {
+        guard let id = codex.focusedAccountID, tabs.tab == .codex,
+              codex.status?.accounts.contains(where: { $0.id == id }) == true else { return }
+        let jump = {
+            if reduceMotion { proxy.scrollTo(id, anchor: .center) }
+            else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+        }
+        jump()
+        DispatchQueue.main.async { jump() }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.gapRow) {
-            TabSwitcher(selection: tabs).frame(maxWidth: .infinity)
-            switch tabs.tab {
-            case .usage: UsageContent(model: usage, settings: model, compact: true)
-            case .claude: claudeContent
-            case .codex: CodexMenuContent(model: codex, settings: model)
+            VStack(alignment: .leading, spacing: Theme.gapRow) {
+                TabSwitcher(selection: tabs).frame(maxWidth: .infinity)
+                if tabs.tab == .usage { UsageSegmentPicker(model: usage) }
             }
-            Divider().overlay(Theme.hairline)
-            HStack {
-                Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }
-                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
-                Spacer()
-                SettingsMenu(model: model, codex: codex, usage: usage)
-                Button(L10n.t(.uiQuit)) { NSApp.terminate(nil) }
-                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
-                    .keyboardShortcut("q")
-                    .disabled(model.isBusy)
-                    .help(model.isBusy ? L10n.t(.uiQuitHelpBusy) : L10n.t(.uiQuitHelp, ProductInfo.name))
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { chromeTop = $0 }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.gapRow) {
+                        switch tabs.tab {
+                        case .usage: UsageContent(model: usage, settings: model, codex: codex, tabs: tabs, compact: true)
+                        case .claude: claudeContent
+                        case .codex: CodexMenuContent(model: codex, settings: model)
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bodyHeight = $0 }
+                }
+                // -48: outer .padding(14) and the two inter-section spacings aren't measured.
+                .frame(height: max(0, min(bodyHeight, panelCap - chromeTop - chromeHeight - 48)))
+                .scrollIndicators(.automatic)
+                .onAppear { scrollToFocus(proxy) }
+                .onChange(of: codex.focusedAccountID) { _, _ in scrollToFocus(proxy) }
+                .onChange(of: tabs.tab) { _, _ in scrollToFocus(proxy) }
             }
+            VStack(alignment: .leading, spacing: Theme.gapRow) {
+                if tabs.tab == .usage { UsageFooter(model: usage) }
+                Divider().overlay(Theme.hairline)
+                HStack {
+                    Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }
+                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                    Spacer()
+                    SettingsMenu(model: model, codex: codex, usage: usage)
+                    Button(L10n.t(.uiQuit)) { NSApp.terminate(nil) }
+                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                        .keyboardShortcut("q")
+                        .disabled(model.isBusy)
+                        .help(model.isBusy ? L10n.t(.uiQuitHelpBusy) : L10n.t(.uiQuitHelp, ProductInfo.name))
+                }
+            }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { chromeHeight = $0 }
         }
         .padding(14)
         .frame(width: 360)
@@ -505,5 +568,31 @@ struct RenameModifier: ViewModifier {
             } message: { account in
                 Text(L10n.t(.uiRenameMessage, Privacy.maskEmails(in: account.defaultName)))
             }
+    }
+}
+
+
+/// Restrained chrome for the main navigation strip only: native glass on macOS 26+ unless the
+/// user asked for reduced transparency, a material rounded rect everywhere else. Rows, bars and
+/// cards deliberately stay un-glassed.
+private struct NavChrome: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.canvas))
+        } else if #available(macOS 26.0, *) {
+            content
+                .padding(6)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else {
+            content
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.regularMaterial))
+        }
     }
 }

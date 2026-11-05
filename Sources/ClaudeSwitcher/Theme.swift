@@ -1,42 +1,33 @@
 import SwiftUI
 import SwitcherCore
 
-/// Design tokens. Direction: editorial utility — New York serif for identity, SF Pro for UI text,
-/// SF Mono for identifiers; warm paper surfaces; color carries state meaning only.
+/// Design tokens. Direction: system language — semantic colors and SF Pro throughout so light and
+/// dark come from the OS instead of a hand-tuned pair; SF Mono for identifiers.
 enum Theme {
-    static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
-    }
-
-    static func rgb(_ hex: UInt32) -> NSColor {
-        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
-                blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-    }
-
     // Surfaces
-    static let canvas = dynamic(rgb(0xF6F2EA), rgb(0x1B1916))
-    static let surface = dynamic(rgb(0xFFFDF8), rgb(0x24211D))
-    static let surfaceRaised = dynamic(rgb(0xFFFFFF), rgb(0x2D2924))
-    static let hairline = dynamic(rgb(0xE4DCCD), rgb(0x3A352E))
-    static let ink = dynamic(rgb(0x2A241D), rgb(0xF1EBE0))
-    static let inkMuted = dynamic(rgb(0x7A6F62), rgb(0xA79D8F))
+    static let canvas = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor)
+    static let surfaceRaised = Color(nsColor: .textBackgroundColor)
+    static let hairline = Color(nsColor: .separatorColor)
+    static let ink = Color(nsColor: .labelColor)
+    static let inkMuted = Color(nsColor: .secondaryLabelColor)
 
     // Semantic state colors
-    static let active = dynamic(rgb(0xC15F3C), rgb(0xE58A62))
-    static let ready = dynamic(rgb(0x3F7653), rgb(0x7DBE8F))
-    static let relogin = dynamic(rgb(0xA86A12), rgb(0xE7AE52))
-    static let missing = dynamic(rgb(0x8A8174), rgb(0x8E857A))
-    static let alias = dynamic(rgb(0x4F55B8), rgb(0x9CA1F0))
-    static let danger = dynamic(rgb(0xA63A2B), rgb(0xF08371))
+    static let active = Color(nsColor: .controlAccentColor)
+    static let ready = Color(nsColor: .systemGreen)
+    static let relogin = Color(nsColor: .systemOrange)
+    static let missing = Color(nsColor: .tertiaryLabelColor)
+    static let alias = Color(nsColor: .secondaryLabelColor)
+    static let danger = Color(nsColor: .systemRed)
 
     // Usage gauges: room to run, nearly out, empty (danger/missing reused from state colors)
-    static let usageNormal = dynamic(rgb(0x3B7DD8), rgb(0x5B9BF0))
-    static let usageLow = dynamic(rgb(0xE07B1F), rgb(0xF0A04B))
+    static let usageNormal = Color(nsColor: .controlAccentColor)
+    static let usageLow = Color(nsColor: .systemOrange)
 
     // Typography
-    static let display = Font.system(size: 30, weight: .semibold, design: .serif)
-    static let rowTitle = Font.system(size: 19, weight: .semibold, design: .serif)
-    static let eyebrow = Font.system(size: 10.5, weight: .semibold).smallCaps()
+    static let display = Font.system(size: 22, weight: .semibold)
+    static let rowTitle = Font.system(size: 14, weight: .semibold)
+    static let eyebrow = Font.system(size: 11, weight: .medium)
     static let body = Font.system(size: 13)
     static let caption = Font.system(size: 11.5)
     static let mono = Font.system(size: 11, design: .monospaced)
@@ -102,6 +93,7 @@ struct ActionButtonStyle: ButtonStyle {
         @State private var hovering = false
         @Environment(\.isEnabled) private var enabled
         @Environment(\.isFocused) private var focused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             configuration.label
@@ -116,10 +108,10 @@ struct ActionButtonStyle: ButtonStyle {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(focused ? tint : .clear, lineWidth: 2)
                         .padding(-3))
-                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
                 .opacity(enabled ? 1 : 0.4)
-                .animation(.easeOut(duration: 0.12), value: hovering)
-                .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
                 .onHover { hovering = $0 }
         }
     }

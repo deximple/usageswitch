@@ -22,15 +22,6 @@ enum LaunchOptions {
     static var behind: Bool { args.contains("--behind") }
     static var snapshot: String? { value("--snapshot") }
 
-    /// App-level override for evidence screenshots; never changes the system setting.
-    static var colorScheme: ColorScheme? {
-        switch appearance {
-        case "dark": return .dark
-        case "light": return .light
-        default: return nil
-        }
-    }
-
     static func value(_ flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
         return args[i + 1]
@@ -69,11 +60,37 @@ enum AppModel {
 }
 
 /// Strings come from a global table rather than view inputs, so the tree is rebuilt when the language changes.
+/// Appearance is centralized here too so the main window, the menu popover and sheets all agree:
+/// a temporary `--appearance` beats the saved choice, and `system` sets `NSApp.appearance` to nil
+/// so an OS light/dark change is followed live instead of a constant captured at launch.
+/// Deliberately no `preferredColorScheme` here: a manually hosted SwiftUI tree keeps the last
+/// preference after it clears back to nil and then fights the AppKit override — NSAppearance is
+/// the single authority.
 struct LanguageScoped<Content: View>: View {
     @ObservedObject var model: SwitcherModel
     @ViewBuilder let content: () -> Content
 
-    var body: some View { content().id(model.language) }
+    private var effective: AppAppearance {
+        AppAppearance.resolve(override: LaunchOptions.appearance, choice: model.appearanceChoice)
+    }
+
+    var body: some View {
+        content()
+            .id(model.language)
+            .onAppear { NSApp.appearance = effective.appKitAppearance }
+            .onChange(of: effective) { _, new in NSApp.appearance = new.appKitAppearance }
+    }
+}
+
+/// AppKit mapping lives on the app side; the core enum stays platform-free.
+extension AppAppearance {
+    var appKitAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 /// Owns the main window directly so it opens deterministically at launch (an LSUIElement app otherwise
@@ -85,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
+        NSApp.appearance = AppAppearance
+            .resolve(override: LaunchOptions.appearance, choice: AppModel.shared.appearanceChoice)
+            .appKitAppearance
         if let path = LaunchOptions.snapshot { takeSnapshot(to: path); return }
         if !LaunchOptions.background && !Self.launchedAsLoginItem { showMainWindow() }
     }
@@ -102,12 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         let size = menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
-        let hosting = NSHostingView(rootView: content.preferredColorScheme(LaunchOptions.colorScheme))
+        let hosting = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
-        if let scheme = LaunchOptions.colorScheme {
-            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        }
+        if let appKit = AppAppearance
+            .resolve(override: LaunchOptions.appearance, choice: model.appearanceChoice)
+            .appKitAppearance { window.appearance = appKit }
         hosting.frame = NSRect(origin: .zero, size: size)
         window.contentView = hosting
         if menuPreview { hosting.frame.size = hosting.fittingSize }
@@ -209,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = ProductInfo.name
-            w.contentViewController = NSHostingController(rootView: content.preferredColorScheme(LaunchOptions.colorScheme))
+            w.contentViewController = NSHostingController(rootView: content)
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.setFrameAutosaveName("ClaudeSwitcherMain")
@@ -247,7 +267,6 @@ struct ClaudeSwitcherApp: App {
     var body: some Scene {
         MenuBarExtra {
             LanguageScoped(model: model) { MenuView(model: model, codex: codex, usage: usage, tabs: tabs) }
-                .preferredColorScheme(LaunchOptions.colorScheme)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.isBusy ? "arrow.triangle.2.circlepath" : "person.2.circle")

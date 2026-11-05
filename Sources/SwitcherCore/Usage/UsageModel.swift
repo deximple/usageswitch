@@ -1,8 +1,14 @@
 import Foundation
 
 /// Where a usage reading came from.
-public enum UsageProvider: String, Codable, Sendable {
+public enum UsageProvider: String, Codable, Sendable, CaseIterable {
     case claude, codex, cursor
+}
+
+/// How the account authenticates to the provider. Subscription and API-key accounts are billed
+/// differently, so they must never be conflated; `unknown` means the channel didn't say.
+public enum UsageAuthentication: String, Codable, Sendable {
+    case subscription, apiKey, unknown
 }
 
 /// One reported usage window (a session, a week, a billing month, …).
@@ -67,11 +73,41 @@ public struct AccountUsage: Equatable, Identifiable, Sendable {
     public let readAt: Date
     /// CLI/app version stamp, for diagnosing a schema change after a vendor update.
     public let toolVersion: String?
+    /// How this account authenticates; drives label/badge wording and billing separation.
+    public let authentication: UsageAuthentication
+    /// Memory-only opaque hash tying a reading to a login — distinguishes two accounts that share a
+    /// display name without persisting a personal identifier. Never written to the snapshot JSON.
+    public let identityKey: String?
 
     public init(id: String, provider: UsageProvider, accountRef: String, label: String, plan: String?,
-                windows: [UsageWindow], state: UsageState, readAt: Date, toolVersion: String?) {
+                windows: [UsageWindow], state: UsageState, readAt: Date, toolVersion: String?,
+                authentication: UsageAuthentication = .unknown, identityKey: String? = nil) {
         self.id = id; self.provider = provider; self.accountRef = accountRef; self.label = label
         self.plan = plan; self.windows = windows; self.state = state; self.readAt = readAt
         self.toolVersion = toolVersion
+        self.authentication = authentication; self.identityKey = identityKey
+    }
+
+    /// Keeps the previous reading's windows on a failed/unavailable re-read — but only when the
+    /// new reading is provably the same subscription login. Returns `self` unless:
+    ///   - the new state is `.failed` or `.unavailable` (never `.ok` or `.notReporting`),
+    ///   - the new reading is a subscription account with a non-empty identity key,
+    ///   - a previous reading exists with the same id, authentication and identity key,
+    ///     and it has windows.
+    /// Fail-closed by design: a new login, an API-mode switch or an unknown-identity account
+    /// (Claude/Cursor) can never show numbers that belong to a different login.
+    public func retainingWindows(from previous: AccountUsage?) -> AccountUsage {
+        switch state {
+        case .failed, .unavailable: break
+        default: return self
+        }
+        guard authentication == .subscription, let identityKey, !identityKey.isEmpty,
+              let previous, previous.id == id, previous.authentication == authentication,
+              previous.identityKey == identityKey, !previous.windows.isEmpty
+        else { return self }
+        return AccountUsage(id: id, provider: provider, accountRef: accountRef, label: label,
+                            plan: plan ?? previous.plan, windows: previous.windows,
+                            state: state, readAt: previous.readAt, toolVersion: toolVersion,
+                            authentication: authentication, identityKey: identityKey)
     }
 }
