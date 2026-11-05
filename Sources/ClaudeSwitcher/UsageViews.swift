@@ -216,7 +216,9 @@ struct UsageContent: View {
     /// No boxes, no badges: the comparison folds away and every percent shown is REMAINING.
     private func proposalBlock(_ proposal: UsageGuidance.Proposal, usage: AccountUsage,
                                now: Date) -> some View {
-        VStack(alignment: .leading, spacing: Theme.gapTight) {
+        let accessibilityContext =
+            "\(UsageText.providerName(usage.provider)), \(currentLabel(usage))"
+        return VStack(alignment: .leading, spacing: Theme.gapTight) {
             Text(proposal.isRecommendation ? L10n.t(.usageGuideCandidate)
                                            : L10n.t(.usageGuideReading))
                 .font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
@@ -255,6 +257,7 @@ struct UsageContent: View {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
                 .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
             DisclosureGroup(L10n.t(.usageGuideBasis)) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -283,6 +286,8 @@ struct UsageContent: View {
             }
             .font(Theme.caption).foregroundStyle(Theme.inkMuted)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(accessibilityContext))
     }
 
     /// The one Claude reading the collector sees: the current Code CLI sign-in only. Never
@@ -357,6 +362,8 @@ struct UsageContent: View {
     private func accountBlock(_ usage: AccountUsage, now: Date,
                               presentation p: UsageAccountPresentation? = nil) -> some View {
         let p = p ?? presentations.first { $0.id == usage.id }
+        let accessibilityContext =
+            "\(UsageText.providerName(usage.provider)), \(displayedName(p, fallback: usage))"
         return VStack(alignment: .leading, spacing: 6) {
             // line 1: masked name + lock + env badge + plan — all from current registry
             HStack(spacing: 5) {
@@ -391,6 +398,7 @@ struct UsageContent: View {
                 Button(L10n.t(.uiDetails)) { AppDelegate.shared?.showUsageDetail(id: usage.id) }
                     .font(.system(size: 10)).foregroundStyle(Theme.active)
                     .buttonStyle(.plain).fixedSize()
+                    .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
             if p?.environment == .app, usage.provider == .claude {
                 Text(L10n.t(.usageNotLinked)).font(.system(size: 10))
@@ -407,6 +415,7 @@ struct UsageContent: View {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
                 .font(.system(size: 11)).foregroundStyle(Theme.active)
+                .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.usageMoreLimits, usage.windows.count - shown.count))"))
             }
             if usage.accountRef.hasPrefix("app:"), usage.provider == .claude {
                 EmptyView()
@@ -417,6 +426,8 @@ struct UsageContent: View {
                         : isFailure(usage.state) ? Theme.danger : Theme.inkMuted)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(accessibilityContext))
     }
 
     private func displayedName(_ p: UsageAccountPresentation?, fallback: AccountUsage) -> String {
