@@ -126,7 +126,7 @@ enum Fixtures {
 
     // MARK: - Usage tab
 
-    /// Demo usage for `--ui-fixture usage|usage-all|usage-empty|usage-stale`. Dates are relative to now.
+    /// Demo usage for `--ui-fixture usage|usage-all|usage-empty|usage-loading|usage-stale`. Dates are relative to now.
     static func usageModel(named name: String, settings: SwitcherModel) -> UsageModel {
         switch name {
         case "usage-all":
@@ -134,6 +134,8 @@ enum Fixtures {
         case "usage-empty":
             return UsageModel(demo: [account(.claude, "cli", "CLI sign-in", .unavailable(.cliMissing))],
                               settings: settings)
+        case "usage-loading":
+            return UsageModel(demo: [], isRefreshing: true, settings: settings)
         case "usage-stale":
             return UsageModel(demo: staleUsages(), segment: .all, settings: settings)
         case "usage-failed":
@@ -257,10 +259,11 @@ enum Fixtures {
     }
 
     /// A timed-out re-read that kept its previous windows: the windows' resets are still in the
-    /// future, so the non-ok state itself is what greys them — with a fresh Claude card for contrast.
+    /// future, so the non-ok state itself greys them; Claude separately exercises an aged ok reading.
     private static func staleUsages() -> [AccountUsage] {
         [
-            account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
+            account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317",
+                    readAgo: UsageGuidance.maximumAge + 60, windows: [
                 window(10080, 40, resetsIn: 3 * 86400),
             ]),
             account(.codex, "found:.codex-work", "Work", .failed(.timeout), plan: "team",

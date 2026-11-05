@@ -7,23 +7,39 @@ enum UsageColors {
     static func forWindow(_ window: UsageWindow, stale: Bool, warnAt: Double = 80) -> Color {
         if stale { return Theme.missing }
         if window.usedPercent >= 100 { return Theme.danger }
-        return window.usedPercent >= warnAt ? Theme.usageLow : Theme.usageNormal
+        return window.usedPercent >= warnAt ? Theme.usageLow : Theme.inkMuted
     }
 }
 
-/// The native Guide / All Usage switch, kept OUT of the scrolling body in both hosts so it
-/// stays reachable no matter how long the account list grows.
-struct UsageSegmentPicker: View {
+/// List title plus the Guide disclosure, kept OUT of the scrolling body in both hosts so the
+/// control stays reachable no matter how long the account list grows.
+struct UsageListHeader: View {
     @ObservedObject var model: UsageModel
 
     var body: some View {
-        Picker(L10n.t(.usageSegPicker), selection: $model.segment) {
-            Text(L10n.t(.usageSegGuide)).tag(UsageModel.Segment.guide)
-            Text(L10n.t(.usageSegAll)).tag(UsageModel.Segment.all)
+        HStack {
+            Text(L10n.t(.usageListTitle))
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
+            Spacer()
+            Button {
+                model.guideExpanded.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(L10n.t(.usageSegGuide))
+                    Image(systemName: model.guideExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                .frame(minWidth: 28, minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.usages.isEmpty)
+            .accessibilityLabel(L10n.t(.usageSegGuide))
+            .accessibilityValue(model.guideExpanded ? L10n.t(.usageGuideExpandedA11y)
+                                                    : L10n.t(.usageGuideCollapsedA11y))
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accessibilityLabel(L10n.t(.usageSegPicker))
     }
 }
 
@@ -55,8 +71,9 @@ struct UsageFooter: View {
 }
 
 /// The Usage tab body, shared by the main window and the menu (`compact`). Guide shows one
-/// conservative next-account candidate with its comparison folded away; All lists every
-/// account plainly by provider. The picker and footer live outside this scrollable body.
+/// conservative next-account candidate with its comparison folded away, shown only while the
+/// header's Guide disclosure is open; the list of every account by provider is always shown.
+/// The header and footer live outside this scrollable body.
 struct UsageContent: View {
     @ObservedObject var model: UsageModel
     @ObservedObject var settings: SwitcherModel
@@ -66,10 +83,28 @@ struct UsageContent: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            switch model.segment {
-            case .guide: guide(now: context.date)
-            case .all: allUsage(now: context.date)
+            VStack(alignment: .leading, spacing: Theme.gapGroup) {
+                if model.usages.isEmpty {
+                    emptyState
+                } else {
+                    if model.guideExpanded { guide(now: context.date) }
+                    allUsage(now: context.date)
+                }
             }
+        }
+    }
+
+    /// No readings yet: show the refreshing state while a read runs, else the plain empty copy —
+    /// never a healthy-looking list. Independent of the Guide disclosure.
+    @ViewBuilder
+    private var emptyState: some View {
+        if model.isRefreshing {
+            HStack(spacing: 8) {
+                ProgressView().scaleEffect(0.7)
+                Text(L10n.t(.usageRefreshing)).font(Theme.body).foregroundStyle(Theme.inkMuted)
+            }
+        } else {
+            Text(L10n.t(.usageGuideNone)).font(Theme.body).foregroundStyle(Theme.inkMuted)
         }
     }
 
@@ -269,21 +304,12 @@ struct UsageContent: View {
                 Text(L10n.t(.usageClaudeSource)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
                 if usage.state == .ok {
                     ForEach(usage.windows.filter { $0.scope == nil }, id: \.self) { window in
-                        HStack {
-                            Text(UsageText.name(of: window)).font(.system(size: 12))
-                                .foregroundStyle(Theme.ink)
-                            Spacer()
-                            Text(UsageText.left(window)).font(.system(size: 12))
-                                .foregroundStyle(Theme.inkMuted)
-                        }
+                        UsageBarRow(usage: usage, window: window, settings: settings, now: now,
+                                    compact: compact, fresh: fresh(usage, now: now),
+                                    pace: model.pace[UsagePriority.key(usage, window)])
                     }
                 } else if let reason = UsageText.reason(usage.state, provider: usage.provider) {
                     Text(reason).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
-                }
-                HStack {
-                    Spacer()
-                    Button(L10n.t(.usageViewAll)) { model.segment = .all }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
                 }
             }
         }
@@ -332,16 +358,11 @@ struct UsageContent: View {
                     Text(env).font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
                 }
                 Spacer(minLength: 8)
-                if !usage.windows.isEmpty {
-                    Text(L10n.t(.usageRemaining)).font(.system(size: 10))
-                        .foregroundStyle(Theme.inkMuted)
-                }
             }
             billing(of: usage)
             ForEach(usage.windows, id: \.self) { window in
                 UsageBarRow(usage: usage, window: window, settings: settings, now: now,
                             compact: compact, fresh: fresh(usage, now: now),
-                            pinned: model.pins.contains(UsagePriority.key(usage, window)),
                             pace: model.pace[UsagePriority.key(usage, window)])
             }
             if usage.authentication == .apiKey {
@@ -372,8 +393,8 @@ struct UsageContent: View {
     }
 }
 
-/// One window under an account: pin column, name, a remaining-share bar, the remaining %,
-/// reset or freshness, and the pin affordance. The bar and its number both show what is
+/// One window under an account: name, a remaining-share bar, the remaining %, reset or
+/// freshness; pinning stays on the context menu. The bar and its number both show what is
 /// LEFT (invalid readings render a dash, never a fake hundred); `usedPercent` stays the
 /// JSON/storage meaning everywhere else.
 struct UsageBarRow: View {
@@ -385,7 +406,6 @@ struct UsageBarRow: View {
     /// Whether the account's own read is fresh; an old or future timestamp greys the row
     /// just like an elapsed reset does.
     var fresh = true
-    var pinned = false
     /// Drain speed for this window, when two readings line up.
     var pace: UsagePace.Reading?
 
@@ -404,42 +424,100 @@ struct UsageBarRow: View {
         return UsagePace.runsOutEarly(pace, window: window)
     }
 
-    private var trailingText: String {
-        if stale { return UsageText.updatedAgo(readAt: usage.readAt, now: now) }
-        if let earlyRunOut {
-            return L10n.t(.usageRunsOut, UsageText.countdown(to: earlyRunOut, from: now))
-        }
-        return window.resetsAt.map { UsageText.countdown(to: $0, from: now) } ?? "—"
+    /// The compact row shows no remaining share for a stale reading — a dash, never a gauge number.
+    private var shownLeft: Int? { compact && stale ? nil : left }
+    /// Estimated run-out in the full localized form, for help and accessibility.
+    private var runOutText: String? {
+        earlyRunOut.map { L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now)) }
     }
 
-    /// Fixed-width columns so every bar starts at the same x — the pin column is reserved
-    /// on every row so a pin never shifts alignment.
+    /// Reset column text. The menu gets the compact form and ALWAYS the real reset time — the
+    /// estimated run-out lives on the marker icon; the main window keeps the full readable
+    /// one. A stale row never shows a countdown — its age is the label (compact: a dash).
+    private var trailingText: String {
+        if stale { return compact ? "—" : UsageText.updatedAgo(readAt: usage.readAt, now: now) }
+        if compact {
+            return window.resetsAt.map { UsageText.compactCountdown(to: $0, from: now) } ?? "—"
+        }
+        if let runOutText { return runOutText }
+        guard let resetsAt = window.resetsAt else { return "—" }
+        return UsageText.countdown(to: resetsAt, from: now)
+    }
+
+    /// Warning/exhausted marker so the state never rides on color alone; nil when fine or stale.
+    private var statusIcon: (name: String, label: String)? {
+        guard !stale else { return nil }
+        if window.usedPercent >= 100 { return ("xmark.octagon.fill", L10n.t(.usageExhaustedA11y)) }
+        if window.usedPercent >= Double(settings.usageWarnPercent) {
+            return ("exclamationmark.triangle.fill", L10n.t(.usageWarnA11y))
+        }
+        return nil
+    }
+
+    /// Marker before the percentage: the compact stale clock, else exhausted/warning, else (compact
+    /// only) the early run-out warning — the estimate never rides in the reset column.
+    private var marker: (name: String, tint: Color)? {
+        if stale { return compact ? ("clock", Theme.inkMuted) : nil }
+        if let statusIcon { return (statusIcon.name, color) }
+        if compact, earlyRunOut != nil { return ("exclamationmark.triangle.fill", Theme.usageLow) }
+        return nil
+    }
+
+    /// Full-length reading for help and VoiceOver: full window name (kind + scope), remaining
+    /// share, then either the stale state with its age, or status, the FULL localized reset and
+    /// the separately labeled early run-out estimate.
+    private var accessibilitySummary: String {
+        let value = shownLeft.map { L10n.t(.usageLeft, $0) } ?? "—"
+        var parts: [String?] = [UsageText.name(of: window), value]
+        if stale {
+            parts += [L10n.t(.usageStaleA11y), UsageText.updatedAgo(readAt: usage.readAt, now: now)]
+        } else {
+            let reset = window.resetsAt.map { UsageText.countdown(to: $0, from: now) }
+            parts += [statusIcon?.label,
+                      reset.flatMap { $0 == "—" ? nil : L10n.t(.usageResetsIn, $0) },
+                      runOutText,]
+        }
+        return parts.compactMap { $0 }.joined(separator: ", ")
+    }
+
+    /// One line: name 60 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
+    /// the main window) · marker + percent 58 · reset 52 (full text in the main window), 8pt
+    /// gaps; the compact cells flex so percent and reset sit on the row's right edge.
     var body: some View {
         HStack(spacing: 8) {
-            ZStack {
-                if pinned {
-                    Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(Theme.inkMuted)
-                }
-            }
-            .frame(width: 10)
-            Text(UsageText.name(of: window))
+            Text(compact ? (window.scope ?? UsageText.name(of: window, scoped: false))
+                         : UsageText.name(of: window))
                 .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
                 .lineLimit(1).truncationMode(.tail)
-                .frame(width: compact ? 104 : 128, alignment: .leading)
+                .frame(width: compact ? 60 : 96, alignment: .leading)
             ZStack(alignment: .leading) {
-                Capsule().fill(color.opacity(0.25))
-                Capsule().fill(color)
-                    .frame(width: 70 * CGFloat(left ?? 0) / 100)
+                GeometryReader { proxy in
+                    Capsule().fill(color.opacity(0.25))
+                    Capsule().fill(color)
+                        .frame(width: proxy.size.width * CGFloat(shownLeft ?? 0) / 100)
+                }
             }
-            .frame(width: 70, height: 6)
-            Text(left.map { "\($0)%" } ?? "—")
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
-                .frame(width: 40, alignment: .trailing)
-            Spacer(minLength: 4)
-            Text(trailingText).font(.system(size: 11))
-                .foregroundStyle(earlyRunOut != nil ? Theme.usageLow : Theme.inkMuted)
+            .frame(maxWidth: compact ? 88 : .infinity)
+            .frame(height: 6)
+            if compact { Spacer(minLength: 0) }
+            HStack(spacing: 3) {
+                if let marker {
+                    Image(systemName: marker.name).font(.system(size: 10))
+                        .foregroundStyle(marker.tint)
+                }
+                Text(shownLeft.map { "\($0)%" } ?? "—")
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
+            }
+            .frame(width: 58, alignment: .trailing)
+            Text(trailingText).font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(!compact && earlyRunOut != nil ? Theme.usageLow : Theme.inkMuted)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(width: compact ? 52 : nil, alignment: .trailing)
         }
+        .help(accessibilitySummary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
         .contextMenu {
             let key = UsagePriority.key(usage, window)
             let isPinned = settings.usagePins.contains(key)

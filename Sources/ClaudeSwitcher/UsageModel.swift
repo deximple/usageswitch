@@ -15,6 +15,8 @@ final class UsageModel: ObservableObject {
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
     /// Guide / All Usage, not persisted.
     @Published var segment: Segment
+    /// Whether the collapsed Guide auxiliary is open; memory only, starts closed.
+    @Published var guideExpanded = false
     let isDemo: Bool
 
     private let settings: SwitcherModel
@@ -40,10 +42,12 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    init(demo: [AccountUsage], segment: Segment = .guide, settings: SwitcherModel) {
+    init(demo: [AccountUsage], segment: Segment = .guide, isRefreshing: Bool = false,
+         settings: SwitcherModel) {
         self.settings = settings
         self.segment = segment
         usages = demo
+        self.isRefreshing = isRefreshing
         isDemo = true
     }
 

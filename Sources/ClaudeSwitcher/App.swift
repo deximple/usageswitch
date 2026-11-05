@@ -6,7 +6,7 @@ import SwitcherCore
 
 /// Launch options (also used to produce UI evidence without touching the real store):
 /// `--background` (menu bar only), `--appearance light|dark`,
-/// `--ui-fixture <list|switching|success|relogin|error|codex-*|usage|usage-all|usage-empty|usage-stale>`,
+/// `--ui-fixture <list|switching|success|relogin|error|codex-*|usage|usage-all|usage-empty|usage-loading|usage-stale>`,
 /// `--menu-preview` (render the menu content in the window for screenshots), `--lang <code>` (not saved),
 /// `--tab usage|claude|codex` (not saved),
 /// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).

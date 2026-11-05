@@ -327,11 +327,13 @@ struct MainView: View {
                 switch tabs.tab {
                 case .usage:
                     VStack(spacing: 0) {
-                        UsageSegmentPicker(model: usage)
+                        UsageListHeader(model: usage)
+                            .frame(maxWidth: 712)
+                            .frame(maxWidth: .infinity)
                             .padding([.horizontal, .top], Theme.gapGroup)
                         ScrollView {
                             UsageContent(model: usage, settings: model, codex: codex, tabs: tabs)
-                                .frame(maxWidth: 560, alignment: .top)
+                                .frame(maxWidth: 712, alignment: .top)
                                 .frame(maxWidth: .infinity)
                                 .padding([.horizontal, .bottom], Theme.gapGroup)
                         }
@@ -474,7 +476,7 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: Theme.gapRow) {
             VStack(alignment: .leading, spacing: Theme.gapRow) {
                 TabSwitcher(selection: tabs).frame(maxWidth: .infinity)
-                if tabs.tab == .usage { UsageSegmentPicker(model: usage) }
+                if tabs.tab == .usage { UsageListHeader(model: usage) }
             }
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { chromeTop = $0 }
             ScrollViewReader { proxy in
