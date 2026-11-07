@@ -35,20 +35,33 @@ struct UsageProcessRunnerTests {
     @Test("cancellation terminates and reaps the child promptly")
     func cancelled() async throws {
         let processRunner = SystemUsageProcessRunner()
-        let marker = UUID().uuidString
-        var processRequest = request(executable: "/bin/sleep", ["30"], timeout: 60)
-        processRequest.environment["USAGESWITCH_CANCELLATION_TEST_ID"] = marker
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("usage-process-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let script = #"printf '%s\n' "$$" > "$1"; exec /bin/sleep 30"#
+        let processRequest = request(executable: "/bin/sh",
+                                     ["-c", script, "usage-process-test", pidFile.path],
+                                     timeout: 60)
         let task = Task.detached { processRunner.run(processRequest) }
         let deadline = Date().addingTimeInterval(3)
         var childPID: pid_t?
         while Date() < deadline {
-            childPID = RunningCommands.shared.all.first {
-                $0.environment?["USAGESWITCH_CANCELLATION_TEST_ID"] == marker
-            }?.processIdentifier
+            if let contents = try? String(contentsOf: pidFile, encoding: .utf8),
+               let value = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                childPID = pid_t(value)
+            }
             if childPID != nil { break }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        let pid = try #require(childPID)
+        guard let pid = childPID else {
+            task.cancel()
+            let result = await task.value
+            #expect(result.outcome == .cancelled)
+            #expect(childPID != nil)
+            return
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(kill(pid, 0) == 0)
         let cancelledAt = Date()
         task.cancel()
         let result = await task.value
