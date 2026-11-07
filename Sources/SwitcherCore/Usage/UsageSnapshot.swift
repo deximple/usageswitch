@@ -9,8 +9,10 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public let accounts: [Account]
 
     public struct Account: Codable, Equatable, Sendable {
-        /// "<provider>:<accountRef>", same id the app uses.
+        /// Opaque account reference. Account-backed provider ids are ordinal in the snapshot.
         public let id: String
+        /// Optional for compatibility with snapshots written before account references were exposed.
+        public let accountRef: String?
         public let provider: String
         /// Always email-masked in the persisted file — the show-emails toggle never reaches disk.
         public let label: String
@@ -39,14 +41,24 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// reveal-emails setting is a UI concern; what leaves the app is always masked.
     public init(usages: [AccountUsage], generatedAt: Date, showEmails: Bool) {
         self.generatedAt = generatedAt
-        accounts = usages.map { Self.account($0, label: UsageText.accountLabel($0, showEmails: false)) }
+        accounts = Self.makeAccounts(usages.map {
+            ($0, UsageText.accountLabel($0, showEmails: false))
+        })
     }
 
-    /// Shared row mapping: the usage row's own id/provider/state/problem/readAt/version/plan and
-    /// windows (with derived leftPercent) plus its authentication rawValue. `label` arrives
-    /// already masked from the caller — the raw initializer's collected label, or the
-    /// presentation's current registry name.
-    private static func account(_ usage: AccountUsage, label: String) -> Account {
+    /// Shared row mapping. Account-backed ids and refs are replaced with presentation-order
+    /// ordinals; stable singleton provider refs remain useful and do not identify a user.
+    private static func makeAccounts(_ rows: [(AccountUsage, String)]) -> [Account] {
+        var ordinals = OpaqueOrdinals()
+        return rows.map { usage, label in
+            let identity = ordinals.identity(provider: usage.provider.rawValue,
+                                             id: usage.id, accountRef: usage.accountRef)
+            return account(usage, label: label, id: identity.id, accountRef: identity.accountRef)
+        }
+    }
+
+    private static func account(_ usage: AccountUsage, label: String,
+                               id: String, accountRef: String?) -> Account {
         let (state, problem): (String, String?)
         switch usage.state {
         case .ok: (state, problem) = ("ok", nil)
@@ -54,12 +66,13 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         case .unavailable(let p): (state, problem) = ("unavailable", p.rawValue)
         case .failed(let p): (state, problem) = ("failed", p.rawValue)
         }
-        return Account(id: usage.id, provider: usage.provider.rawValue, label: label,
-                       plan: usage.plan, state: state, problem: problem,
-                       readAt: usage.readAt, toolVersion: usage.toolVersion,
+        return Account(id: safeString(id), accountRef: accountRef.map(safeString),
+                       provider: usage.provider.rawValue, label: safeString(Privacy.maskEmails(in: label)),
+                       plan: usage.plan.map(safeString), state: state, problem: problem,
+                       readAt: usage.readAt, toolVersion: usage.toolVersion.map(safeString),
                        authentication: usage.authentication.rawValue,
                        windows: usage.windows.map { window in
-            Window(kind: window.kind.rawValue, scope: window.scope,
+            Window(kind: window.kind.rawValue, scope: window.scope.map(safeString),
                    durationMinutes: window.durationMinutes, usedPercent: window.usedPercent,
                    leftPercent: max(0, 100 - window.usedPercent), resetsAt: window.resetsAt)
         })
@@ -73,15 +86,27 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         try fs.write(try encoder.encode(self), to: env.usageSnapshotFile)
     }
 
-    /// Every account label email-masked; everything else copied verbatim. Idempotent — safe on
-    /// labels that are already masked or never contained an email.
+    /// Re-masks old labels and anonymizes legacy account ids before the CLI emits a loaded snapshot.
     public func masked() -> UsageSnapshot {
-        UsageSnapshot(generatedAt: generatedAt, accounts: accounts.map {
-            Account(id: $0.id, provider: $0.provider, label: Privacy.maskEmails(in: $0.label),
-                    plan: $0.plan, state: $0.state, problem: $0.problem,
-                    readAt: $0.readAt, toolVersion: $0.toolVersion,
-                    authentication: $0.authentication, windows: $0.windows)
-        })
+        var ordinals = OpaqueOrdinals()
+        let safeAccounts = accounts.map { account in
+            let identity = ordinals.identity(provider: account.provider,
+                                             id: account.id, accountRef: account.accountRef)
+            return Account(id: safeString(identity.id),
+                           accountRef: identity.accountRef.map(safeString),
+                           provider: safeString(account.provider),
+                           label: safeString(Privacy.maskEmails(in: account.label)),
+                           plan: account.plan.map(safeString), state: account.state,
+                           problem: account.problem, readAt: account.readAt,
+                           toolVersion: account.toolVersion.map(safeString),
+                           authentication: account.authentication,
+                           windows: account.windows.map {
+                Window(kind: $0.kind, scope: $0.scope.map(safeString),
+                       durationMinutes: $0.durationMinutes, usedPercent: $0.usedPercent,
+                       leftPercent: $0.leftPercent, resetsAt: $0.resetsAt)
+            })
+        }
+        return UsageSnapshot(generatedAt: generatedAt, accounts: safeAccounts)
     }
 
     /// The last written snapshot; nil when the app never finished a read (or the file is unreadable).
@@ -98,12 +123,37 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// never a stale collected label. No email/owner/identityKey is serialized.
     public init(presentations: [UsageAccountPresentation], generatedAt: Date) {
         self.generatedAt = generatedAt
-        accounts = presentations.map { Self.account($0.usage, label: Privacy.maskEmails(in: $0.name)) }
+        accounts = Self.makeAccounts(presentations.map { ($0.usage, $0.name) })
     }
 
     /// Direct memberwise init used only by `masked()` — never writes a label it didn't mask.
     private init(generatedAt: Date, accounts: [Account]) {
         self.generatedAt = generatedAt
         self.accounts = accounts
+    }
+
+    private struct OpaqueOrdinals {
+        private var claudeApp = 0
+        private var codex = 0
+
+        mutating func identity(provider: String, id: String,
+                               accountRef: String?) -> (id: String, accountRef: String?) {
+            if provider == "claude",
+               (id.hasPrefix("claude:app:") || id.hasPrefix("claude:app#")) {
+                claudeApp += 1
+                return ("claude:app#\(claudeApp)", "app#\(claudeApp)")
+            }
+            if provider == "codex" {
+                codex += 1
+                return ("codex#\(codex)", "codex#\(codex)")
+            }
+            return (id, accountRef)
+        }
+    }
+
+    private static func safeString(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#,
+            with: "••••", options: [.regularExpression, .caseInsensitive])
     }
 }

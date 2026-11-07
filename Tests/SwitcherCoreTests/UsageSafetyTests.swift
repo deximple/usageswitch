@@ -35,6 +35,7 @@ struct UsageSnapshotMaskTests {
         let snap = try #require(UsageSnapshot.load(env: sb.env))
         #expect(!snap.accounts[0].label.contains("alex.kim@example.com"))
         #expect(snap.accounts[0].label.contains("•••"))
+        #expect(snap.accounts[0].accountRef == nil)
         // Numeric/state fields pass through untouched.
         #expect(snap.accounts[0].windows[0].usedPercent == 31)
         #expect(snap.accounts[0].windows[0].leftPercent == 69)

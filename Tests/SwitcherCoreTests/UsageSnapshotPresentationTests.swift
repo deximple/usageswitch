@@ -65,7 +65,7 @@ struct UsageSnapshotPresentationTests {
                 codexAccount("standard", "Side project", kind: .standard,
                              identity: CodexIdentity(mode: .chatgpt,
                                                      email: "fake.codex@example.com")),
-                codexAccount("codex_second", "API key",
+                codexAccount("found:.codex-work", "API key",
                              identity: CodexIdentity(mode: .apiKey)),
             ], hiddenCount: 0)
         let rows = UsagePresentations.accounts(readings: readings, installations: [],
@@ -74,7 +74,6 @@ struct UsageSnapshotPresentationTests {
         let snap = UsageSnapshot(presentations: rows, generatedAt: fixedNow)
         #expect(snap.accounts.count == 10)
         for (account, p) in zip(snap.accounts, rows) {
-            #expect(account.id == p.usage.id)
             #expect(account.provider == p.usage.provider.rawValue)
             #expect(account.label == Privacy.maskEmails(in: p.name))
             #expect(account.state == "ok" || account.state == "notReporting")
@@ -83,15 +82,20 @@ struct UsageSnapshotPresentationTests {
         }
         // Provider-ordered ids: claude app rows, codex rows, then the other providers.
         #expect(snap.accounts.map(\.id) == [
-            "claude:app:a1", "claude:app:a2", "claude:app:a3",
-            "codex:standard", "codex:codex_second",
+            "claude:app#1", "claude:app#2", "claude:app#3",
+            "codex#1", "codex#2",
             "cursor:cursor", "grok:current", "gemini:current",
             "devin:current", "opencode:current",
         ])
-        let appRows = snap.accounts.filter { $0.id.hasPrefix("claude:app:") }
+        #expect(snap.accounts.map(\.accountRef) == [
+            "app#1", "app#2", "app#3", "codex#1", "codex#2",
+            "cursor", "current", "current", "current", "current",
+        ])
+        #expect(!snap.accounts.map(\.id).joined().contains(".codex-work"))
+        let appRows = snap.accounts.filter { $0.id.hasPrefix("claude:app#") }
         #expect(appRows.allSatisfy { $0.windows.isEmpty && $0.state == "notReporting" })
         // Same-label a2/a3 kept as distinct rows; API-key auth carried through.
-        let apiRow = try #require(snap.accounts.first { $0.id == "codex:codex_second" })
+        let apiRow = try #require(snap.accounts.first { $0.id == "codex#2" })
         #expect(apiRow.authentication == "apiKey")
     }
 
@@ -110,10 +114,60 @@ struct UsageSnapshotPresentationTests {
         #expect(snap.accounts[0].id == "claude:cli")
         #expect(snap.accounts[0].windows.count == 1)
         #expect(snap.accounts[0].authentication == "subscription")
-        #expect(snap.accounts[1].id == "claude:app:a1")
+        #expect(snap.accounts[1].id == "claude:app#1")
+        #expect(snap.accounts[1].accountRef == "app#1")
         #expect(snap.accounts[1].windows.isEmpty)
         #expect(snap.accounts[1].state == "notReporting")
         #expect(snap.accounts.allSatisfy { !$0.label.contains("fake.a@example.com") })
+    }
+
+    @Test("saved account UUIDs never appear in encoded snapshots")
+    func savedClaudeIDsAreOpaque() throws {
+        let accountUuid = "123e4567-e89b-12d3-a456-426614174000"
+        let orgUuid = "987e6543-e21b-12d3-a456-426614174001"
+        let accountId = "\(accountUuid)__\(orgUuid)"
+        let account = AccountStatus(
+            id: accountId, label: "Owner \(accountUuid)", customName: nil,
+            defaultName: "Owner \(accountUuid)", email: nil, accountUuid: accountUuid,
+            orgUuid: orgUuid, isActive: false, snapshot: .ready, capturedAt: fixedNow,
+            sessionExpiresAt: fixedNow.addingTimeInterval(86_400))
+        let usage = AccountUsage(
+            id: "claude:app:\(accountId)", provider: .claude, accountRef: "app:\(accountId)",
+            label: "Claude profile", plan: nil, windows: [], state: .ok, readAt: fixedNow,
+            toolVersion: nil)
+        let rows = UsagePresentations.accounts(readings: [usage], installations: [],
+                                               claude: claudeStatus([account]), codex: nil, now: fixedNow)
+        let snapshot = UsageSnapshot(presentations: rows, generatedAt: fixedNow)
+        let encoded = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+
+        #expect(snapshot.accounts[0].id == "claude:app#1")
+        #expect(snapshot.accounts[0].accountRef == "app#1")
+        #expect(!encoded.localizedCaseInsensitiveContains(accountUuid))
+        #expect(!encoded.localizedCaseInsensitiveContains(orgUuid))
+    }
+
+    @Test("loading a legacy snapshot anonymizes saved Claude identifiers")
+    func legacyClaudeIDsAreOpaque() throws {
+        let sb = try Sandbox()
+        defer { sb.remove() }
+        try sb.fs.createDirectory(sb.env.storeDir)
+        let accountUuid = "123e4567-e89b-12d3-a456-426614174000"
+        let orgUuid = "987e6543-e21b-12d3-a456-426614174001"
+        let accountId = "\(accountUuid)__\(orgUuid)"
+        let old = """
+            {"generatedAt":"2026-11-04T10:00:00Z","accounts":[{"id":"claude:app:\(accountId)",
+            "accountRef":"app:\(accountId)","provider":"claude","label":"Owner \(accountUuid)",
+            "plan":null,"state":"ok","problem":null,"readAt":"2026-11-04T10:00:00Z",
+            "toolVersion":null,"authentication":"unknown","windows":[]}]}
+            """
+        try old.write(to: sb.env.usageSnapshotFile, atomically: true, encoding: .utf8)
+
+        let snapshot = try #require(UsageSnapshot.load(env: sb.env))
+        let encoded = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+        #expect(snapshot.accounts[0].id == "claude:app#1")
+        #expect(snapshot.accounts[0].accountRef == "app#1")
+        #expect(!encoded.localizedCaseInsensitiveContains(accountUuid))
+        #expect(!encoded.localizedCaseInsensitiveContains(orgUuid))
     }
 
     @Test("current registry name wins over a stale collected label; same names never merge")
@@ -130,7 +184,7 @@ struct UsageSnapshotPresentationTests {
                                                claude: nil, codex: codex, now: fixedNow)
         #expect(rows.count == 2)
         let snap = UsageSnapshot(presentations: rows, generatedAt: fixedNow)
-        #expect(snap.accounts.map(\.id) == ["codex:m-0000000a", "codex:m-0000000b"])
+        #expect(snap.accounts.map(\.id) == ["codex#1", "codex#2"])
         #expect(snap.accounts.map(\.label) == ["Renamed", "Renamed"])
         #expect(!snap.accounts[0].label.contains("stale@example.com"))
     }
@@ -258,6 +312,6 @@ struct UsageSnapshotPresentationTests {
         let rows = UsagePresentations.accounts(readings: [], installations: [],
                                                claude: nil, codex: codex, now: Date())
         let snap = UsageSnapshot(presentations: rows, generatedAt: Date())
-        #expect(snap.accounts.count == 1 && snap.accounts[0].id == "codex:extra")
+        #expect(snap.accounts.count == 1 && snap.accounts[0].id == "codex#1")
     }
 }

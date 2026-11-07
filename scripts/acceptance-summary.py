@@ -41,6 +41,9 @@ EMAIL = re.compile(
 MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
 # The masker's local-part characters plus bullets; the trailing run of these is the masked part.
 MASK_TAIL = re.compile("[" + LETTER_MARK_NUMBER + r"._%+•-]*$")
+UUID_VALUE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE)
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
@@ -90,6 +93,16 @@ def unmasked_strings(value):
     return 0
 
 
+def uuid_values(value):
+    if isinstance(value, str):
+        return int(UUID_VALUE.search(value) is not None)
+    if isinstance(value, dict):
+        return sum(uuid_values(child) for child in value.values())
+    if isinstance(value, list):
+        return sum(uuid_values(child) for child in value)
+    return 0
+
+
 def fresh_windows(account, now):
     read_at = parse_date(account.get("readAt"))
     if account.get("state") != "ok" or read_at is None:
@@ -131,10 +144,11 @@ def summarize(doc, expect, now, out):
     accounts = [a for a in snapshot.get("accounts") or [] if isinstance(a, dict)]
     leaks = sorted(forbidden_keys(doc, set()))
     unmasked = unmasked_strings(doc)
+    uuids = uuid_values(doc)
     generated = parse_date(snapshot.get("generatedAt"))
     age = int((now - generated).total_seconds()) if generated else None
     out(f"snapshot accounts={len(accounts)} generated_age_s={age} "
-        f"forbidden_keys={leaks or 'none'} unmasked_strings={unmasked}")
+        f"forbidden_keys={leaks or 'none'} unmasked_strings={unmasked} uuid_values={uuids}")
 
     slots, usable = {}, {}
     for account in accounts:
@@ -161,7 +175,7 @@ def summarize(doc, expect, now, out):
         verdict = "PASS" if got >= count else "OPEN"
         failures += verdict != "PASS"
         out(f"expect {provider}: {got}/{count} distinct rows with fresh windows -> {verdict}")
-    if leaks or unmasked:
+    if leaks or unmasked or uuids:
         failures += 1
         out("privacy: FAIL")
     else:
@@ -185,6 +199,8 @@ def self_test():
     assert run([row()])[0] == 0, "masked label must pass"
     assert run([row(label="alex@example.com")])[0] == 1, "raw email must fail"
     assert run([row(problem="alex@example.com")])[0] == 1, "email in any field must fail"
+    assert run([row(label="Account 123e4567-e89b-12d3-a456-426614174000")])[0] == 1, \
+        "UUID in a value must fail privacy"
     assert run([row(label="김철수@example.com")])[0] == 1, "non-Latin local part must fail"
     assert run([row(label="김철수@example.한국")])[0] == 1, "non-Latin domain must fail"
     assert run([row(label="山田太郎@example.jp")])[0] == 1, "Japanese local part must fail"
