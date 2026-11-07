@@ -10,7 +10,7 @@ distinct rows that report at least one fresh window is compared with the expecte
         --expect claude=3,codex=2,opencode=1,gemini=1,cursor=1,devin=1,grok=1
 
 Exit 0 only when the snapshot is present, recent, privacy-clean and every expectation holds.
-The email scan covers every script and is stricter than the app's Latin-only masker.
+The email scan covers every script and flags any unmasked address.
 """
 import argparse
 import json
@@ -20,28 +20,27 @@ import sys
 import unicodedata
 from datetime import datetime, timezone
 
-# Deliberately broader than Privacy.emailPattern: an address in any script counts as unmasked
-# unless the trailing run of its local part has one of Privacy.maskEmail's shapes.
-EMAIL = re.compile(r"([^\s@]+)@[\w-]+(?:\.[\w-]+)+")
-# The shapes Privacy.maskEmail produces: all bullets, or two characters, bullets, three characters.
-MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
-def _latin_class():
-    """Approximates the masker's \\p{Latin} (Python's re has no script classes) as ranges."""
-    def latin(code):
-        char = chr(code)
-        return char in "ªº" or "LATIN" in unicodedata.name(char, "")
+# Python's re has no \p{L}\p{M}\p{N}; build the equivalent character class from Unicode data.
+def _letter_mark_number_class():
     ranges, start = [], None
-    for code in range(0x10000):
-        if latin(code):
+    for code in range(sys.maxunicode + 1):
+        if unicodedata.category(chr(code))[0] in "LMN":
             start = code if start is None else start
         elif start is not None:
             ranges.append((start, code - 1))
             start = None
+    if start is not None:
+        ranges.append((start, sys.maxunicode))
     return "".join(chr(a) if a == b else f"{chr(a)}-{chr(b)}" for a, b in ranges)
 
 
+LETTER_MARK_NUMBER = _letter_mark_number_class()
+EMAIL = re.compile(
+    r"([^\s@]+)@[" + LETTER_MARK_NUMBER + r"-]+(?:\.[" + LETTER_MARK_NUMBER + r"-]+)+")
+# The shapes Privacy.maskEmail produces: all bullets, or two characters, bullets, three characters.
+MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
 # The masker's local-part characters plus bullets; the trailing run of these is the masked part.
-MASK_TAIL = re.compile("[" + _latin_class() + r"0-9._%+•-]*$")
+MASK_TAIL = re.compile("[" + LETTER_MARK_NUMBER + r"._%+•-]*$")
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
@@ -82,7 +81,8 @@ def forbidden_keys(value, found):
 
 def unmasked_strings(value):
     if isinstance(value, str):
-        return sum(1 for match in EMAIL.finditer(value) if not is_masked(match.group(1)))
+        normalized = unicodedata.normalize("NFC", value)
+        return sum(1 for match in EMAIL.finditer(normalized) if not is_masked(match.group(1)))
     if isinstance(value, dict):
         return sum(unmasked_strings(k) + unmasked_strings(v) for k, v in value.items())
     if isinstance(value, list):
@@ -186,17 +186,19 @@ def self_test():
     assert run([row(label="alex@example.com")])[0] == 1, "raw email must fail"
     assert run([row(problem="alex@example.com")])[0] == 1, "email in any field must fail"
     assert run([row(label="김철수@example.com")])[0] == 1, "non-Latin local part must fail"
+    assert run([row(label="김철수@example.한국")])[0] == 1, "non-Latin domain must fail"
+    assert run([row(label="山田太郎@example.jp")])[0] == 1, "Japanese local part must fail"
     assert run([row(label="ḁlex@example.com")])[0] == 1, "Latin Extended Additional must fail"
     for masked in ("ḁl••••••026@example.com", "al••••••ḁⱡꜣ@example.com", "ɐb••••••026@example.com",
-                   "ａｂ••••••026@example.com"):
-        assert run([row(label=masked)])[0] == 0, f"validly masked Latin label {masked!r} passes"
+                   "ａｂ••••••026@example.com", "김철•이메일@example.com"):
+        assert run([row(label=masked)])[0] == 0, f"validly masked label {masked!r} passes"
     assert run([row(label="a×b•••••@example.com")])[0] == 1, "a non-letter in the Latin-1 block is not masker text"
     assert run([row(label="•••@example.com")])[0] == 0, "fully masked short local part passes"
     assert run([row(label="Team•alex@example.com")])[0] == 1, "a stray bullet is not a mask"
     assert run([row(label="Work (al••••••026@example.com)")])[0] == 0, "masked address in text passes"
-    for prefix in ("Personal/", "a|", "회사", "x="):
+    for prefix in ("Personal/", "a|", "회사/", "x="):
         assert run([row(label=f"{prefix}al••••••026@example.com")])[0] == 0, f"masked after {prefix!r} passes"
-    assert run([row(label="회사•••••@example.com")])[0] == 0, "short mask after Hangul passes"
+    assert run([row(label="김철•이메일@example.com")])[0] == 0, "masked Hangul local part passes"
     assert run([row(label="•alex@example.com")])[0] == 1, "leading bullet is not a mask"
     assert run([row(label="e\u0301x•••026@example.com")])[0] == 0, "decomposed accents are normalized"
     assert run([row(state="failed")])[0] == 1, "failed/retained rows are never fresh"

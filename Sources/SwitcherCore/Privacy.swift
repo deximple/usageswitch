@@ -10,10 +10,10 @@ public enum Privacy {
         return local.prefix(2) + String(repeating: "•", count: local.count - 5) + local.suffix(3) + email[at...]
     }
 
-    /// Latin-script local part not preceded by a mask bullet (so already masked text is left alone), then a
-    /// domain. Latin only, so neighbouring CJK or Hangul text is never swallowed into the address.
+    /// Unicode-script local part not preceded by a mask bullet (so already masked text is left alone), then a
+    /// domain.
     private static let emailPattern = try? NSRegularExpression(
-        pattern: #"(?<![•\p{Latin}0-9._%+-])[•\p{Latin}0-9._%+-]+@[\p{Latin}0-9-]+(?:\.[\p{Latin}0-9-]+)+"#)
+        pattern: #"(?<![•\p{L}\p{M}\p{N}._%+-])[•\p{L}\p{M}\p{N}._%+-]+@[\p{L}\p{M}\p{N}-]+(?:\.[\p{L}\p{M}\p{N}-]+)+"#)
 
     /// Masks every email address inside free text (labels, error messages, banners, confirmation texts);
     /// an "@" that isn't part of an address ("Work @ Acme") is left alone.
