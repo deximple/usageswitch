@@ -12,12 +12,14 @@ public struct RelauncherGuard: Sendable {
     let env: SwitcherEnvironment
     let fs: SafeFS
     let runner: CommandRunner
+    let reader: BoundedReader
     static let launchctl = "/bin/launchctl"
 
-    public init(env: SwitcherEnvironment, fs: SafeFS, runner: CommandRunner) {
+    public init(env: SwitcherEnvironment, fs: SafeFS, runner: CommandRunner, reader: BoundedReader = .shared) {
         self.env = env
         self.fs = fs
         self.runner = runner
+        self.reader = reader
     }
 
     public func discover() -> [Relauncher] {
@@ -25,7 +27,7 @@ public struct RelauncherGuard: Sendable {
         guard let names = try? fm.contentsOfDirectory(atPath: env.launchAgentsDir.path) else { return [] }
         return names.sorted().filter { $0.hasSuffix(".plist") }.compactMap { name in
             let url = env.launchAgentsDir.appendingPathComponent(name)
-            guard let data = fm.contents(atPath: url.path),
+            guard let data = reader.contents(atPath: url.path, using: { FileManager.default.contents(atPath: $0) }),
                   let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   let label = plist["Label"] as? String else { return nil }
             var args = plist["ProgramArguments"] as? [String] ?? []
@@ -33,8 +35,7 @@ public struct RelauncherGuard: Sendable {
             var text = args.joined(separator: " ")
             for arg in args where arg.hasPrefix("/") {
                 // Only small text scripts are inspected; binaries (NUL bytes) are skipped.
-                if let attrs = try? fm.attributesOfItem(atPath: arg), (attrs[.size] as? NSNumber)?.intValue ?? 0 < 65_536,
-                   let body = fm.contents(atPath: arg), !body.contains(0) {
+                if let body = reader.contents(atPath: arg), !body.contains(0) {
                     text += "\n" + String(decoding: body, as: UTF8.self)
                 }
             }
