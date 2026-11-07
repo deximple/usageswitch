@@ -17,20 +17,24 @@ import json
 import math
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 
-# Deliberately broader than Privacy.emailPattern: any script, and any address whose local part
-# carries no mask bullet counts as unmasked.
+# Deliberately broader than Privacy.emailPattern: an address in any script counts as unmasked
+# unless the trailing run of its local part has one of Privacy.maskEmail's shapes.
 EMAIL = re.compile(r"([^\s@]+)@[\w-]+(?:\.[\w-]+)+")
 # The shapes Privacy.maskEmail produces: all bullets, or two characters, bullets, three characters.
 MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
-
-
-def is_masked(local):
-    return MASKED_LOCAL.fullmatch(re.split(r"[(<\[{\"':,;]", local)[-1]) is not None
+# The masker's local-part characters plus bullets; the trailing run of these is the masked part.
+MASK_TAIL = re.compile(r"[A-Za-z\u00C0-\u024F0-9._%+•-]*$")
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
+
+
+def is_masked(local):
+    tail = MASK_TAIL.search(unicodedata.normalize("NFC", local)).group()
+    return MASKED_LOCAL.fullmatch(tail) is not None
 
 
 def parse_date(value):
@@ -171,6 +175,11 @@ def self_test():
     assert run([row(label="•••@example.com")])[0] == 0, "fully masked short local part passes"
     assert run([row(label="Team•alex@example.com")])[0] == 1, "a stray bullet is not a mask"
     assert run([row(label="Work (al••••••026@example.com)")])[0] == 0, "masked address in text passes"
+    for prefix in ("Personal/", "a|", "회사", "x="):
+        assert run([row(label=f"{prefix}al••••••026@example.com")])[0] == 0, f"masked after {prefix!r} passes"
+    assert run([row(label="회사•••••@example.com")])[0] == 0, "short mask after Hangul passes"
+    assert run([row(label="•alex@example.com")])[0] == 1, "leading bullet is not a mask"
+    assert run([row(label="e\u0301x•••026@example.com")])[0] == 0, "decomposed accents are normalized"
     assert run([row(state="failed")])[0] == 1, "failed/retained rows are never fresh"
     assert run([row(readAt="2026-11-06T00:00:00Z")])[0] == 1, "stale read is never fresh"
     assert run([row(windows=[{"kind": "weekly", "usedPercent": True}])])[0] == 1, "bool is not a percent"
