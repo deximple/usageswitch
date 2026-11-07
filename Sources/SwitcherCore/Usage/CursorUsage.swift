@@ -131,7 +131,7 @@ public struct CursorUsageCollector: Sendable {
         guard let response = http.post(url: usageURL, bearer: token, timeout: 10) else {
             return [finish(.failed(.network))]
         }
-        if response.status == 401 || response.status == 403 { return [finish(.unavailable(.noSignIn))] }
+        if response.status == 401 || response.status == 403 { return [finish(.failed(.refused))] }
         guard response.status == 200 else { return [finish(.failed(.network))] }
         guard let windows = CursorUsageParser.windows(usage: response.body) else {
             return [finish(.notReporting)]

@@ -83,7 +83,7 @@ struct CursorUsageTests {
         #expect(usage?.windows.count == 1)
     }
 
-    @Test("no token anywhere is noSignIn; 401 and 403 are too")
+    @Test("no token is noSignIn; rejected credentials are refused")
     func noSignIn() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -95,7 +95,8 @@ struct CursorUsageTests {
         for code in [401, 403] {
             fake = fakeHTTP(usage: UsageFixture.cursorSplit, status: code)
             usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
-            #expect(usage?.state == .unavailable(.noSignIn))
+            #expect(usage?.state == .failed(.refused))
+            #expect(usage?.windows.isEmpty == true)
         }
     }
 
