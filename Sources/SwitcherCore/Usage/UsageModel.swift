@@ -73,6 +73,8 @@ public enum UsageProblem: String, Codable, Sendable {
     case noSignIn, cliMissing, managed, refused, timeout, network, schemaChanged, rateLimited
     /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
     case connectionRequired
+    /// The answer named another account than the one this row reads (a login changed mid-read).
+    case accountMismatch
 }
 
 public enum UsageState: Equatable, Sendable {

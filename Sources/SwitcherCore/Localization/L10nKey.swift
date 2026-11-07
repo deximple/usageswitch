@@ -312,6 +312,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageReasonCliMissing = "usage.reason.cliMissing"
     case usageReasonManaged = "usage.reason.managed"
     case usageReasonRefused = "usage.reason.refused"
+    case usageReasonAccountMismatch = "usage.reason.accountMismatch"
     case usageReasonTimeout = "usage.reason.timeout"
     case usageReasonNetwork = "usage.reason.network"
     case usageReasonSchemaChanged = "usage.reason.schemaChanged"

@@ -318,6 +318,7 @@ extension Strings {
         .usageReasonCliMissing: "Command-line tool not found",
         .usageReasonManaged: "Managed settings — usage can't be read",
         .usageReasonRefused: "Usage read was refused",
+        .usageReasonAccountMismatch: "Usage came back for a different account, so none is shown",
         .usageReasonTimeout: "Timed out reading usage",
         .usageReasonNetwork: "Couldn't reach the service",
         .usageReasonSchemaChanged: "Couldn't read usage — this %@ version may need a UsageSwitch update",

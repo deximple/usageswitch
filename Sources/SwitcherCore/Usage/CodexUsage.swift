@@ -176,7 +176,7 @@ public struct CodexUsageCollector: Sendable {
                 // A read attributed to another account (a login changed mid-read) is never this home's
                 // quota, and drops the login fingerprint so no earlier windows are kept for it either.
                 if let reported = parsed.accountId, account.identity?.owns(accountId: reported) != true {
-                    return finish(.failed(.refused), attributed: false)
+                    return finish(.failed(.accountMismatch), attributed: false)
                 }
                 return finish(.ok, parsed.windows, plan: parsed.plan)
             case .failure(let failure): return finish(Self.state(for: failure))

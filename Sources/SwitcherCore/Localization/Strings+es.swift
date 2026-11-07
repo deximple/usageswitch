@@ -318,6 +318,7 @@ extension Strings {
         .usageReasonCliMissing: "No se encontró la herramienta de línea de comandos",
         .usageReasonManaged: "Ajustes gestionados — no se puede leer el uso",
         .usageReasonRefused: "La lectura del uso fue rechazada",
+        .usageReasonAccountMismatch: "El uso llegó de otra cuenta, así que no se muestra",
         .usageReasonTimeout: "Tiempo de espera agotado al leer el uso",
         .usageReasonNetwork: "No se pudo contactar con el servicio",
         .usageReasonSchemaChanged: "No se pudo leer el uso — esta versión de %@ puede necesitar una actualización de UsageSwitch",

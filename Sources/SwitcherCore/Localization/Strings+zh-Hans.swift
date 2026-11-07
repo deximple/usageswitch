@@ -318,6 +318,7 @@ extension Strings {
         .usageReasonCliMissing: "找不到命令行工具",
         .usageReasonManaged: "存在管理配置 — 无法读取用量",
         .usageReasonRefused: "读取用量被拒绝",
+        .usageReasonAccountMismatch: "返回的是其他账户的用量，因此不显示",
         .usageReasonTimeout: "读取用量超时",
         .usageReasonNetwork: "无法连接服务",
         .usageReasonSchemaChanged: "无法读取用量 — 此 %@ 版本可能需要更新 UsageSwitch",

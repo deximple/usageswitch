@@ -25,8 +25,23 @@ from datetime import datetime, timezone
 EMAIL = re.compile(r"([^\s@]+)@[\w-]+(?:\.[\w-]+)+")
 # The shapes Privacy.maskEmail produces: all bullets, or two characters, bullets, three characters.
 MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
+def _latin_class():
+    """Approximates the masker's \\p{Latin} (Python's re has no script classes) as ranges."""
+    def latin(code):
+        char = chr(code)
+        return char in "ªº" or "LATIN" in unicodedata.name(char, "")
+    ranges, start = [], None
+    for code in range(0x10000):
+        if latin(code):
+            start = code if start is None else start
+        elif start is not None:
+            ranges.append((start, code - 1))
+            start = None
+    return "".join(chr(a) if a == b else f"{chr(a)}-{chr(b)}" for a, b in ranges)
+
+
 # The masker's local-part characters plus bullets; the trailing run of these is the masked part.
-MASK_TAIL = re.compile(r"[A-Za-z\u00C0-\u024F0-9._%+•-]*$")
+MASK_TAIL = re.compile("[" + _latin_class() + r"0-9._%+•-]*$")
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
@@ -172,6 +187,10 @@ def self_test():
     assert run([row(problem="alex@example.com")])[0] == 1, "email in any field must fail"
     assert run([row(label="김철수@example.com")])[0] == 1, "non-Latin local part must fail"
     assert run([row(label="ḁlex@example.com")])[0] == 1, "Latin Extended Additional must fail"
+    for masked in ("ḁl••••••026@example.com", "al••••••ḁⱡꜣ@example.com", "ɐb••••••026@example.com",
+                   "ａｂ••••••026@example.com"):
+        assert run([row(label=masked)])[0] == 0, f"validly masked Latin label {masked!r} passes"
+    assert run([row(label="a×b•••••@example.com")])[0] == 1, "a non-letter in the Latin-1 block is not masker text"
     assert run([row(label="•••@example.com")])[0] == 0, "fully masked short local part passes"
     assert run([row(label="Team•alex@example.com")])[0] == 1, "a stray bullet is not a mask"
     assert run([row(label="Work (al••••••026@example.com)")])[0] == 0, "masked address in text passes"

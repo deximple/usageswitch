@@ -318,6 +318,7 @@ extension Strings {
         .usageReasonCliMissing: "コマンドラインツールが見つかりません",
         .usageReasonManaged: "管理設定があるため使用量を読み取れません",
         .usageReasonRefused: "使用量の読み取りが拒否されました",
+        .usageReasonAccountMismatch: "別のアカウントの使用量が返されたため表示しません",
         .usageReasonTimeout: "使用量の読み取りがタイムアウトしました",
         .usageReasonNetwork: "サービスに接続できません",
         .usageReasonSchemaChanged: "使用量を読み取れません — この %@ バージョンには UsageSwitch の更新が必要かもしれません",

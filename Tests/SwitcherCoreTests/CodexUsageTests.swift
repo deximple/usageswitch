@@ -19,6 +19,23 @@ struct CodexUsageTests {
         CodexStatus(installed: true, version: version, accounts: accounts, found: found, hiddenCount: 0)
     }
 
+    @Test("the command line drops only the phantom standard home, and only while Codex isn't installed")
+    func phantomDefaultHome() {
+        let phantom = CodexAccount(id: "standard", kind: .standard, label: "~/.codex", customName: nil,
+                                   defaultName: "~/.codex", home: "/tmp/codex-home", homePath: "~/.codex",
+                                   identity: nil, state: .signedOut, pids: [])
+        let running = CodexAccount(id: "standard", kind: .standard, label: "~/.codex", customName: nil,
+                                   defaultName: "~/.codex", home: "/tmp/codex-home", homePath: "~/.codex",
+                                   identity: nil, state: .running, pids: [42])
+        let added = CodexAccount(id: "m-1", kind: .managed, label: "m-1", customName: nil, defaultName: "m-1",
+                                 home: "/tmp/m-1", homePath: "/tmp/m-1", identity: nil, state: .signedOut, pids: [])
+        let absent = CodexStatus(installed: false, version: nil, accounts: [phantom, added], hiddenCount: 0)
+        #expect(absent.withoutPhantomDefault.accounts.map(\.id) == ["m-1"])
+        #expect(status([phantom]).withoutPhantomDefault == status([phantom]))
+        let signedIn = CodexStatus(installed: false, version: nil, accounts: [account("standard"), running], hiddenCount: 0)
+        #expect(signedIn.withoutPhantomDefault == signedIn)
+    }
+
     func collector(_ status: CodexStatus, runner: FakeUsageRunner) -> CodexUsageCollector {
         CodexUsageCollector(status: { status }, runner: runner, codexCLI: cli, now: { Date(timeIntervalSince1970: 1_780_000_000) })
     }
@@ -90,7 +107,7 @@ struct CodexUsageTests {
     func attributedToOtherAccount(homeAccount: String?) {
         let runner = fakeRunner(answering: [Self.attributedAnswer(#""acct-b""#)])
         let usage = collector(status([attributed(homeAccount)]), runner: runner).collect().first
-        #expect(usage?.state == .failed(.refused))
+        #expect(usage?.state == .failed(.accountMismatch))
         #expect(usage?.windows.isEmpty == true)
         #expect(usage?.plan == nil)
     }
@@ -103,7 +120,7 @@ struct CodexUsageTests {
         let mismatched = try #require(read(home, answering: #""acct-b""#))
         #expect(mismatched.identityKey == nil)
         let shown = mismatched.retainingWindows(from: previous)
-        #expect(shown.state == .failed(.refused))
+        #expect(shown.state == .failed(.accountMismatch))
         #expect(shown.windows.isEmpty)
         #expect(shown.plan == nil)
     }
@@ -111,7 +128,7 @@ struct CodexUsageTests {
     @Test("an empty reported accountId never matches, even an empty home id")
     func emptyAccountIdFailsClosed() {
         let usage = read(attributed(""), answering: String(repeating: "\"", count: 2))
-        #expect(usage?.state == .failed(.refused))
+        #expect(usage?.state == .failed(.accountMismatch))
         #expect(usage?.windows.isEmpty == true)
     }
 

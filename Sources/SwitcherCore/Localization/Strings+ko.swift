@@ -318,6 +318,7 @@ extension Strings {
         .usageReasonCliMissing: "명령행 도구를 찾을 수 없습니다",
         .usageReasonManaged: "관리 설정이 있어 사용량을 읽을 수 없습니다",
         .usageReasonRefused: "사용량 읽기가 거부되었습니다",
+        .usageReasonAccountMismatch: "다른 계정의 사용량이 돌아와 표시하지 않습니다",
         .usageReasonTimeout: "사용량 읽기 시간이 초과되었습니다",
         .usageReasonNetwork: "서비스에 연결할 수 없습니다",
         .usageReasonSchemaChanged: "사용량을 읽지 못했습니다 — 이 %@ 버전은 UsageSwitch 업데이트가 필요할 수 있습니다",
