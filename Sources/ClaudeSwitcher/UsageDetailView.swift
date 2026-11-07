@@ -65,6 +65,14 @@ struct UsageDetailView: View {
         let savedApp = p.usage.provider == .claude && p.usage.accountRef.hasPrefix("app:")
         if savedApp {
             Text(L10n.t(.usageNotLinked)).font(.system(size: 11)).foregroundStyle(.secondary)
+        } else if UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
+            Text(L10n.t(.usageConnectionHelp)).font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Button(L10n.t(.uiConnectUsage)) {
+                SettingsMenu.enableUsageConnection(p.usage.provider, model: model, usage: usage)
+            }
+            .font(.system(size: 12)).foregroundStyle(Theme.active)
+            .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiConnectUsage))"))
         } else if let reason = UsageText.reason(p.usage.state, provider: p.usage.provider) {
             Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
         }
@@ -74,8 +82,17 @@ struct UsageDetailView: View {
                         fresh: (0...UsageGuidance.maximumAge).contains(Date().timeIntervalSince(p.usage.readAt)),
                         pace: usage.pace[UsagePriority.key(p.usage, w)])
         }
-        if p.usage.windows.isEmpty && !savedApp {
+        if p.usage.windows.isEmpty && !savedApp
+            && !UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        if p.usage.provider == .cursor,
+           let destination = URL(string: "https://cursor.com/dashboard/spending") {
+            Text(L10n.t(.usageCursorDashboardNote)).font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Link(L10n.t(.uiCursorDashboard), destination: destination)
+                .font(.system(size: 12))
+                .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiCursorDashboard))"))
         }
         if p.usage.authentication == .apiKey {
             Text(L10n.t(.usageApiBillingNote)).font(.system(size: 11))

@@ -1,7 +1,8 @@
 import Foundation
 
-/// The last usage read, as `--cli usage` prints it. Percentages and reset times only — never
-/// credentials — and the label is always email-masked, regardless of the show-emails setting. Written by the app after every refresh;
+/// The last usage read, as `--cli usage` prints it. Display-safe identity, authentication and
+/// window data only — never credentials — and the label is always email-masked, regardless of the
+/// show-emails setting. Written by the app after every refresh;
 /// the CLI reads the file and never touches the network, the Keychain or a vendor tool.
 public struct UsageSnapshot: Codable, Equatable, Sendable {
     public let generatedAt: Date
@@ -19,6 +20,8 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         public let problem: String?
         public let readAt: Date
         public let toolVersion: String?
+        /// `UsageAuthentication.rawValue` — absent in older files, additive.
+        public let authentication: String?
         public let windows: [Window]
     }
 
@@ -36,24 +39,30 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// reveal-emails setting is a UI concern; what leaves the app is always masked.
     public init(usages: [AccountUsage], generatedAt: Date, showEmails: Bool) {
         self.generatedAt = generatedAt
-        accounts = usages.map { usage in
-            let (state, problem): (String, String?)
-            switch usage.state {
-            case .ok: (state, problem) = ("ok", nil)
-            case .notReporting: (state, problem) = ("notReporting", nil)
-            case .unavailable(let p): (state, problem) = ("unavailable", p.rawValue)
-            case .failed(let p): (state, problem) = ("failed", p.rawValue)
-            }
-            return Account(id: usage.id, provider: usage.provider.rawValue,
-                           label: UsageText.accountLabel(usage, showEmails: false),
-                           plan: usage.plan, state: state, problem: problem,
-                           readAt: usage.readAt, toolVersion: usage.toolVersion,
-                           windows: usage.windows.map { window in
-                Window(kind: window.kind.rawValue, scope: window.scope,
-                       durationMinutes: window.durationMinutes, usedPercent: window.usedPercent,
-                       leftPercent: max(0, 100 - window.usedPercent), resetsAt: window.resetsAt)
-            })
+        accounts = usages.map { Self.account($0, label: UsageText.accountLabel($0, showEmails: false)) }
+    }
+
+    /// Shared row mapping: the usage row's own id/provider/state/problem/readAt/version/plan and
+    /// windows (with derived leftPercent) plus its authentication rawValue. `label` arrives
+    /// already masked from the caller — the raw initializer's collected label, or the
+    /// presentation's current registry name.
+    private static func account(_ usage: AccountUsage, label: String) -> Account {
+        let (state, problem): (String, String?)
+        switch usage.state {
+        case .ok: (state, problem) = ("ok", nil)
+        case .notReporting: (state, problem) = ("notReporting", nil)
+        case .unavailable(let p): (state, problem) = ("unavailable", p.rawValue)
+        case .failed(let p): (state, problem) = ("failed", p.rawValue)
         }
+        return Account(id: usage.id, provider: usage.provider.rawValue, label: label,
+                       plan: usage.plan, state: state, problem: problem,
+                       readAt: usage.readAt, toolVersion: usage.toolVersion,
+                       authentication: usage.authentication.rawValue,
+                       windows: usage.windows.map { window in
+            Window(kind: window.kind.rawValue, scope: window.scope,
+                   durationMinutes: window.durationMinutes, usedPercent: window.usedPercent,
+                   leftPercent: max(0, 100 - window.usedPercent), resetsAt: window.resetsAt)
+        })
     }
 
     /// Writes through SafeFS so the allowlist applies; the store dir already exists once the app ran.
@@ -70,7 +79,8 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         UsageSnapshot(generatedAt: generatedAt, accounts: accounts.map {
             Account(id: $0.id, provider: $0.provider, label: Privacy.maskEmails(in: $0.label),
                     plan: $0.plan, state: $0.state, problem: $0.problem,
-                    readAt: $0.readAt, toolVersion: $0.toolVersion, windows: $0.windows)
+                    readAt: $0.readAt, toolVersion: $0.toolVersion,
+                    authentication: $0.authentication, windows: $0.windows)
         })
     }
 
@@ -81,6 +91,14 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode(UsageSnapshot.self, from: data))?.masked()
+    }
+
+    /// Snapshot built from identity presentations — each row keeps its collected
+    /// usage data but labels resolve through the CURRENT registry name (masked),
+    /// never a stale collected label. No email/owner/identityKey is serialized.
+    public init(presentations: [UsageAccountPresentation], generatedAt: Date) {
+        self.generatedAt = generatedAt
+        accounts = presentations.map { Self.account($0.usage, label: Privacy.maskEmails(in: $0.name)) }
     }
 
     /// Direct memberwise init used only by `masked()` — never writes a label it didn't mask.

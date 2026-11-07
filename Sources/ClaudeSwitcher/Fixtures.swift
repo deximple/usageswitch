@@ -204,7 +204,7 @@ enum Fixtures {
     }
 
     /// Claude weekly 75% + Fable 3%; Codex Personal 31% (pinned), Work session 92% + weekly 64%,
-    /// Side session used up; Cursor Auto 54% / API 12%.
+    /// Side session used up; Cursor plan total 30% used (synthetic total, not a split sum).
     private static func usages() -> [AccountUsage] {
         [
             account(.claude, "cli", "CLI sign-in", .ok, toolVersion: "2.1.317", windows: [
@@ -230,9 +230,9 @@ enum Fixtures {
             ]),
             // An API-key profile: billed separately, no subscription window — stays listed.
             account(.codex, "found:.codex_second", "API profile", .notReporting, auth: .apiKey),
+            // Declared synthetic total — the wire split fields are never summed or relabeled.
             account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
-                window(43200, 54, scope: "Auto", resetsIn: 21 * 86400 + 5 * 3600),
-                window(43200, 12, scope: "API", resetsIn: 21 * 86400 + 5 * 3600),
+                window(43200, 30, resetsIn: 21 * 86400 + 5 * 3600),
             ]),
         ]
     }
@@ -251,8 +251,9 @@ enum Fixtures {
                 window(300, 45, resetsIn: 1 * 3600),
                 window(10080, 70, resetsIn: 6 * 86400),
             ]),
+            // Declared synthetic total — the wire split fields are never summed or relabeled.
             account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
-                window(43200, 25, scope: "Auto", resetsIn: 12 * 86400),
+                window(43200, 30, resetsIn: 12 * 86400),
             ]),
         ]
     }

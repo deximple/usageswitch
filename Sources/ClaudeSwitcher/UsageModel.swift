@@ -264,8 +264,12 @@ final class UsageModel: ObservableObject {
             reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
         updatePace()
-        // The `--cli usage` file: percentages and reset times only, labels always email-masked.
-        try? UsageSnapshot(usages: usages, generatedAt: now, showEmails: settings.showEmails)
+        // The `--cli usage` file: display-safe identity, authentication and window
+        // data only — labels always email-masked, never credentials or raw emails.
+        try? UsageSnapshot(presentations: presentations(claude: settings.status,
+                                                        codex: AppModel.codex.status,
+                                                        now: now),
+                           generatedAt: now)
             .write(env: env, fs: SafeFS(env: env))
         deliverAlerts(now: now)
         isRefreshing = false

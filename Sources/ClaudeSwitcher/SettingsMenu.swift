@@ -59,10 +59,7 @@ struct SettingsMenu: View {
                             get: { model.enabledUsageProviders.contains(provider) },
                             set: { on in
                                 if on {
-                                    Self.confirmUsageConnection(provider) {
-                                        model.setUsageConnection(provider, on: true)
-                                        usage.applyConsent(model.enabledUsageProviders)
-                                    }
+                                    Self.enableUsageConnection(provider, model: model, usage: usage)
                                 } else {
                                     model.setUsageConnection(provider, on: false)
                                     usage.applyConsent(model.enabledUsageProviders)
@@ -95,6 +92,18 @@ struct SettingsMenu: View {
         .fixedSize()
         .help(L10n.t(.uiSettings))
         .accessibilityLabel(L10n.t(.uiSettings))
+    }
+
+    /// The single opt-in path used by the Settings toggle AND the inline Connect-usage
+    /// buttons: confirm, then apply the effective saved consent set. Cancel is a no-op.
+    static func enableUsageConnection(_ provider: UsageProvider, model: SwitcherModel,
+                                      usage: UsageModel) {
+        guard provider.requiresConsent, !model.enabledUsageProviders.contains(provider)
+        else { return }
+        confirmUsageConnection(provider) {
+            model.setUsageConnection(provider, on: true)
+            usage.applyConsent(model.enabledUsageProviders)
+        }
     }
 
     /// Shared opt-in explanation for any consent-required provider: local sign-in

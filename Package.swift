@@ -19,7 +19,8 @@ let package = Package(
         ),
         .testTarget(
             name: "SwitcherCoreTests",
-            dependencies: ["SwitcherCore"]
+            dependencies: ["SwitcherCore"],
+            exclude: ["Fixtures"]
         ),
     ],
     swiftLanguageModes: [.v6]

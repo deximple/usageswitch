@@ -99,26 +99,33 @@ struct CursorUsageTests {
         }
     }
 
-    @Test("split pools give Auto and API windows for the billing month")
+    @Test("a split response reports only the unscoped plan total — splits are never relabeled")
     func splitPools() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let fake = fakeHTTP(usage: UsageFixture.cursorSplit)
+        // planInfo is supplied on purpose: GetPlanInfo must never be invoked.
+        let fake = fakeHTTP(usage: UsageFixture.cursorSplit, planInfo: UsageFixture.cursorMergedPlanInfo)
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .ok)
-        #expect(usage?.windows.count == 2)
-        #expect(usage?.windows.map(\.scope) == ["Auto", "API"])
-        #expect(usage?.windows.map(\.usedPercent) == [42.5, 7])
+        #expect(usage?.windows.count == 1)
+        #expect(usage?.windows.first?.scope == nil)
+        #expect(usage?.windows.first?.usedPercent == 30) // total, not a split sum
         #expect(usage?.windows.first?.kind == .monthly)
         #expect(usage?.windows.first?.durationMinutes == 43200)
         #expect(usage?.windows.first?.resetsAt == Date(timeIntervalSince1970: 1_769_817_600))
-        #expect(fake.calls.count == 2)
+        #expect(fake.calls.count == 1)
         #expect(fake.calls[0].absoluteString == "https://api.test/\(usagePath)")
-        #expect(fake.calls[1].absoluteString == "https://api.test/\(planPath)")
     }
 
-    @Test("a merged plan reports one window from the total")
+    @Test("the plan total is reported regardless of the merged hint")
     func mergedPlan() throws {
+        for merged in [true, false] as [Bool?] + [nil] {
+            let body = Data(UsageFixture.cursorMergedUsage.utf8)
+            let windows = CursorUsageParser.windows(usage: body, merged: merged)
+            #expect(windows?.count == 1)
+            #expect(windows?.first?.scope == nil)
+            #expect(windows?.first?.usedPercent == 61)
+        }
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let fake = fakeHTTP(usage: UsageFixture.cursorMergedUsage, planInfo: UsageFixture.cursorMergedPlanInfo)
@@ -127,6 +134,45 @@ struct CursorUsageTests {
         #expect(usage?.windows.count == 1)
         #expect(usage?.windows.first?.scope == nil)
         #expect(usage?.windows.first?.usedPercent == 61)
+        #expect(fake.calls.count == 1)
+    }
+
+    @Test("split values without a total yield nothing — no sum, no inferred pool")
+    func splitOnlyNoTotal() throws {
+        for total in ["", #""totalPercentUsed":null"#] {
+            let plan = #"{"autoPercentUsed":42,"apiPercentUsed":7"#
+                + (total.isEmpty ? "" : ",\(total)") + "}"
+            let body = Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":\#(plan)}"#.utf8)
+            // Structurally valid JSON — the nil below is semantic, not decode failure.
+            #expect(try JSONSerialization.jsonObject(with: body) as? [String: Any] != nil)
+            #expect(CursorUsageParser.windows(usage: body, merged: nil) == nil)
+            #expect(CursorUsageParser.windows(usage: body, merged: true) == nil)
+        }
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let splitOnly = #"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{"autoPercentUsed":42,"apiPercentUsed":7}}"#
+        let fake = fakeHTTP(usage: splitOnly)
+        let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
+        #expect(usage?.state == .notReporting)
+        #expect(usage?.windows.isEmpty == true)
+    }
+
+    @Test("collected Cursor usage snapshots one unscoped window — never Auto/API")
+    func snapshotUnscoped() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let fake = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let usage = try #require(collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first)
+        let p = UsageAccountPresentation(usage: usage, name: usage.label, email: nil,
+                                         environment: .cli, login: .unknown,
+                                         badgeActive: false, owner: nil)
+        let snap = UsageSnapshot(presentations: [p], generatedAt: usage.readAt)
+        let account = snap.accounts[0]
+        #expect(account.id == "cursor:cursor" && account.provider == "cursor")
+        #expect(account.windows.count == 1)
+        #expect(account.windows[0].scope == nil)
+        #expect(account.windows[0].usedPercent == 30 && account.windows[0].leftPercent == 70)
+        #expect(!account.windows.contains { $0.scope == "Auto" || $0.scope == "API" })
     }
 
     @Test("a reversed billing cycle gives no duration but keeps the reset")
@@ -138,6 +184,35 @@ struct CursorUsageTests {
         #expect(windows?.first?.resetsAt == Date(timeIntervalSince1970: 1_767_225_600))
     }
 
+    @Test("int64-extreme billing cycles reject rather than trap on overflow")
+    func billingOverflow() throws {
+        func body(_ start: String?, _ end: String?) -> Data {
+            var fields = ""
+            if let start { fields += #""billingCycleStart":"\#(start)""# }
+            if let end { fields += (fields.isEmpty ? "" : ",") + #""billingCycleEnd":"\#(end)""# }
+            return Data(#"{\#(fields),"planUsage":{"totalPercentUsed":30}}"#.utf8)
+        }
+        // Structurally valid JSON with legal int64 strings — arithmetic overflow
+        // must reject the whole reading, never crash or invent a duration.
+        let extreme = body("-9223372036854775808", "9223372036854775807")
+        #expect(try JSONSerialization.jsonObject(with: extreme) as? [String: Any] != nil)
+        #expect(CursorUsageParser.windows(usage: extreme, merged: nil) == nil)
+        // Reverse extremes overflow identically.
+        let reverse = body("9223372036854775807", "-9223372036854775808")
+        #expect(try JSONSerialization.jsonObject(with: reverse) as? [String: Any] != nil)
+        #expect(CursorUsageParser.windows(usage: reverse, merged: nil) == nil)
+        // Missing boundary fields stay non-fatal: no duration, reset only when end exists.
+        let noStart = body(nil, "1769817600000")
+        #expect(CursorUsageParser.windows(usage: noStart, merged: nil)?.first?.durationMinutes == nil)
+        #expect(CursorUsageParser.windows(usage: noStart, merged: nil)?.first?.resetsAt == Date(timeIntervalSince1970: 1_769_817_600))
+        let noEnd = body("1767225600000", nil)
+        #expect(CursorUsageParser.windows(usage: noEnd, merged: nil)?.first?.durationMinutes == nil)
+        #expect(CursorUsageParser.windows(usage: noEnd, merged: nil)?.first?.resetsAt == nil)
+        // A normal cycle still reports duration + reset (existing behavior).
+        let normal = body("1767225600000", "1769817600000")
+        #expect(CursorUsageParser.windows(usage: normal, merged: nil)?.first?.durationMinutes == 43200)
+    }
+
     @Test("no percentages reported is notReporting")
     func none() throws {
         let home = try tempHome()
@@ -145,6 +220,70 @@ struct CursorUsageTests {
         let fake = fakeHTTP(usage: UsageFixture.cursorNoPercentages)
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .notReporting)
+    }
+
+    // MARK: - Nonfinite/malformed percentage rejection
+
+    /// Synthetic payloads only — a planUsage body builder that lets one field hold
+    /// any raw JSON value while the other two stay valid.
+    private func usageBody(field: String, rawValue: String) -> Data {
+        var parts = ["autoPercentUsed": "42", "apiPercentUsed": "7", "totalPercentUsed": "30"]
+        parts[field] = rawValue
+        let plan = parts.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",")
+        return Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{\#(plan)}}"#.utf8)
+    }
+
+    @Test("a provided nonfinite or nonnumeric percentage rejects the whole reading")
+    func malformedPercentages() {
+        let bad = [#""NaN""#, #""nan""#, #""Infinity""#, #""-Infinity""#, #""inf""#,
+                   #""1e999""#, #""-1e999""#, "true", "false", "{}", "[]", "1e999", "-1e999"]
+        for field in ["autoPercentUsed", "apiPercentUsed", "totalPercentUsed"] {
+            for value in bad {
+                let body = usageBody(field: field, rawValue: value)
+                // A bad split must never fall back to a healthy-looking total.
+                #expect(CursorUsageParser.windows(usage: body, merged: nil) == nil,
+                        "\(field)=\(value)")
+                #expect(CursorUsageParser.windows(usage: body, merged: false) == nil,
+                        "\(field)=\(value)")
+                // merged=true must not bypass validation either.
+                #expect(CursorUsageParser.windows(usage: body, merged: true) == nil,
+                        "\(field)=\(value)")
+            }
+        }
+    }
+
+    @Test("missing, null and finite percentages still parse; out-of-range clamps")
+    func validPercentages() {
+        func body(_ plan: String) -> Data {
+            Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{\#(plan)}}"#.utf8)
+        }
+        // A null split behaves like a missing field while the total still reports.
+        let nullSplit = body(#""autoPercentUsed":42,"apiPercentUsed":null,"totalPercentUsed":30"#)
+        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.usedPercent) == [30])
+        // Boundaries and numeric strings/fractions pass through unchanged.
+        let edges = body(#""autoPercentUsed":0,"apiPercentUsed":"55.5","totalPercentUsed":100"#)
+        #expect(CursorUsageParser.windows(usage: edges, merged: nil)?.map(\.usedPercent) == [100])
+        // Finite out-of-range totals keep the established 0...100 clamping.
+        let clampedBody = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":105"#)
+        #expect(CursorUsageParser.windows(usage: clampedBody, merged: nil)?.map(\.usedPercent) == [100])
+        let clampedLow = body(#""totalPercentUsed":-5"#)
+        #expect(CursorUsageParser.windows(usage: clampedLow, merged: nil)?.map(\.usedPercent) == [0])
+        let mergedClamped = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":"105""#)
+        #expect(CursorUsageParser.windows(usage: mergedClamped, merged: true)?.first?.usedPercent == 100)
+    }
+
+    @Test("a malformed percentage maps to notReporting, never a plausible quota")
+    func malformedCollector() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let badUsage = #"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{"autoPercentUsed":"NaN","apiPercentUsed":7,"totalPercentUsed":30}}"#
+        // Prove the payload is structurally valid JSON — the rejection below is
+        // the percentage validation, not a decode failure.
+        #expect(try JSONSerialization.jsonObject(with: Data(badUsage.utf8)) as? [String: Any] != nil)
+        let fake = fakeHTTP(usage: badUsage)
+        let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
+        #expect(usage?.state == .notReporting)
+        #expect(usage?.windows.isEmpty == true)
     }
 
     @Test("other HTTP statuses and dead connections are a network failure")
