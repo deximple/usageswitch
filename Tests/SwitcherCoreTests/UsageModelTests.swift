@@ -166,13 +166,16 @@ struct UsageRefreshPolicyTests {
             oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: false))
     }
 
-    @Test("unchanged account ids do not refresh; changed ids always do")
+    @Test("unchanged account ids do not refresh; added or removed ids always do")
     func registeredAccountIdsChanged() {
         #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: Set(["a"]), newAccountIds: Set(["a"]),
             refreshedWithoutClaudeStatus: true))
         #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: Set(["a"]), newAccountIds: Set(["a", "b"]),
+            refreshedWithoutClaudeStatus: false))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a", "b"]), newAccountIds: Set(["a"]),
             refreshedWithoutClaudeStatus: false))
     }
 
