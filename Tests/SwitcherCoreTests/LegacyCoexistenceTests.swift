@@ -222,5 +222,13 @@ struct LegacyCoexistenceTests {
         #expect(Privacy.maskEmails(in: "josé.garcía@münchen.de") == Privacy.maskEmail("josé.garcía@münchen.de"))
         #expect(Privacy.maskEmails(in: "계정sam.lee@corp.com으로") == "계정\(Privacy.maskEmail("sam.lee@corp.com"))으로")
         #expect(Privacy.maskEmails(in: "Work @ Acme") == "Work @ Acme")
+        // A bullet next to an address is not a mask: the address is still masked, always into a mask shape.
+        #expect(Privacy.maskEmails(in: "Team•alex@example.com") == "Te••••lex@example.com")
+        #expect(Privacy.maskEmails(in: "•alexkim@example.com") == String(repeating: "•", count: 8) + "@example.com")
+        #expect(Privacy.maskEmails(in: "x •alex@corp.com") == "x •••••@corp.com")
+        // Decomposed accents are normalized first, so no Latin letter is left outside the mask.
+        let decomposed = Privacy.maskEmails(in: "e\u{301}xample.user@corp.com")
+        #expect(!decomposed.contains("xample") && !decomposed.contains("\u{301}"))
+        #expect(Privacy.maskEmails(in: decomposed) == decomposed)
     }
 }

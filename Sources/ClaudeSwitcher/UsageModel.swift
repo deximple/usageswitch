@@ -13,6 +13,7 @@ final class UsageModel: ObservableObject {
     @Published private(set) var installations: [UsageInstallation] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var nextRefresh = Date().addingTimeInterval(300)
+    private(set) var refreshedWithoutClaudeStatus = false
     /// Drain speed per window key; `unknown` until two readings line up.
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
     /// Guide / All Usage, not persisted.
@@ -28,6 +29,7 @@ final class UsageModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
+    private var claudeBindings: [ClaudeProfileBinding]
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
     private var lastReadStartedAt: Date?
@@ -43,6 +45,7 @@ final class UsageModel: ObservableObject {
         self.settings = settings
         segment = .guide
         isDemo = false
+        claudeBindings = settings.claudeUsageProfiles
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: Self.tick, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickNow() }
@@ -53,6 +56,7 @@ final class UsageModel: ObservableObject {
          settings: SwitcherModel) {
         self.settings = settings
         self.segment = segment
+        claudeBindings = []
         usages = demo
         // Inventory comes from the fixture rows only — a demo never runs live discovery.
         let fixtureRoot = URL(fileURLWithPath: "/usage-switch-fixture")
@@ -113,12 +117,16 @@ final class UsageModel: ObservableObject {
 
     func refresh() {
         guard !isDemo else { return }
+        refreshedWithoutClaudeStatus = AppModel.shared.status == nil
         generation += 1
         let generation = generation
         isRefreshing = true
         lastReadStartedAt = Date()
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
         let enabled = settings.enabledUsageProviders
+        let bindings = settings.claudeUsageProfiles
+        let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
+        let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
         refreshTask?.cancel()
         refreshTask = Task.detached(priority: .userInitiated) {
             let env = SwitcherEnvironment.live()
@@ -141,8 +149,17 @@ final class UsageModel: ObservableObject {
                     switch installation.provider {
                     case .claude:
                         // App-only Claude gets an empty path list: honest cliMissing, never a guessed binary.
-                        return [ClaudeUsageCollector(runner: runner,
-                            binaryPaths: installation.cli.map { [$0] } ?? []).collect()]
+                        let binaryPaths = installation.cli.map { [$0] } ?? []
+                        var rows = [ClaudeUsageCollector(runner: runner,
+                            binaryPaths: binaryPaths).collect()]
+                        let excludedRoots = [env.claudeUserData, env.storeDir]
+                        for binding in activeBindings {
+                            if Task.isCancelled { break }
+                            rows.append(ClaudeProfileUsageCollector(binding: binding, runner: runner,
+                                home: env.home, managed: .system, binaryPaths: binaryPaths,
+                                excludedRoots: excludedRoots).collect())
+                        }
+                        return rows
                     case .codex:
                         // App-only Codex falls back to the bundled path -> existing missing state.
                         return CodexUsageCollector(status: { CodexManager().status() },
@@ -212,6 +229,20 @@ final class UsageModel: ObservableObject {
         refresh()
     }
 
+    func applyClaudeProfiles(_ bindings: [ClaudeProfileBinding]) {
+        guard !isDemo else { return }
+        generation += 1
+        refreshTask?.cancel()
+        let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
+        for old in claudeBindings where next[old.accountId] != old {
+            let rowID = "claude:app:\(old.accountId)"
+            usages.removeAll { $0.id == rowID }
+            clearPace(rowID: rowID)
+        }
+        claudeBindings = bindings
+        refresh()
+    }
+
     /// Identity presentations for the current readings. Demo passes registry
     /// metadata ONLY for providers present in its fixture inventory — canned
     /// accounts can never leak into a fixture that doesn't show that provider.
@@ -245,6 +276,13 @@ final class UsageModel: ObservableObject {
         pace = pace.filter { !$0.key.hasPrefix(prefix) }
     }
 
+    private func clearPace(rowID: String) {
+        let prefix = rowID + "/"
+        pace = pace.filter { !$0.key.hasPrefix(prefix) }
+        previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
+        alertedKeys = alertedKeys.filter { !$0.hasPrefix(prefix) }
+    }
+
     private func publishInventory(_ installed: [UsageInstallation], generation: Int) {
         guard generation == self.generation else { return }
         let removed = Set(installations.map { $0.provider }).subtracting(installed.map { $0.provider })
@@ -264,9 +302,15 @@ final class UsageModel: ObservableObject {
             reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
         updatePace()
-        // The `--cli usage` file: percentages and reset times only, labels always email-masked.
-        try? UsageSnapshot(usages: usages, generatedAt: now, showEmails: settings.showEmails)
-            .write(env: env, fs: SafeFS(env: env))
+        // The `--cli usage` file: display-safe identity, authentication and window
+        // data only — labels always email-masked, never credentials or raw emails.
+        if AppModel.shared.status != nil {
+            try? UsageSnapshot(presentations: presentations(claude: settings.status,
+                                                            codex: AppModel.codex.status,
+                                                            now: now),
+                               generatedAt: now)
+                .write(env: env, fs: SafeFS(env: env))
+        }
         deliverAlerts(now: now)
         isRefreshing = false
         nextRefresh = now.addingTimeInterval(Self.interval)

@@ -70,6 +70,14 @@ public struct CodexStatus: Codable, Equatable, Sendable {
 
     public var runningCount: Int { accounts.filter { $0.state == .running }.count }
 
+    /// Without the standard home when Codex isn't installed and that home has no sign-in or window: the same
+    /// phantom default that never shows a Codex tab, so the command line doesn't list it either.
+    public var withoutPhantomDefault: CodexStatus {
+        guard !installed else { return self }
+        let real = accounts.filter { $0.kind != .standard || $0.identity != nil || !$0.pids.isEmpty }
+        return CodexStatus(installed: installed, version: version, accounts: real, found: found, hiddenCount: hiddenCount)
+    }
+
     public init(installed: Bool, version: String?, accounts: [CodexAccount], found: [CodexAccount] = [], hiddenCount: Int) {
         self.installed = installed; self.version = version; self.accounts = accounts; self.found = found
         self.hiddenCount = hiddenCount

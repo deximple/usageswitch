@@ -43,6 +43,7 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var cursorUsageEnabled = false
     /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
     @Published private(set) var usageConnections: Set<UsageProvider> = []
+    @Published private(set) var claudeUsageProfiles: [ClaudeProfileBinding] = []
     /// Appearance choice persisted in settings; system follows the OS live.
     @Published private(set) var appearanceChoice: AppAppearance = .system
     @Published private(set) var usageWarnPercent = 80
@@ -79,6 +80,7 @@ final class SwitcherModel: ObservableObject {
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
+        claudeUsageProfiles = demo == nil ? settings.effectiveClaudeUsageProfiles : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
         usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
@@ -129,7 +131,14 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func apply(_ s: SwitcherStatus) {
+        let oldAccountIds = status.map { Set($0.accounts.map(\.id)) }
+        let newAccountIds = Set(s.accounts.map(\.id))
         status = s
+        let shouldRefreshUsage = !isDemo && UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: oldAccountIds,
+            newAccountIds: newAccountIds,
+            refreshedWithoutClaudeStatus: AppModel.usage.refreshedWithoutClaudeStatus)
+        if shouldRefreshUsage { AppModel.usage.refresh() }
         // Picks up an approval given in System Settings after the checkbox was ticked.
         if !isDemo { launchAtLogin = SMAppService.mainApp.status == .enabled }
         guard phase == .awaitingLogin, s.claude.activeAccountUuid != nil else { return }
@@ -354,6 +363,22 @@ final class SwitcherModel: ObservableObject {
             $0.usageConnections = self.usageConnections.isEmpty
                 ? nil : self.usageConnections.map { $0.rawValue }.sorted()
         }) { usageConnections = before }
+    }
+
+    func setClaudeUsageProfiles(_ bindings: [ClaudeProfileBinding]) -> Bool {
+        guard !isDemo,
+              Set(bindings.map(\.accountId)).count == bindings.count,
+              Set(bindings.map(\.profilePath)).count == bindings.count
+        else { return false }
+        let before = claudeUsageProfiles
+        claudeUsageProfiles = bindings
+        guard saveSettings({
+            $0.claudeUsageProfiles = bindings.isEmpty ? nil : bindings
+        }) else {
+            claudeUsageProfiles = before
+            return false
+        }
+        return true
     }
 
     /// Detail-window name editing: nil restores the default name. Reuses the

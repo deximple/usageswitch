@@ -117,7 +117,7 @@ enum CLI {
         let target = args.count >= 2 && !args[1].hasPrefix("--") ? args[1] : nil
         switch command {
         case "status", "list":
-            return emit(codex.status())
+            return emit(codex.status().withoutPhantomDefault)
         case "open":
             guard let target else { return fail("usage", usage, exit: 64) }
             return emit(try codex.open(target))

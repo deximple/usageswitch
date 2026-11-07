@@ -64,7 +64,7 @@ public struct OpenCodeUsageCollector: Sendable {
         guard let r = http.send(request) else { return [finish(.failed(.network))] }
         switch r.status {
         case 200: break
-        case 401: return [finish(.unavailable(.noSignIn))]
+        case 401: return [finish(.failed(.refused))]
         case 403: return [finish(.notReporting)] // no Go plan — not confirmed logout
         case 429: return [finish(.failed(.rateLimited))]
         default: return [finish(.failed(.network))]

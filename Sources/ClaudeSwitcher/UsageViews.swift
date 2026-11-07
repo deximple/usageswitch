@@ -420,6 +420,12 @@ struct UsageContent: View {
             }
             if usage.accountRef.hasPrefix("app:"), usage.provider == .claude {
                 EmptyView()
+            } else if UsageCollection.canConnect(usage, enabledProviders: settings.enabledUsageProviders) {
+                Button(L10n.t(.uiConnectUsage)) {
+                    SettingsMenu.enableUsageConnection(usage.provider, model: settings, usage: model)
+                }
+                .font(.system(size: 11)).foregroundStyle(Theme.active)
+                .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsage))"))
             } else if let reason = UsageText.reason(usage.state, provider: usage.provider) {
                 Text(reason).font(.system(size: 11))
                     .foregroundStyle(usage.state == .ok || usage.state == .notReporting

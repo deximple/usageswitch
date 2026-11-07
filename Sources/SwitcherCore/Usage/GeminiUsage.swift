@@ -52,7 +52,7 @@ public struct GeminiUsageCollector: Sendable {
         guard let a = http.send(meta) else { return [finish(.failed(.network))] }
         switch a.status {
         case 200: break
-        case 401, 403: return [finish(.unavailable(.noSignIn))]
+        case 401, 403: return [finish(.failed(.refused))]
         case 429: return [finish(.failed(.rateLimited))]
         default: return [finish(.failed(.network))]
         }
@@ -69,7 +69,7 @@ public struct GeminiUsageCollector: Sendable {
         guard let q = http.send(quota) else { return [finish(.failed(.network))] }
         switch q.status {
         case 200: break
-        case 401, 403: return [finish(.unavailable(.noSignIn))]
+        case 401, 403: return [finish(.failed(.refused))]
         case 429: return [finish(.failed(.rateLimited))]
         default: return [finish(.failed(.network))]
         }

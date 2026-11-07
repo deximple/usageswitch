@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwitcherCore
 
@@ -64,7 +65,34 @@ struct UsageDetailView: View {
         }
         let savedApp = p.usage.provider == .claude && p.usage.accountRef.hasPrefix("app:")
         if savedApp {
-            Text(L10n.t(.usageNotLinked)).font(.system(size: 11)).foregroundStyle(.secondary)
+            if !model.isDemo, let accountID = savedClaudeAccountID(p),
+               let account = model.status?.accounts.first(where: { $0.id == accountID }) {
+                if let binding = model.claudeUsageProfiles.first(where: { $0.accountId == account.id }) {
+                    Text(L10n.t(.uiClaudeProfilePath,
+                                NSString(string: binding.profilePath).abbreviatingWithTildeInPath))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Button(L10n.t(.uiClaudeProfileDisconnect)) { disconnectProfile(account.id) }
+                        .font(.system(size: 12)).foregroundStyle(Theme.active)
+                } else {
+                    Button(L10n.t(.uiClaudeProfileConnect)) { connectProfile(for: account) }
+                        .font(.system(size: 12)).foregroundStyle(Theme.active)
+                        .accessibilityLabel(Text("\(displayedName(p)), \(L10n.t(.uiClaudeProfileConnect))"))
+                }
+            } else {
+                Text(L10n.t(.usageNotLinked)).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if let reason = UsageText.reason(p.usage.state, provider: .claude) {
+                Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        } else if UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
+            Text(L10n.t(.usageConnectionHelp)).font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Button(L10n.t(.uiConnectUsage)) {
+                SettingsMenu.enableUsageConnection(p.usage.provider, model: model, usage: usage)
+            }
+            .font(.system(size: 12)).foregroundStyle(Theme.active)
+            .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiConnectUsage))"))
         } else if let reason = UsageText.reason(p.usage.state, provider: p.usage.provider) {
             Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
         }
@@ -74,8 +102,17 @@ struct UsageDetailView: View {
                         fresh: (0...UsageGuidance.maximumAge).contains(Date().timeIntervalSince(p.usage.readAt)),
                         pace: usage.pace[UsagePriority.key(p.usage, w)])
         }
-        if p.usage.windows.isEmpty && !savedApp {
+        if p.usage.windows.isEmpty && !savedApp
+            && !UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        if p.usage.provider == .cursor,
+           let destination = URL(string: "https://cursor.com/dashboard/spending") {
+            Text(L10n.t(.usageCursorDashboardNote)).font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Link(L10n.t(.uiCursorDashboard), destination: destination)
+                .font(.system(size: 12))
+                .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiCursorDashboard))"))
         }
         if p.usage.authentication == .apiKey {
             Text(L10n.t(.usageApiBillingNote)).font(.system(size: 11))
@@ -95,10 +132,84 @@ struct UsageDetailView: View {
             return L10n.t(.usageSavedSource, UsageText.providerName(p.usage.provider))
         }
         switch p.usage.provider {
-        case .claude: return "Claude CLI /usage"
+        case .claude:
+            return p.usage.accountRef.hasPrefix("app:")
+                ? L10n.t(.usageClaudeProfileSource) : "Claude CLI /usage"
         case .codex: return "Codex app-server"
         default: return "HTTPS · \(UsageText.providerName(p.usage.provider))"
         }
+    }
+
+    private func savedClaudeAccountID(_ p: UsageAccountPresentation) -> String? {
+        guard p.usage.accountRef.hasPrefix("app:") else { return nil }
+        return String(p.usage.accountRef.dropFirst("app:".count))
+    }
+
+    private func connectProfile(for account: AccountStatus) {
+        guard !model.isDemo else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        let suggested = SwitcherEnvironment.live().home
+            .appendingPathComponent(".claude-instances", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: suggested.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            panel.directoryURL = suggested
+        }
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+
+        let environment = SwitcherEnvironment.live()
+        guard let profile = ClaudeProfileDirectory.validate(path: selected.path, home: environment.home,
+            excludedRoots: [environment.claudeUserData, environment.storeDir]),
+              ClaudeProfileDirectory.matchesIdentity(at: profile, accountUuid: account.accountUuid,
+                                                     orgUuid: account.orgUuid)
+        else {
+            showProfileAlert(title: L10n.t(.uiClaudeProfileInvalidTitle),
+                             message: L10n.t(.uiClaudeProfileInvalidBody))
+            return
+        }
+        guard !model.claudeUsageProfiles.contains(where: {
+            $0.accountId != account.id && $0.profilePath == profile.path
+        }) else {
+            showProfileAlert(title: L10n.t(.uiClaudeProfileInvalidTitle),
+                             message: L10n.t(.uiClaudeProfileConflict))
+            return
+        }
+
+        let consent = NSAlert()
+        consent.messageText = L10n.t(.uiClaudeProfileConsentTitle)
+        consent.informativeText = L10n.t(.uiClaudeProfileConsentBody)
+        consent.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
+        consent.addButton(withTitle: L10n.t(.uiCancel))
+        NSApp.activate()
+        guard consent.runModal() == .alertFirstButtonReturn else { return }
+
+        let binding = ClaudeProfileBinding(accountId: account.id, accountUuid: account.accountUuid,
+                                           orgUuid: account.orgUuid, profilePath: profile.path)
+        let bindings = model.claudeUsageProfiles.filter { $0.accountId != account.id } + [binding]
+        if model.setClaudeUsageProfiles(bindings) {
+            usage.applyClaudeProfiles(model.claudeUsageProfiles)
+        }
+    }
+
+    private func disconnectProfile(_ accountID: String) {
+        let bindings = model.claudeUsageProfiles.filter { $0.accountId != accountID }
+        if model.setClaudeUsageProfiles(bindings) {
+            usage.applyClaudeProfiles(model.claudeUsageProfiles)
+        }
+    }
+
+    private func showProfileAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: L10n.t(.uiClose))
+        NSApp.activate()
+        alert.runModal()
     }
 
     /// The name as displayed: masked when it is an email shape and hiding is on.

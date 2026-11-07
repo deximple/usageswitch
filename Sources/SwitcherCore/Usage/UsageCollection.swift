@@ -4,6 +4,18 @@ import Foundation
 /// jobs refilled continuously, deterministic allCases order, one job per provider.
 /// This is not a configurable jobs framework — the shape is settled by the contract.
 public enum UsageCollection {
+    /// Whether a row is the installed-but-not-yet-connected placeholder the user can
+    /// still opt in to: consent-required provider, connectionRequired, not already
+    /// granted. Pure — no reads, no side effects, no tool calls.
+    public static func canConnect(_ usage: AccountUsage,
+                                  enabledProviders: Set<UsageProvider>) -> Bool {
+        guard usage.provider.requiresConsent,
+              !enabledProviders.contains(usage.provider)
+        else { return false }
+        if case .unavailable(.connectionRequired) = usage.state { return true }
+        return false
+    }
+
     public static let maxConcurrent = 3
 
     /// Collect readings for each installed provider. `enabledProviders` is the
