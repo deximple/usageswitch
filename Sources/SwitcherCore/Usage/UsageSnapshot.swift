@@ -92,16 +92,16 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         let safeAccounts = accounts.map { account in
             let identity = ordinals.identity(provider: account.provider,
                                              id: account.id, accountRef: account.accountRef)
-            return Account(id: safeString(identity.id),
-                           accountRef: identity.accountRef.map(safeString),
-                           provider: safeString(account.provider),
-                           label: safeString(Privacy.maskEmails(in: account.label)),
-                           plan: account.plan.map(safeString), state: account.state,
+            return Account(id: Self.safeString(identity.id),
+                           accountRef: identity.accountRef.map(Self.safeString),
+                           provider: Self.safeString(account.provider),
+                           label: Self.safeString(Privacy.maskEmails(in: account.label)),
+                           plan: account.plan.map(Self.safeString), state: account.state,
                            problem: account.problem, readAt: account.readAt,
-                           toolVersion: account.toolVersion.map(safeString),
+                           toolVersion: account.toolVersion.map(Self.safeString),
                            authentication: account.authentication,
                            windows: account.windows.map {
-                Window(kind: $0.kind, scope: $0.scope.map(safeString),
+                Window(kind: $0.kind, scope: $0.scope.map(Self.safeString),
                        durationMinutes: $0.durationMinutes, usedPercent: $0.usedPercent,
                        leftPercent: $0.leftPercent, resetsAt: $0.resetsAt)
             })
