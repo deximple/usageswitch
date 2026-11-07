@@ -25,8 +25,10 @@ public final class BoundedReader: @unchecked Sendable {
     private let read: @Sendable (String) -> Data?
     private let lock = NSLock()
     private var stalled: Set<String> = []
+    private var inFlight: [String: Set<UUID>] = [:]
+    private var timedOut: [String: Set<UUID>] = [:]
 
-    public init(timeout: TimeInterval = 1,
+    public init(timeout: TimeInterval = 2,
                 read: @escaping @Sendable (String) -> Data? = BoundedReader.readSmallText) {
         self.timeout = timeout
         self.read = read
@@ -39,19 +41,43 @@ public final class BoundedReader: @unchecked Sendable {
     public func contents(atPath path: String,
                          using read: @escaping @Sendable (String) -> Data?) -> Data? {
         lock.lock()
-        let isStalled = stalled.contains(path)
+        guard !stalled.contains(path) else {
+            lock.unlock()
+            return nil
+        }
+        let readID = UUID()
+        inFlight[path, default: []].insert(readID)
         lock.unlock()
-        guard !isStalled else { return nil }
 
         let semaphore = DispatchSemaphore(value: 0)
         let result = ResultBox()
-        DispatchQueue.global(qos: .utility).async {
+        Thread { [self] in
             result.set(read(path))
+            self.lock.lock()
+            var activeReads = self.inFlight[path] ?? []
+            activeReads.remove(readID)
+            if activeReads.isEmpty {
+                self.inFlight.removeValue(forKey: path)
+            } else {
+                self.inFlight[path] = activeReads
+            }
+            var stalledReads = self.timedOut[path] ?? []
+            stalledReads.remove(readID)
+            if stalledReads.isEmpty {
+                self.timedOut.removeValue(forKey: path)
+                self.stalled.remove(path)
+            } else {
+                self.timedOut[path] = stalledReads
+            }
+            self.lock.unlock()
             semaphore.signal()
-        }
+        }.start()
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
             lock.lock()
-            stalled.insert(path)
+            if inFlight[path]?.contains(readID) == true {
+                timedOut[path, default: []].insert(readID)
+                stalled.insert(path)
+            }
             lock.unlock()
             return nil
         }
