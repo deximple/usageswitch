@@ -24,6 +24,7 @@ final class UsageModel: ObservableObject {
 
     private let settings: SwitcherModel
     private var generation = 0
+    private var pendingRefresh = false
     /// The in-flight refresh; a consent change cancels it so superseded work
     /// can't overwrite revoked-provider values.
     private var refreshTask: Task<Void, Never>?
@@ -117,6 +118,7 @@ final class UsageModel: ObservableObject {
 
     func refresh() {
         guard !isDemo else { return }
+        pendingRefresh = false
         refreshedWithoutClaudeStatus = AppModel.shared.status == nil
         generation += 1
         let generation = generation
@@ -194,6 +196,15 @@ final class UsageModel: ObservableObject {
             await MainActor.run {
                 self.finish(fresh, installed: installed, generation: generation, env: env)
             }
+        }
+    }
+
+    func requestRefresh() {
+        guard !isDemo else { return }
+        if isRefreshing {
+            pendingRefresh = true
+        } else {
+            refresh()
         }
     }
 
@@ -314,6 +325,10 @@ final class UsageModel: ObservableObject {
         deliverAlerts(now: now)
         isRefreshing = false
         nextRefresh = now.addingTimeInterval(Self.interval)
+        if pendingRefresh {
+            pendingRefresh = false
+            refresh()
+        }
     }
 
     /// Pace compares each fresh ok window with the previous sample of the same window. Samples are

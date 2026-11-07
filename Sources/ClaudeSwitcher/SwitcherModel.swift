@@ -139,7 +139,7 @@ final class SwitcherModel: ObservableObject {
             oldAccountIds: oldAccountIds,
             newAccountIds: newAccountIds,
             refreshedWithoutClaudeStatus: AppModel.usage.refreshedWithoutClaudeStatus) {
-            AppModel.usage.refresh()
+            AppModel.usage.requestRefresh()
         }
     }
 

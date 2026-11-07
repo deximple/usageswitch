@@ -158,7 +158,7 @@ struct UsageRefreshPolicyTests {
     func statusLoadedAfterRefresh() {
         #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: true))
-        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: false))
         #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: true))

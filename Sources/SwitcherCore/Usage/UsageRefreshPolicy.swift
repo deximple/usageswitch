@@ -12,7 +12,7 @@ public enum UsageRefreshPolicy {
         refreshedWithoutClaudeStatus: Bool
     ) -> Bool {
         guard let oldAccountIds else {
-            return refreshedWithoutClaudeStatus || !newAccountIds.isEmpty
+            return refreshedWithoutClaudeStatus
         }
         return oldAccountIds != newAccountIds
     }
