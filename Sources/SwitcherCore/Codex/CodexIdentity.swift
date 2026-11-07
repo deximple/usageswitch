@@ -46,10 +46,14 @@ public struct CodexIdentity: Codable, Equatable, Sendable {
             return CodexIdentity(
                 mode: .chatgpt, email: claims["email"] as? String, name: claims["name"] as? String,
                 plan: auth?["chatgpt_plan_type"] as? String,
-                accountId: (tokens?["account_id"] as? String) ?? (auth?["chatgpt_account_id"] as? String))
+                accountId: nonEmpty(tokens?["account_id"]) ?? nonEmpty(auth?["chatgpt_account_id"]))
         }
         if let key = object["OPENAI_API_KEY"] as? String, !key.isEmpty { return CodexIdentity(mode: .apiKey) }
         return CodexIdentity(mode: .unknown)
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The payload of a JWT. The signature isn't checked: the claims only name the account in the list.

@@ -220,9 +220,11 @@ struct CodexTests {
                 == "acct-workspace-b")
         #expect(CodexIdentity.read(home: try write(".codex-claim-only", tokenAccountId: nil))?.accountId
                 == "acct-stale-claim")
+        #expect(CodexIdentity.read(home: try write(".codex-empty-token-id", tokenAccountId: ""))?.accountId
+                == "acct-stale-claim")
     }
 
-    @Test func identityComesFromTheIdTokenClaimsOnly() throws {
+    @Test func identityComesFromTheIdTokenClaimsAndTokensAccountId() throws {
         let rig = try CodexRig(); defer { rig.cleanup() }
         let chatgpt = try rig.makeHome(".codex", email: "alex@example.com", plan: "team")
         let identity = try #require(CodexIdentity.read(home: chatgpt))

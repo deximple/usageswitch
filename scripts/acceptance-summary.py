@@ -10,6 +10,7 @@ distinct rows that report at least one fresh window is compared with the expecte
         --expect claude=3,codex=2,opencode=1,gemini=1,cursor=1,devin=1,grok=1
 
 Exit 0 only when the snapshot is present, recent, privacy-clean and every expectation holds.
+The email scan mirrors the app's masker and, like it, only recognises Latin-script addresses.
 """
 import argparse
 import json
