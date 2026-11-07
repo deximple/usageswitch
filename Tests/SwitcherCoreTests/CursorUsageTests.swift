@@ -100,7 +100,7 @@ struct CursorUsageTests {
         }
     }
 
-    @Test("a split response reports only the unscoped plan total — splits are never relabeled")
+    @Test("a split response reports the unscoped total and scoped Auto/API windows")
     func splitPools() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -108,14 +108,22 @@ struct CursorUsageTests {
         let fake = fakeHTTP(usage: UsageFixture.cursorSplit, planInfo: UsageFixture.cursorMergedPlanInfo)
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .ok)
-        #expect(usage?.windows.count == 1)
-        #expect(usage?.windows.first?.scope == nil)
-        #expect(usage?.windows.first?.usedPercent == 30) // total, not a split sum
-        #expect(usage?.windows.first?.kind == .monthly)
-        #expect(usage?.windows.first?.durationMinutes == 43200)
-        #expect(usage?.windows.first?.resetsAt == Date(timeIntervalSince1970: 1_769_817_600))
+        let windows = try #require(usage?.windows)
+        #expect(windows.map(\.scope) == [nil, "Auto", "API"])
+        #expect(windows.map(\.usedPercent) == [30, 42.5, 7])
+        #expect(windows.allSatisfy { $0.kind == .monthly })
+        #expect(windows.allSatisfy { $0.durationMinutes == 43200 })
+        #expect(windows.allSatisfy { $0.resetsAt == Date(timeIntervalSince1970: 1_769_817_600) })
         #expect(fake.calls.count == 1)
         #expect(fake.calls[0].absoluteString == "https://api.test/\(usagePath)")
+    }
+
+    @Test("a missing split omits only its window")
+    func missingSplit() {
+        let body = Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{"autoPercentUsed":42,"totalPercentUsed":30}}"#.utf8)
+        let windows = CursorUsageParser.windows(usage: body)
+        #expect(windows?.map(\.scope) == [nil, "Auto"])
+        #expect(windows?.map(\.usedPercent) == [30, 42])
     }
 
     @Test("the plan total is reported regardless of the merged hint")
@@ -158,8 +166,8 @@ struct CursorUsageTests {
         #expect(usage?.windows.isEmpty == true)
     }
 
-    @Test("collected Cursor usage snapshots one unscoped window — never Auto/API")
-    func snapshotUnscoped() throws {
+    @Test("collected Cursor usage snapshots the total and scoped Auto/API windows")
+    func snapshotWindows() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let fake = fakeHTTP(usage: UsageFixture.cursorSplit)
@@ -170,10 +178,9 @@ struct CursorUsageTests {
         let snap = UsageSnapshot(presentations: [p], generatedAt: usage.readAt)
         let account = snap.accounts[0]
         #expect(account.id == "cursor:cursor" && account.provider == "cursor")
-        #expect(account.windows.count == 1)
-        #expect(account.windows[0].scope == nil)
-        #expect(account.windows[0].usedPercent == 30 && account.windows[0].leftPercent == 70)
-        #expect(!account.windows.contains { $0.scope == "Auto" || $0.scope == "API" })
+        #expect(account.windows.map(\.scope) == [nil, "Auto", "API"])
+        #expect(account.windows.map(\.usedPercent) == [30, 42.5, 7])
+        #expect(account.windows[0].leftPercent == 70)
     }
 
     @Test("a reversed billing cycle gives no duration but keeps the reset")
@@ -234,20 +241,25 @@ struct CursorUsageTests {
         return Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{\#(plan)}}"#.utf8)
     }
 
-    @Test("a provided nonfinite or nonnumeric percentage rejects the whole reading")
+    @Test("invalid scoped fields are omitted without hiding the total")
     func malformedPercentages() {
         let bad = [#""NaN""#, #""nan""#, #""Infinity""#, #""-Infinity""#, #""inf""#,
-                   #""1e999""#, #""-1e999""#, "true", "false", "{}", "[]", "1e999", "-1e999"]
+                   #""1e999""#, #""-1e999""#, "true", "false", "{}", "[]"]
         for field in ["autoPercentUsed", "apiPercentUsed", "totalPercentUsed"] {
             for value in bad {
                 let body = usageBody(field: field, rawValue: value)
-                // A bad split must never fall back to a healthy-looking total.
-                #expect(CursorUsageParser.windows(usage: body, merged: nil) == nil,
+                let windows = CursorUsageParser.windows(usage: body, merged: nil)
+                if field == "totalPercentUsed" {
+                    #expect(windows == nil, "\(field)=\(value)")
+                } else {
+                    let expectedScopes: [String?] = field == "autoPercentUsed" ? [nil, "API"] : [nil, "Auto"]
+                    let expectedPercentages = field == "autoPercentUsed" ? [30.0, 7.0] : [30.0, 42.0]
+                    #expect(windows?.map(\.scope) == expectedScopes, "\(field)=\(value)")
+                    #expect(windows?.map(\.usedPercent) == expectedPercentages, "\(field)=\(value)")
+                }
+                #expect(CursorUsageParser.windows(usage: body, merged: false) == windows,
                         "\(field)=\(value)")
-                #expect(CursorUsageParser.windows(usage: body, merged: false) == nil,
-                        "\(field)=\(value)")
-                // merged=true must not bypass validation either.
-                #expect(CursorUsageParser.windows(usage: body, merged: true) == nil,
+                #expect(CursorUsageParser.windows(usage: body, merged: true) == windows,
                         "\(field)=\(value)")
             }
         }
@@ -260,20 +272,21 @@ struct CursorUsageTests {
         }
         // A null split behaves like a missing field while the total still reports.
         let nullSplit = body(#""autoPercentUsed":42,"apiPercentUsed":null,"totalPercentUsed":30"#)
-        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.usedPercent) == [30])
+        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.scope) == [nil, "Auto"])
+        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.usedPercent) == [30, 42])
         // Boundaries and numeric strings/fractions pass through unchanged.
         let edges = body(#""autoPercentUsed":0,"apiPercentUsed":"55.5","totalPercentUsed":100"#)
-        #expect(CursorUsageParser.windows(usage: edges, merged: nil)?.map(\.usedPercent) == [100])
+        #expect(CursorUsageParser.windows(usage: edges, merged: nil)?.map(\.usedPercent) == [100, 0, 55.5])
         // Finite out-of-range totals keep the established 0...100 clamping.
         let clampedBody = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":105"#)
-        #expect(CursorUsageParser.windows(usage: clampedBody, merged: nil)?.map(\.usedPercent) == [100])
+        #expect(CursorUsageParser.windows(usage: clampedBody, merged: nil)?.map(\.usedPercent) == [100, 0, 7])
         let clampedLow = body(#""totalPercentUsed":-5"#)
         #expect(CursorUsageParser.windows(usage: clampedLow, merged: nil)?.map(\.usedPercent) == [0])
         let mergedClamped = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":"105""#)
-        #expect(CursorUsageParser.windows(usage: mergedClamped, merged: true)?.first?.usedPercent == 100)
+        #expect(CursorUsageParser.windows(usage: mergedClamped, merged: true)?.map(\.usedPercent) == [100, 0, 7])
     }
 
-    @Test("a malformed percentage maps to notReporting, never a plausible quota")
+    @Test("an invalid Auto value omits that window but keeps the total and API")
     func malformedCollector() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -283,8 +296,9 @@ struct CursorUsageTests {
         #expect(try JSONSerialization.jsonObject(with: Data(badUsage.utf8)) as? [String: Any] != nil)
         let fake = fakeHTTP(usage: badUsage)
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
-        #expect(usage?.state == .notReporting)
-        #expect(usage?.windows.isEmpty == true)
+        #expect(usage?.state == .ok)
+        #expect(usage?.windows.map(\.scope) == [nil, "API"])
+        #expect(usage?.windows.map(\.usedPercent) == [30, 7])
     }
 
     @Test("other HTTP statuses and dead connections are a network failure")

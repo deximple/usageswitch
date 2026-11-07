@@ -28,8 +28,8 @@ public struct SystemUsageHTTP: UsageHTTP {
 public enum CursorUsageParser {
     /// The windows in `usage` (a GetCurrentPeriodUsage body). `merged` is GetPlanInfo's `isMerged`,
     /// nil when that call didn't happen or didn't answer. Returns nil when no percentage is reported.
-    /// The result is the reported plan total only — nil when the total is
-    /// absent/null or any provided recognized percentage is malformed.
+    /// The result includes the reported total and any valid Auto/API percentages. A missing or
+    /// invalid split does not hide the total; a missing or invalid total reports no usage.
     /// `merged` is kept for source compatibility only; no pools are inferred.
     public static func windows(usage: Data, merged _: Bool? = nil) -> [UsageWindow]? {
         guard let object = try? JSONSerialization.jsonObject(with: usage) as? [String: Any] else { return nil }
@@ -42,16 +42,19 @@ public enum CursorUsageParser {
         let plan = object["planUsage"] as? [String: Any] ?? [:]
         let fields = [percent(plan["autoPercentUsed"]), percent(plan["apiPercentUsed"]),
                       percent(plan["totalPercentUsed"])]
-        // One malformed provided percentage poisons the whole reading — never
-        // fall back to a healthy-looking total or sibling split.
-        guard !fields.contains(.invalid) else { return nil }
-        let total = fields[2].value.map { clamped($0) }
-        // Only the plan total is reported: the split fields' vendor meaning is
-        // unverified, so they are validated but never turned into named windows.
-        // A missing/null total means not reported — never summed or guessed.
-        return total.map {
-            [UsageWindow(scope: nil, durationMinutes: duration, usedPercent: $0, resetsAt: resets)]
+        guard let total = fields[2].value else { return nil }
+        var windows = [UsageWindow(scope: nil, durationMinutes: duration,
+                                   usedPercent: clamped(total), resetsAt: resets)]
+        // Auto and API are neutral wire names; a bad or absent split only omits that window.
+        if let auto = fields[0].value {
+            windows.append(UsageWindow(scope: "Auto", durationMinutes: duration,
+                                       usedPercent: clamped(auto), resetsAt: resets))
         }
+        if let api = fields[1].value {
+            windows.append(UsageWindow(scope: "API", durationMinutes: duration,
+                                       usedPercent: clamped(api), resetsAt: resets))
+        }
+        return windows
     }
 
     /// An int64 field, sent as a number or a string.

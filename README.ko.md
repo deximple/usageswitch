@@ -64,7 +64,7 @@ UsageSwitch는 `.claude.json`의 계정 및 조직 ID만 읽습니다. 작업이
 | Claude Code | CLI `/usage` | 현재 CLI 로그인; 관리 설정이 있으면 거부 |
 | 저장된 Claude 계정 | 선택적 공식 CLI 프로필 (`auth status --json` 후 `/usage`) | 계정별 명시적 연결; 매 읽기 전후 프로필 ID와 인증 상태 확인 |
 | Codex | `app-server` → `account/rateLimits/read` | 등록된 ChatGPT 홈; API 키 프로필은 구독 할당량 없음 |
-| Cursor | 현재 기간 사용량 엔드포인트(플랜 합계만) | 직접 켜야 사용; 자체 키체인 항목 또는 제한된 인증 파일 |
+| Cursor | 현재 기간 사용량 엔드포인트(총계와 유효한 `Auto`/`API` 윈도우) | 직접 켜야 사용; 자체 키체인 항목 또는 제한된 인증 파일 |
 | Grok | CLI 사용량 엔드포인트 | 직접 켜야 사용; **실험** |
 | Gemini | Code Assist 프로젝트/할당량 | 직접 켜야 사용; 모델/입력/출력 한도를 따로 유지 |
 | Devin | CLI 호환 사용자 상태 | 직접 켜야 사용; 지원되는 CLI 버전 필요 |

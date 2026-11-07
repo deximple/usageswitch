@@ -69,7 +69,7 @@ treated as subscription balances.
 | Claude Code | CLI `/usage` | Current CLI sign-in; refused when managed Claude settings apply |
 | Saved Claude account | Opt-in official CLI profile (`auth status --json`, then `/usage`) | Explicit per-account binding; profile identity/auth checked before and after each read |
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
-| Cursor | Current-period usage endpoint (plan total only) | Opt-in; may read its own Keychain entry, else bounded auth file |
+| Cursor | Current-period usage endpoint (unscoped total plus scoped Auto/API windows) | Opt-in; may read its own Keychain entry, else bounded auth file |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
 | Gemini | Code Assist project/quota | Opt-in; model/input/output limits kept separate |
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
