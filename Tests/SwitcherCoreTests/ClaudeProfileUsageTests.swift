@@ -198,7 +198,8 @@ struct ClaudeProfileUsageTests {
         let runner = profileRunner(home: home, profile: profile,
             statusJSONs: [profileAuthJSON(profile), profileAuthJSON(profile)],
             onUsage: { try? makeClaudeProfile(profile, startups: 2) })
-        let result = profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect()
+        let result = try #require(
+            profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect())
         #expect(result.id == "claude:app:saved-1")
         #expect(result.accountRef == "app:saved-1")
         #expect(result.authentication == .unknown && result.identityKey == nil)
@@ -230,7 +231,7 @@ struct ClaudeProfileUsageTests {
         let runner = profileRunner(home: home, profile: profile)
         let binary = try makeProfileBinary(home: home, versioned: false)
         #expect(profileCollector(home: home, profile: profile, binary: binary, runner: runner)
-            .collect().state == .unavailable(.unsupportedVersion))
+            .collect()?.state == .unavailable(.unsupportedVersion))
         #expect(runner.requests.isEmpty)
 
         try FileManager.default.removeItem(at: binary)
@@ -238,14 +239,14 @@ struct ClaudeProfileUsageTests {
         try Data("{}".utf8).write(to: profile.appendingPathComponent("remote-settings.json"))
         let managedRunner = profileRunner(home: home, profile: profile)
         #expect(profileCollector(home: home, profile: profile, binary: versioned, runner: managedRunner)
-            .collect().state == .unavailable(.managed))
+            .collect()?.state == .unavailable(.managed))
         #expect(managedRunner.requests.isEmpty)
 
         try FileManager.default.removeItem(at: profile.appendingPathComponent("remote-settings.json"))
         try makeClaudeProfile(profile, account: "another-account")
         let mismatchRunner = profileRunner(home: home, profile: profile)
         #expect(profileCollector(home: home, profile: profile, binary: versioned, runner: mismatchRunner)
-            .collect().state == .failed(.accountMismatch))
+            .collect()?.state == .failed(.accountMismatch))
         #expect(mismatchRunner.requests.isEmpty)
     }
 
@@ -265,7 +266,8 @@ struct ClaudeProfileUsageTests {
         ]
         for (status, expected) in cases {
             let runner = profileRunner(home: home, profile: profile, statusJSONs: [status])
-            let result = profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect()
+            let result = try #require(
+                profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect())
             #expect(result.state == expected)
             #expect(runner.requests.count == 1)
         }
@@ -283,16 +285,18 @@ struct ClaudeProfileUsageTests {
             onUsage: {
                 try? makeClaudeProfile(profile, account: "changed-account")
             })
-        let changedIdentity = profileCollector(home: home, profile: profile, binary: binary,
-                                               runner: changedIdentityRunner).collect()
+        let changedIdentityResult = profileCollector(home: home, profile: profile, binary: binary,
+                                                     runner: changedIdentityRunner).collect()
+        let changedIdentity = try #require(changedIdentityResult)
         #expect(changedIdentity.state == .failed(.accountMismatch))
         #expect(changedIdentity.windows.isEmpty)
 
         try makeClaudeProfile(profile)
         let changedAuthRunner = profileRunner(home: home, profile: profile,
             statusJSONs: [profileAuthJSON(profile), profileAuthJSON(profile, org: "other-org")])
-        let changedAuth = profileCollector(home: home, profile: profile, binary: binary,
-                                           runner: changedAuthRunner).collect()
+        let changedAuthResult = profileCollector(home: home, profile: profile, binary: binary,
+                                                 runner: changedAuthRunner).collect()
+        let changedAuth = try #require(changedAuthResult)
         #expect(changedAuth.state == .failed(.accountMismatch))
         #expect(changedAuth.windows.isEmpty)
 
@@ -304,8 +308,9 @@ struct ClaudeProfileUsageTests {
                 try? FileManager.default.removeItem(at: profile)
                 try? FileManager.default.moveItem(at: replacement, to: profile)
             })
-        let replaced = profileCollector(home: home, profile: profile, binary: binary,
-                                        runner: replacedRunner).collect()
+        let replacedResult = profileCollector(home: home, profile: profile, binary: binary,
+                                              runner: replacedRunner).collect()
+        let replaced = try #require(replacedResult)
         #expect(replaced.state == .failed(.accountMismatch))
         #expect(replaced.windows.isEmpty)
     }
@@ -327,10 +332,31 @@ struct ClaudeProfileUsageTests {
                 #"{"type":"system","subtype":"hook_started"}"#,
             ], outcome: .stopped)
         }
-        let result = profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect()
+        let result = try #require(
+            profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect())
         #expect(result.state == .unavailable(.refused))
         #expect(result.windows.isEmpty)
         #expect(runner.requests.count == 3)
+    }
+
+    @Test("profile collection returns no row when cancelled between reads")
+    func cancellationBetweenReads() async throws {
+        let home = try profileTestDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent("profile", isDirectory: true)
+        try makeClaudeProfile(profile)
+        let binary = try makeProfileBinary(home: home)
+        let runner = FakeUsageRunner()
+        let auth = profileAuthJSON(profile)
+        runner.respond = { _ in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return UsageProcessResult(lines: [auth], outcome: .exited(0))
+        }
+        let collector = profileCollector(home: home, profile: profile, binary: binary, runner: runner)
+
+        let reading = await Task.detached { collector.collect() }.value
+        #expect(reading == nil)
+        #expect(runner.requests.count == 1)
     }
 
     @Test("legacy settings decode and profile bindings round-trip")

@@ -170,6 +170,7 @@ public struct CodexUsageCollector: Sendable {
         case .timedOut: return finish(.failed(.timeout))
         case .failedToStart: return finish(.unavailable(.cliMissing))
         case .outputLimit: return finish(.unavailable(.refused))
+        case .cancelled: return finish(.unavailable(.refused))
         case .stopped, .exited:
             switch CodexRateLimitsParser.read(result.lines) {
             case .success(let parsed):

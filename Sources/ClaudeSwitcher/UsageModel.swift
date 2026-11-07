@@ -157,9 +157,11 @@ final class UsageModel: ObservableObject {
                         let excludedRoots = [env.claudeUserData, env.storeDir]
                         for binding in activeBindings {
                             if Task.isCancelled { break }
-                            rows.append(ClaudeProfileUsageCollector(binding: binding, runner: runner,
+                            if let row = ClaudeProfileUsageCollector(binding: binding, runner: runner,
                                 home: env.home, managed: .system, binaryPaths: binaryPaths,
-                                excludedRoots: excludedRoots).collect())
+                                excludedRoots: excludedRoots).collect() {
+                                rows.append(row)
+                            }
                         }
                         return rows
                     case .codex:

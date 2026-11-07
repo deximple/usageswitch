@@ -59,7 +59,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         self.now = now
     }
 
-    public func collect() -> AccountUsage {
+    public func collect() -> AccountUsage? {
         func finish(_ state: UsageState, _ windows: [UsageWindow] = [],
                     toolVersion: String? = nil) -> AccountUsage {
             AccountUsage(id: "claude:app:\(binding.accountId)", provider: .claude,
@@ -68,20 +68,27 @@ public struct ClaudeProfileUsageCollector: Sendable {
                          toolVersion: toolVersion, authentication: .unknown, identityKey: nil)
         }
 
+        guard !Task.isCancelled else { return nil }
         guard let binary = binaryPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
         else { return finish(.unavailable(.cliMissing)) }
+        guard !Task.isCancelled else { return nil }
         guard let toolVersion = ClaudeUsageCollector.toolVersion(of: binary)
         else { return finish(.unavailable(.unsupportedVersion)) }
+        guard !Task.isCancelled else { return nil }
         guard let profile = ClaudeProfileDirectory.validate(
             path: binding.profilePath, home: home, excludedRoots: excludedRoots),
               profile.path == binding.profilePath,
               let initialFileIdentity = ClaudeProfileDirectory.identity(at: profile)
         else { return finish(.unavailable(.profileInvalid), toolVersion: toolVersion) }
+        guard !Task.isCancelled else { return nil }
         guard !managed.shuts(claudeFolder: profile)
         else { return finish(.unavailable(.managed), toolVersion: toolVersion) }
+        guard !Task.isCancelled else { return nil }
 
+        let identityResultA = Self.readIdentity(profile: profile)
+        guard !Task.isCancelled else { return nil }
         let identityA: ProfileIdentity
-        switch Self.readIdentity(profile: profile) {
+        switch identityResultA {
         case .identity(let value): identityA = value
         case .noSignIn: return finish(.unavailable(.noSignIn), toolVersion: toolVersion)
         case .invalid: return finish(.failed(.schemaChanged), toolVersion: toolVersion)
@@ -91,8 +98,10 @@ public struct ClaudeProfileUsageCollector: Sendable {
 
         var environment = ClaudeUsageCollector.environment()
         environment["CLAUDE_CONFIG_DIR"] = profile.path
+        let authResultA = Self.authStatus(runner: runner, binary: binary, environment: environment)
+        guard !Task.isCancelled else { return nil }
         let authA: AuthStatus
-        switch Self.authStatus(runner: runner, binary: binary, environment: environment) {
+        switch authResultA {
         case .status(let status): authA = status
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
@@ -100,26 +109,34 @@ public struct ClaudeProfileUsageCollector: Sendable {
         case .valid: break
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
+        guard !Task.isCancelled else { return nil }
 
         let parsed = ClaudeUsageCollector.readUsage(runner: runner, binary: binary,
             environment: environment, timeout: 60, now: now)
+        guard !Task.isCancelled else { return nil }
 
         guard ClaudeProfileDirectory.validate(path: binding.profilePath, home: home,
                                              excludedRoots: excludedRoots) == profile,
               ClaudeProfileDirectory.identity(at: profile) == initialFileIdentity
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
-        guard case .identity(let identityB) = Self.readIdentity(profile: profile),
+        guard !Task.isCancelled else { return nil }
+        let identityResultB = Self.readIdentity(profile: profile)
+        guard !Task.isCancelled else { return nil }
+        guard case .identity(let identityB) = identityResultB,
               identityB == identityA, identityB.accountUuid == binding.accountUuid,
               identityB.orgUuid == binding.orgUuid
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
+        let authResultB = Self.authStatus(runner: runner, binary: binary, environment: environment)
+        guard !Task.isCancelled else { return nil }
         let authB: AuthStatus
-        switch Self.authStatus(runner: runner, binary: binary, environment: environment) {
+        switch authResultB {
         case .status(let status): authB = status
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
         guard case .valid = Self.validate(auth: authB, binding: binding, profile: profile),
               authB == authA
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
+        guard !Task.isCancelled else { return nil }
 
         return finish(parsed.state, parsed.windows, toolVersion: toolVersion)
     }
@@ -180,6 +197,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         case .timedOut: return .problem(.failed(.timeout))
         case .failedToStart: return .problem(.unavailable(.cliMissing))
         case .outputLimit: return .problem(.unavailable(.refused))
+        case .cancelled: return .problem(.unavailable(.refused))
         case .stopped, .exited: break
         }
         guard let value = try? JSONSerialization.jsonObject(

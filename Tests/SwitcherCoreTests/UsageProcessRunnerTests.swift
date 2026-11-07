@@ -32,6 +32,31 @@ struct UsageProcessRunnerTests {
         #expect(Date().timeIntervalSince(started) < 4)
     }
 
+    @Test("cancellation terminates and reaps the child promptly")
+    func cancelled() async throws {
+        let processRunner = SystemUsageProcessRunner()
+        let request = request(executable: "/bin/sleep", ["30"], timeout: 60)
+        let task = Task.detached { processRunner.run(request) }
+        let deadline = Date().addingTimeInterval(3)
+        var childPID: pid_t?
+        while Date() < deadline {
+            childPID = RunningCommands.shared.all.first {
+                $0.executableURL?.path == "/bin/sleep" && $0.arguments == ["30"]
+            }?.processIdentifier
+            if childPID != nil { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let pid = try #require(childPID)
+        let cancelledAt = Date()
+        task.cancel()
+        let result = await task.value
+
+        #expect(result.outcome == .cancelled)
+        #expect(Date().timeIntervalSince(cancelledAt) < 3)
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     @Test("a run without a predicate ends when the process exits")
     func runToExit() {
         let result = runner.run(request(executable: "/bin/echo", ["hello"]))
