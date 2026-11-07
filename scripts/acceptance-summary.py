@@ -22,6 +22,12 @@ from datetime import datetime, timezone
 # Deliberately broader than Privacy.emailPattern: any script, and any address whose local part
 # carries no mask bullet counts as unmasked.
 EMAIL = re.compile(r"([^\s@]+)@[\w-]+(?:\.[\w-]+)+")
+# The shapes Privacy.maskEmail produces: all bullets, or two characters, bullets, three characters.
+MASKED_LOCAL = re.compile(r"•+|[^•]{2}•+[^•]{3}")
+
+
+def is_masked(local):
+    return MASKED_LOCAL.fullmatch(re.split(r"[(<\[{\"':,;]", local)[-1]) is not None
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
@@ -57,7 +63,7 @@ def forbidden_keys(value, found):
 
 def unmasked_strings(value):
     if isinstance(value, str):
-        return sum(1 for match in EMAIL.finditer(value) if "•" not in match.group(1))
+        return sum(1 for match in EMAIL.finditer(value) if not is_masked(match.group(1)))
     if isinstance(value, dict):
         return sum(unmasked_strings(k) + unmasked_strings(v) for k, v in value.items())
     if isinstance(value, list):
@@ -163,6 +169,8 @@ def self_test():
     assert run([row(label="김철수@example.com")])[0] == 1, "non-Latin local part must fail"
     assert run([row(label="ḁlex@example.com")])[0] == 1, "Latin Extended Additional must fail"
     assert run([row(label="•••@example.com")])[0] == 0, "fully masked short local part passes"
+    assert run([row(label="Team•alex@example.com")])[0] == 1, "a stray bullet is not a mask"
+    assert run([row(label="Work (al••••••026@example.com)")])[0] == 0, "masked address in text passes"
     assert run([row(state="failed")])[0] == 1, "failed/retained rows are never fresh"
     assert run([row(readAt="2026-11-06T00:00:00Z")])[0] == 1, "stale read is never fresh"
     assert run([row(windows=[{"kind": "weekly", "usedPercent": True}])])[0] == 1, "bool is not a percent"
