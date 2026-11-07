@@ -12,6 +12,8 @@ enum UsageNotifier {
                                UsageText.name(of: alert.window),
                                Int(alert.window.usedPercent.rounded())))
         }
+        // Outside an app bundle (a bare `swift build` binary) the notification center throws.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
