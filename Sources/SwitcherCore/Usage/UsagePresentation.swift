@@ -52,6 +52,7 @@ public enum UsagePresentations {
                 && (0...verifiedAgeLimit).contains(now.timeIntervalSince(usage.readAt))
             switch usage.provider {
             case .claude:
+                guard !usage.id.hasPrefix("claude:app:") else { continue }
                 // The CLI reading is separate from saved App logins — never linked by email.
                 out.append(UsageAccountPresentation(
                     usage: usage, name: UsageText.accountLabel(usage, showEmails: true), email: nil,
@@ -106,7 +107,7 @@ public enum UsagePresentations {
                     && claude?.claude.activeAccountUuid == account.accountUuid
                     && claude?.claude.activeOrgUuid == account.orgUuid
                     && account.snapshot == .ready && !expired
-                let row = AccountUsage(
+                let row = readings.first(where: { $0.id == "claude:app:\(account.id)" }) ?? AccountUsage(
                     id: "claude:app:\(account.id)", provider: .claude,
                     accountRef: "app:\(account.id)", label: account.label,
                     plan: nil, windows: [], state: .notReporting,

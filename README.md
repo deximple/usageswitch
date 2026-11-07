@@ -42,22 +42,32 @@ with a short reset like `2d 3h`. Up to three trustworthy fresh windows per accou
 most one conservative next-account candidate from comparable subscription windows — it
 never switches or launches anything.
 
-**Details** opens a window per account to inspect full limits, reset times, source and
-version — no provider or account auth actions happen there. Saved Claude/Codex
+**Details** opens a window per account to inspect full limits, reset times and source.
+Saved Claude accounts can explicitly connect or disconnect a user-selected CLI profile
+there; this runs only the official CLI auth-status and `/usage` reads after consent.
+No other provider or account auth actions happen there. Saved Claude/Codex
 **display names** can be edited using the existing account registry; renaming updates
 the list and Guide immediately without recollecting usage. A name edit never changes
 sign-in, email, or plan, and the CLI snapshot keeps the last collected reading until
 the next normal refresh.
 
-Claude CLI quota is never attributed to saved Claude App accounts — they are separate
-environments, and App accounts without quota show "not linked" instead of invented numbers.
-API profiles stay marked `API` — never treated as subscription balances.
+Claude CLI quota is never attributed to a saved Claude App account automatically. A saved
+account can opt in separately by choosing a Claude CLI profile the user has signed in to and
+confirming **Enable**. UsageSwitch runs the official CLI's `claude auth status --json` and
+`/usage` with that profile, and shows quota only when the same account and organization are
+confirmed before and after the read. The CLI reads its own saved sign-in (which may involve
+the macOS Keychain) and may refresh its own token or update its own config files; UsageSwitch
+reads only the account and organization IDs in `.claude.json`. It never runs a task or model
+request, signs in or out, or switches accounts. Disconnect removes the binding and displayed
+reading without changing or deleting the profile. API profiles stay marked `API` — never
+treated as subscription balances.
 
 ## Providers
 
 | Provider | Read path | Availability |
 |---|---|---|
 | Claude Code | CLI `/usage` | Current CLI sign-in; refused when managed Claude settings apply |
+| Saved Claude account | Opt-in official CLI profile (`auth status --json`, then `/usage`) | Explicit per-account binding; profile identity/auth checked before and after each read |
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
 | Cursor | Current-period usage endpoint (plan total only) | Opt-in; may read its own Keychain entry, else bounded auth file |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
@@ -70,10 +80,11 @@ UsageSwitch reads that provider's local sign-in and sends read-only usage reques
 fixed allowlist over HTTPS — no redirects, bounded responses, one request per refresh
 (Gemini may make two). Those optional-provider tokens are never saved or
 logged by the usage collectors. The newer connectors are **experimental** — private
-endpoints may change and live-account compatibility is not yet verified. Usage
-collection never signs in or out, refreshes tokens, switches accounts, or runs model
-tasks — and there are no costs, balances, or model requests. There is no analytics,
-telemetry, or background auto-updater.
+endpoints may change and live-account compatibility is not yet verified. UsageSwitch
+never signs in or out, switches accounts, or runs model tasks. For an explicitly
+connected Claude profile, the official CLI may refresh its own token or update its
+own config files as described above. Usage collection makes no model requests. There
+is no analytics, telemetry, or background auto-updater.
 
 ## Account actions
 

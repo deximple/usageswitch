@@ -43,6 +43,7 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var cursorUsageEnabled = false
     /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
     @Published private(set) var usageConnections: Set<UsageProvider> = []
+    @Published private(set) var claudeUsageProfiles: [ClaudeProfileBinding] = []
     /// Appearance choice persisted in settings; system follows the OS live.
     @Published private(set) var appearanceChoice: AppAppearance = .system
     @Published private(set) var usageWarnPercent = 80
@@ -79,6 +80,7 @@ final class SwitcherModel: ObservableObject {
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
+        claudeUsageProfiles = demo == nil ? settings.effectiveClaudeUsageProfiles : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
         usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
@@ -354,6 +356,22 @@ final class SwitcherModel: ObservableObject {
             $0.usageConnections = self.usageConnections.isEmpty
                 ? nil : self.usageConnections.map { $0.rawValue }.sorted()
         }) { usageConnections = before }
+    }
+
+    func setClaudeUsageProfiles(_ bindings: [ClaudeProfileBinding]) -> Bool {
+        guard !isDemo,
+              Set(bindings.map(\.accountId)).count == bindings.count,
+              Set(bindings.map(\.profilePath)).count == bindings.count
+        else { return false }
+        let before = claudeUsageProfiles
+        claudeUsageProfiles = bindings
+        guard saveSettings({
+            $0.claudeUsageProfiles = bindings.isEmpty ? nil : bindings
+        }) else {
+            claudeUsageProfiles = before
+            return false
+        }
+        return true
     }
 
     /// Detail-window name editing: nil restores the default name. Reuses the
