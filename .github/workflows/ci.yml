@@ -29,7 +29,7 @@ jobs:
       - name: Select Xcode 26
         # Views.swift uses macOS 26 SDK API (glassEffect); the image's default Xcode may be older.
         run: |
-          current=$(xcodebuild -version | awk 'NR == 1 { print $2 }')
+          current=$( { xcodebuild -version 2>/dev/null || true; } | awk 'NR == 1 { print $2 }')
           if [ "${current%%.*}" -ge 26 ]; then echo "Using default Xcode $current"; exit 0; fi
           xcode=$( { ls -d /Applications/Xcode_26*.app 2>/dev/null || true; } \
             | { grep -v -i -E 'beta|_rc|release_candidate' || true; } | sort -V | tail -1)

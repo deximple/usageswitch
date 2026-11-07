@@ -10,7 +10,7 @@ distinct rows that report at least one fresh window is compared with the expecte
         --expect claude=3,codex=2,opencode=1,gemini=1,cursor=1,devin=1,grok=1
 
 Exit 0 only when the snapshot is present, recent, privacy-clean and every expectation holds.
-The email scan mirrors the app's masker and, like it, only recognises Latin-script addresses.
+The email scan covers every script and is stricter than the app's Latin-only masker.
 """
 import argparse
 import json
@@ -19,9 +19,9 @@ import re
 import sys
 from datetime import datetime, timezone
 
-# Mirrors Privacy.emailPattern: an address whose local part is not preceded by a mask bullet.
-LATIN = "A-Za-z\u00C0-\u024F"
-EMAIL = re.compile(rf"(?<![•{LATIN}0-9._%+-])[{LATIN}0-9._%+-]+@[{LATIN}0-9-]+(?:\.[{LATIN}0-9-]+)+")
+# Deliberately broader than Privacy.emailPattern: any script, and any address whose local part
+# carries no mask bullet counts as unmasked.
+EMAIL = re.compile(r"([^\s@]+)@[\w-]+(?:\.[\w-]+)+")
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 MAX_AGE_SECONDS = 600
@@ -57,7 +57,7 @@ def forbidden_keys(value, found):
 
 def unmasked_strings(value):
     if isinstance(value, str):
-        return 1 if EMAIL.search(value) else 0
+        return sum(1 for match in EMAIL.finditer(value) if "•" not in match.group(1))
     if isinstance(value, dict):
         return sum(unmasked_strings(k) + unmasked_strings(v) for k, v in value.items())
     if isinstance(value, list):
@@ -160,6 +160,9 @@ def self_test():
     assert run([row()])[0] == 0, "masked label must pass"
     assert run([row(label="alex@example.com")])[0] == 1, "raw email must fail"
     assert run([row(problem="alex@example.com")])[0] == 1, "email in any field must fail"
+    assert run([row(label="김철수@example.com")])[0] == 1, "non-Latin local part must fail"
+    assert run([row(label="ḁlex@example.com")])[0] == 1, "Latin Extended Additional must fail"
+    assert run([row(label="•••@example.com")])[0] == 0, "fully masked short local part passes"
     assert run([row(state="failed")])[0] == 1, "failed/retained rows are never fresh"
     assert run([row(readAt="2026-11-06T00:00:00Z")])[0] == 1, "stale read is never fresh"
     assert run([row(windows=[{"kind": "weekly", "usedPercent": True}])])[0] == 1, "bool is not a percent"
