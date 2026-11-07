@@ -16,7 +16,7 @@ UsageSwitch has no analytics, telemetry, crash reporting, or background update c
 | Devin | Devin CLI credentials and a local CLI version probe | `server.codeium.com` |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` |
 
-Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Cursor and Gemini can each make two HTTPS requests per successful refresh. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
+Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Gemini can make two HTTPS requests per successful refresh; the others make one. Cursor shows only the plan total from its current-period usage response and does not request plan details. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
 
 These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Live-account compatibility for the newly added adapters has not been verified in this development branch. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.
 

@@ -59,7 +59,7 @@ API profiles stay marked `API` — never treated as subscription balances.
 |---|---|---|
 | Claude Code | CLI `/usage` | Current CLI sign-in; refused when managed Claude settings apply |
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
-| Cursor | Dashboard usage + plan endpoints | Opt-in; may read its own Keychain entry, else bounded auth file |
+| Cursor | Current-period usage endpoint (plan total only) | Opt-in; may read its own Keychain entry, else bounded auth file |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
 | Gemini | Code Assist project/quota | Opt-in; model/input/output limits kept separate |
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
@@ -67,8 +67,8 @@ API profiles stay marked `API` — never treated as subscription balances.
 
 The five optional providers are all **off by default**. Enabling one explains that
 UsageSwitch reads that provider's local sign-in and sends read-only usage requests to a
-fixed allowlist over HTTPS — no redirects, bounded responses, and Gemini/Cursor may each
-make up to two requests per refresh. Those optional-provider tokens are never saved or
+fixed allowlist over HTTPS — no redirects, bounded responses, one request per refresh
+(Gemini may make two). Those optional-provider tokens are never saved or
 logged by the usage collectors. The newer connectors are **experimental** — private
 endpoints may change and live-account compatibility is not yet verified. Usage
 collection never signs in or out, refreshes tokens, switches accounts, or runs model
