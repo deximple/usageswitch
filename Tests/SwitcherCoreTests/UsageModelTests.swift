@@ -107,6 +107,20 @@ struct MenuBarUsageTests {
         #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4) == "Weekly 25% left")
         #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6) == "Session 0% left")
     }
+
+    @Test("unscoped totals outrank scoped pools on the menu bar")
+    func unscopedTotalWins() {
+        let now = Date()
+        let total = UsageWindow(durationMinutes: 43_200, usedPercent: 40,
+                                resetsAt: now.addingTimeInterval(3600))
+        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200, usedPercent: 95,
+                               resetsAt: now.addingTimeInterval(3600))
+        let candidates = MenuBarTitle.preferredUsageWindows([total, auto])
+        #expect(candidates.map(\.scope) == [nil])
+        #expect(MenuBarTitle.usage(
+            windowName: UsageText.name(of: candidates[0], scoped: false),
+            usedPercent: candidates[0].usedPercent) == "Monthly 60% left")
+    }
 }
 
 @Suite("Usage text")
