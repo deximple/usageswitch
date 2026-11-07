@@ -35,6 +35,16 @@ private func makeProfileBinary(home: URL, versioned: Bool = true) throws -> URL 
     return link
 }
 
+private func makeCaskroomProfileBinary(home: URL) throws -> URL {
+    let binary = home.appendingPathComponent(
+        "opt/homebrew/Caskroom/claude-code/2.1.317/claude")
+    try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try Data("#!/bin/sh\n".utf8).write(to: binary)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+    return binary
+}
+
 private func profileAuthJSON(_ profile: URL, loggedIn: Bool = true,
                              org: String? = "org-1", configDirectory: String? = nil) -> String {
     let values: [String: Any] = [
@@ -222,19 +232,22 @@ struct ClaudeProfileUsageTests {
         #expect(runner.requests[1].timeout == defaultRunner.requests.first?.timeout)
     }
 
-    @Test("unsupported versions, managed profiles, and identity mismatch run no processes")
+    @Test("Caskroom versions are accepted; managed profiles and identity mismatch fail closed")
     func preflightFailures() throws {
         let home = try profileTestDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = home.appendingPathComponent("profile", isDirectory: true)
         try makeClaudeProfile(profile)
-        let runner = profileRunner(home: home, profile: profile)
-        let binary = try makeProfileBinary(home: home, versioned: false)
-        #expect(profileCollector(home: home, profile: profile, binary: binary, runner: runner)
-            .collect()?.state == .unavailable(.unsupportedVersion))
-        #expect(runner.requests.isEmpty)
+        let caskroom = try makeCaskroomProfileBinary(home: home)
+        #expect(ClaudeUsageCollector.toolVersion(of: caskroom) == nil)
+        let caskroomRunner = profileRunner(home: home, profile: profile,
+            statusJSONs: [profileAuthJSON(profile), profileAuthJSON(profile)])
+        let caskroomResult = try #require(profileCollector(
+            home: home, profile: profile, binary: caskroom, runner: caskroomRunner).collect())
+        #expect(caskroomResult.state == .ok)
+        #expect(caskroomResult.toolVersion == nil)
+        #expect(caskroomRunner.requests.count == 3)
 
-        try FileManager.default.removeItem(at: binary)
         let versioned = try makeProfileBinary(home: home)
         try Data("{}".utf8).write(to: profile.appendingPathComponent("remote-settings.json"))
         let managedRunner = profileRunner(home: home, profile: profile)

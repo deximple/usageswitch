@@ -72,8 +72,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         guard let binary = binaryPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
         else { return finish(.unavailable(.cliMissing)) }
         guard !Task.isCancelled else { return nil }
-        guard let toolVersion = ClaudeUsageCollector.toolVersion(of: binary)
-        else { return finish(.unavailable(.unsupportedVersion)) }
+        let toolVersion = ClaudeUsageCollector.toolVersion(of: binary)
         guard !Task.isCancelled else { return nil }
         guard let profile = ClaudeProfileDirectory.validate(
             path: binding.profilePath, home: home, excludedRoots: excludedRoots),
