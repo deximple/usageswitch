@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "cloud/**", "devin/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit bash runs with -eo pipefail, so a failing command piped into tee fails its step.
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select Xcode 26
+        # Views.swift uses macOS 26 SDK API (glassEffect); the image's default Xcode may be older.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          test -n "$xcode" || { echo "Xcode 26 is required"; ls -d /Applications/Xcode*.app; exit 1; }
+          sudo xcode-select -s "$xcode"
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build
+        run: swift build 2>&1 | tee build.log
+      - name: Test with coverage
+        run: ./scripts/test.sh 2>&1 | tee test.log
+      - name: Core line coverage >= 80%
+        run: |
+          test -s docs/evidence/coverage.txt || { echo "coverage.txt missing: tests did not finish"; exit 1; }
+          total=$(awk '$1 == "TOTAL" { print $10 }' docs/evidence/coverage.txt | tr -d '%')
+          echo "SwitcherCore line coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit !(t != "" && t + 0 >= 80) }'
+      - name: Localization
+        run: python3 scripts/check-l10n.py 2>&1 | tee l10n.log
+      - name: Acceptance summary self-test
+        run: python3 scripts/acceptance-summary.py --self-test
+      - name: Whitespace
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=$(git hash-object -t tree /dev/null)
+          fi
+          git diff --check "$BASE" HEAD
+          git diff --check
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs-${{ github.sha }}
+          path: |
+            build.log
+            test.log
+            l10n.log
+            docs/evidence/coverage.txt
+          if-no-files-found: ignore
