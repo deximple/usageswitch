@@ -74,7 +74,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
 
 - Decrypt cookies, or read or write the Keychain — except the one Cursor entry when Cursor usage is on.
 - Print or log usage credentials, or forward them to unrelated services. An enabled usage connection sends its credential only to the corresponding allowlisted provider host.
-- Write to Claude CLI profiles or to Codex homes it didn't create. When a profile binding is enabled, the official Claude CLI itself may refresh its token or update its own config files as described above.
+- Write to `~/.claude`, to Claude CLI profiles, to other apps' data, or to Codex homes it didn't create. Those Codex homes change only when you sign in or out, and Codex's CLI makes the change. For an explicitly connected Claude profile, the official Claude CLI itself may refresh its token or update its own config files as described above.
 - Sign you out on the server.
 
 ## Your responsibility

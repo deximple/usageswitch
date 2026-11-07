@@ -102,7 +102,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         }
 
         let parsed = ClaudeUsageCollector.readUsage(runner: runner, binary: binary,
-            environment: environment, timeout: 20, now: now)
+            environment: environment, timeout: 60, now: now)
 
         guard ClaudeProfileDirectory.validate(path: binding.profilePath, home: home,
                                              excludedRoots: excludedRoots) == profile,

@@ -210,7 +210,7 @@ struct ClaudeProfileUsageTests {
             ["auth", "status", "--json"],
         ])
         #expect(runner.requests.allSatisfy { $0.environment["CLAUDE_CONFIG_DIR"] == profile.path })
-        #expect(runner.requests.allSatisfy { $0.timeout == 20 })
+        #expect(runner.requests.map(\.timeout) == [20, 60, 20])
 
         let defaultRunner = profileRunner(home: home, profile: profile)
         _ = ClaudeUsageCollector(runner: defaultRunner, home: home,
@@ -218,6 +218,7 @@ struct ClaudeProfileUsageTests {
                                            preferences: home.appendingPathComponent("preferences")),
             binaryPaths: [binary], now: { profileReadAt }).collect()
         #expect(defaultRunner.requests.first?.environment["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(runner.requests[1].timeout == defaultRunner.requests.first?.timeout)
     }
 
     @Test("unsupported versions, managed profiles, and identity mismatch run no processes")
