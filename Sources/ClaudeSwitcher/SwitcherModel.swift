@@ -131,7 +131,14 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func apply(_ s: SwitcherStatus) {
+        let oldAccountIds = status.map { Set($0.accounts.map(\.id)) }
+        let newAccountIds = Set(s.accounts.map(\.id))
         status = s
+        let shouldRefreshUsage = !isDemo && UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: oldAccountIds,
+            newAccountIds: newAccountIds,
+            refreshedWithoutClaudeStatus: AppModel.usage.refreshedWithoutClaudeStatus)
+        if shouldRefreshUsage { AppModel.usage.refresh() }
         // Picks up an approval given in System Settings after the checkbox was ticked.
         if !isDemo { launchAtLogin = SMAppService.mainApp.status == .enabled }
         guard phase == .awaitingLogin, s.claude.activeAccountUuid != nil else { return }

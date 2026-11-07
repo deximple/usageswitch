@@ -321,12 +321,22 @@ struct OpenCodeAdapterTests {
         #expect(http.requests.first?.headers["Authorization"] == "Bearer g1")
     }
 
-    @Test("server 401 and 403 reject a present credential", arguments: [401, 403])
-    func rejectedCredential(status: Int) {
+    @Test("server 401 rejects a present credential")
+    func rejectedCredential() {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
-        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        http.queue = [UsageHTTPResponse(status: 401, body: Data())]
         expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+    }
+
+    @Test("403 means no Go plan, not rejected sign-in")
+    func noGoPlan() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 403, body: Data())]
+        let row = collector(http, creds).collect().first
+        #expect(row?.state == .notReporting)
+        #expect(row?.windows.isEmpty == true)
     }
 
     @Test("missing local credential is noSignIn")

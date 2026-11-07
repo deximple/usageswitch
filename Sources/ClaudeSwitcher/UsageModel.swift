@@ -13,6 +13,7 @@ final class UsageModel: ObservableObject {
     @Published private(set) var installations: [UsageInstallation] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var nextRefresh = Date().addingTimeInterval(300)
+    private(set) var refreshedWithoutClaudeStatus = false
     /// Drain speed per window key; `unknown` until two readings line up.
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
     /// Guide / All Usage, not persisted.
@@ -116,6 +117,7 @@ final class UsageModel: ObservableObject {
 
     func refresh() {
         guard !isDemo else { return }
+        refreshedWithoutClaudeStatus = AppModel.shared.status == nil
         generation += 1
         let generation = generation
         isRefreshing = true
@@ -302,11 +304,13 @@ final class UsageModel: ObservableObject {
         updatePace()
         // The `--cli usage` file: display-safe identity, authentication and window
         // data only — labels always email-masked, never credentials or raw emails.
-        try? UsageSnapshot(presentations: presentations(claude: settings.status,
-                                                        codex: AppModel.codex.status,
-                                                        now: now),
-                           generatedAt: now)
-            .write(env: env, fs: SafeFS(env: env))
+        if AppModel.shared.status != nil {
+            try? UsageSnapshot(presentations: presentations(claude: settings.status,
+                                                            codex: AppModel.codex.status,
+                                                            now: now),
+                               generatedAt: now)
+                .write(env: env, fs: SafeFS(env: env))
+        }
         deliverAlerts(now: now)
         isRefreshing = false
         nextRefresh = now.addingTimeInterval(Self.interval)

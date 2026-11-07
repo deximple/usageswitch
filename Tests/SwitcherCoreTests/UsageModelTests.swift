@@ -154,6 +154,28 @@ struct UsageTextTests {
 struct UsageRefreshPolicyTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
 
+    @Test("status arriving after a refresh without Claude status requests a reread")
+    func statusLoadedAfterRefresh() {
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: true))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: false))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: true))
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: false))
+    }
+
+    @Test("unchanged account ids do not refresh; changed ids always do")
+    func registeredAccountIdsChanged() {
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a"]), newAccountIds: Set(["a"]),
+            refreshedWithoutClaudeStatus: true))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a"]), newAccountIds: Set(["a", "b"]),
+            refreshedWithoutClaudeStatus: false))
+    }
+
     func usage(resetsAt: Date?) -> AccountUsage {
         AccountUsage(id: "codex:a", provider: .codex, accountRef: "a", label: "A", plan: nil,
                      windows: [UsageWindow(durationMinutes: 300, usedPercent: 50, resetsAt: resetsAt)],

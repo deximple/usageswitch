@@ -4,6 +4,19 @@ import Foundation
 /// a stale number (reset already past when it was read) must not trigger a re-read by itself,
 /// or a failed read would spawn the vendor tools forever.
 public enum UsageRefreshPolicy {
+    /// Refresh when the saved Claude registry changes, or when status arrives after an
+    /// earlier usage read started without it.
+    public static func shouldRefreshAfterClaudeStatusChange(
+        oldAccountIds: Set<String>?,
+        newAccountIds: Set<String>,
+        refreshedWithoutClaudeStatus: Bool
+    ) -> Bool {
+        guard let oldAccountIds else {
+            return refreshedWithoutClaudeStatus || !newAccountIds.isEmpty
+        }
+        return oldAccountIds != newAccountIds
+    }
+
     /// Due when the interval elapsed, or when some window's reset happened *since the last read
     /// began* — `lastReadStartedAt < resetsAt <= now`. A window already stale at read time
     /// (resetsAt ≤ lastReadStartedAt, e.g. a Claude weekly reset inside its last day) is not a
