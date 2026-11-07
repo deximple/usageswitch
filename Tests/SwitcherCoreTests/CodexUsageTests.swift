@@ -6,10 +6,13 @@ import Testing
 struct CodexUsageTests {
     let cli = URL(fileURLWithPath: "/fake/codex")
 
+    /// The redacted account the recorded fixtures attribute their reads to.
+    static let fixtureAccountId = "00000000-0000-0000-0000-000000000000"
+
     func account(_ id: String, mode: CodexIdentity.Mode = .chatgpt, home: String = "/tmp/codex-home") -> CodexAccount {
         CodexAccount(id: id, kind: .standard, label: "Codex \(id)", customName: nil,
                      defaultName: "\(id)@example.com", home: home, homePath: "~/.codex",
-                     identity: CodexIdentity(mode: mode), state: .signedOut, pids: [])
+                     identity: CodexIdentity(mode: mode, accountId: Self.fixtureAccountId), state: .signedOut, pids: [])
     }
 
     func status(_ accounts: [CodexAccount], found: [CodexAccount] = [], version: String? = "0.166.0") -> CodexStatus {
@@ -57,6 +60,80 @@ struct CodexUsageTests {
         #expect(usage?.windows.first?.kind == .weekly)
         #expect(usage?.windows.first?.durationMinutes == 10080)
         #expect(usage?.windows.first?.usedPercent == 31)
+    }
+
+    static func attributedAnswer(_ accountId: String) -> String {
+        #"{"id":2,"result":{"accountId":\#(accountId),"rateLimits":{"planType":"plus","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1780003600}}}}"#
+    }
+
+    func attributed(_ accountId: String?) -> CodexAccount {
+        CodexAccount(id: "a1", kind: .standard, label: "Codex a1", customName: nil,
+                     defaultName: "a1@example.com", home: "/tmp/codex-home", homePath: "~/.codex",
+                     identity: CodexIdentity(mode: .chatgpt, email: "a1@example.com", accountId: accountId),
+                     state: .signedIn, pids: [])
+    }
+
+    func read(_ home: CodexAccount, answering accountId: String) -> AccountUsage? {
+        collector(status([home]), runner: fakeRunner(answering: [Self.attributedAnswer(accountId)])).collect().first
+    }
+
+    @Test("a read attributed to the home's own account is kept")
+    func attributedToSameAccount() {
+        let runner = fakeRunner(answering: [Self.attributedAnswer(#""acct-a""#)])
+        let usage = collector(status([attributed("acct-a")]), runner: runner).collect().first
+        #expect(usage?.state == .ok)
+        #expect(usage?.windows.map(\.usedPercent) == [42])
+    }
+
+    @Test("a read attributed to another account fails closed with no windows",
+          arguments: [Optional("acct-a"), nil])
+    func attributedToOtherAccount(homeAccount: String?) {
+        let runner = fakeRunner(answering: [Self.attributedAnswer(#""acct-b""#)])
+        let usage = collector(status([attributed(homeAccount)]), runner: runner).collect().first
+        #expect(usage?.state == .failed(.refused))
+        #expect(usage?.windows.isEmpty == true)
+        #expect(usage?.plan == nil)
+    }
+
+    @Test("a mismatched read keeps no earlier windows or plan for that login")
+    func mismatchDropsRetention() throws {
+        let home = attributed("acct-a")
+        let previous = try #require(read(home, answering: #""acct-a""#))
+        #expect(previous.state == .ok && previous.identityKey != nil && !previous.windows.isEmpty)
+        let mismatched = try #require(read(home, answering: #""acct-b""#))
+        #expect(mismatched.identityKey == nil)
+        let shown = mismatched.retainingWindows(from: previous)
+        #expect(shown.state == .failed(.refused))
+        #expect(shown.windows.isEmpty)
+        #expect(shown.plan == nil)
+    }
+
+    @Test("an empty reported accountId never matches, even an empty home id")
+    func emptyAccountIdFailsClosed() {
+        let usage = read(attributed(""), answering: String(repeating: "\"", count: 2))
+        #expect(usage?.state == .failed(.refused))
+        #expect(usage?.windows.isEmpty == true)
+    }
+
+    @Test("an answer without the accountId key still reads for an attributed home")
+    func missingAccountIdKey() {
+        let line = #"{"id":2,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1780003600}}}}"#
+        let usage = collector(status([attributed("acct-a")]), runner: fakeRunner(answering: [line])).collect().first
+        #expect(usage?.state == .ok)
+        #expect(usage?.identityKey != nil)
+    }
+
+    @Test("an older server without accountId still reads")
+    func unattributedAnswer() {
+        let runner = fakeRunner(answering: [Self.attributedAnswer("null")])
+        let usage = collector(status([attributed("acct-a")]), runner: runner).collect().first
+        #expect(usage?.state == .ok)
+        #expect(CodexRateLimitsParser.read([Self.attributedAnswer("null")]).map(\.accountId) == .success(nil))
+    }
+
+    @Test("a non-string accountId means the schema changed", arguments: ["7", "true", #"{"x":1}"#])
+    func malformedAccountId(value: String) {
+        #expect(CodexRateLimitsParser.read([Self.attributedAnswer(value)]) == .failure(.schemaChanged))
     }
 
     @Test("legacy rateLimits-only shape still reads")

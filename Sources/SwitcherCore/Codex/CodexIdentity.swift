@@ -15,7 +15,14 @@ public struct CodexIdentity: Codable, Equatable, Sendable {
     public let name: String?
     /// ChatGPT plan, e.g. "plus", "pro", "team".
     public let plan: String?
+    /// `tokens.account_id` — what Codex itself sends and attributes reads to — else the id token's claim,
+    /// which can still name the previous workspace after a switch until the next refresh.
     public let accountId: String?
+
+    /// Whether a server-reported account id names this sign-in; an empty id never matches.
+    public func owns(accountId reported: String) -> Bool {
+        !reported.isEmpty && reported == accountId
+    }
 
     public init(mode: Mode, email: String? = nil, name: String? = nil, plan: String? = nil, accountId: String? = nil) {
         self.mode = mode
@@ -39,7 +46,7 @@ public struct CodexIdentity: Codable, Equatable, Sendable {
             return CodexIdentity(
                 mode: .chatgpt, email: claims["email"] as? String, name: claims["name"] as? String,
                 plan: auth?["chatgpt_plan_type"] as? String,
-                accountId: (auth?["chatgpt_account_id"] as? String) ?? (tokens?["account_id"] as? String))
+                accountId: (tokens?["account_id"] as? String) ?? (auth?["chatgpt_account_id"] as? String))
         }
         if let key = object["OPENAI_API_KEY"] as? String, !key.isEmpty { return CodexIdentity(mode: .apiKey) }
         return CodexIdentity(mode: .unknown)

@@ -203,12 +203,31 @@ enum CodexFixture {
 
 @Suite("Codex tab")
 struct CodexTests {
+    @Test func accountIdFollowsTheTokensAccountIdCodexAttributesReadsTo() throws {
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        func write(_ name: String, tokenAccountId: String?) throws -> URL {
+            let url = rig.home(name)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            var tokens: [String: Any] = ["id_token": CodexFixture.jwt([
+                "email": "alex@example.com", "https://api.openai.com/auth": ["chatgpt_account_id": "acct-stale-claim"]])]
+            tokens["account_id"] = tokenAccountId
+            try JSONSerialization.data(withJSONObject: ["auth_mode": "chatgpt", "tokens": tokens])
+                .write(to: url.appendingPathComponent("auth.json"))
+            return url
+        }
+        // After a workspace switch the id token keeps the old claim; tokens.account_id is current.
+        #expect(CodexIdentity.read(home: try write(".codex-switched", tokenAccountId: "acct-workspace-b"))?.accountId
+                == "acct-workspace-b")
+        #expect(CodexIdentity.read(home: try write(".codex-claim-only", tokenAccountId: nil))?.accountId
+                == "acct-stale-claim")
+    }
+
     @Test func identityComesFromTheIdTokenClaimsOnly() throws {
         let rig = try CodexRig(); defer { rig.cleanup() }
         let chatgpt = try rig.makeHome(".codex", email: "alex@example.com", plan: "team")
         let identity = try #require(CodexIdentity.read(home: chatgpt))
         #expect(identity == CodexIdentity(mode: .chatgpt, email: "alex@example.com", name: "Fake User", plan: "team",
-                                          accountId: "acct-alex"))
+                                          accountId: "acct-fallback"))
         let encoded = String(decoding: try JSONEncoder().encode(identity), as: UTF8.self)
         #expect(!encoded.contains("FAKE-ACCESS-TOKEN") && !encoded.contains("FAKE-REFRESH-TOKEN") && !encoded.contains("FAKE-SIGNATURE"))
 

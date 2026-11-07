@@ -2,8 +2,8 @@ import CryptoKit
 import Foundation
 
 /// Reads the `account/rateLimits/read` answer out of `codex app-server` output. Only windows, the plan
-/// name and the failure reason are read; `accountId`, credits and upsell are never looked at, and the
-/// server's error text is mapped to a reason without being kept (it can carry identity).
+/// name, the attributed `accountId` and the failure reason are read; credits and upsell are never
+/// looked at, and the server's error text is mapped to a reason without being kept (it can carry identity).
 public enum CodexRateLimitsParser {
     /// The id of the rate-limits request (the third message written to the server).
     public static let answerID = 2
@@ -15,6 +15,8 @@ public enum CodexRateLimitsParser {
     public struct Parsed: Equatable, Sendable {
         public var windows: [UsageWindow]
         public var plan: String?
+        /// The account the server attributes this read to; nil when an older server omits it.
+        public var accountId: String? = nil
     }
 
     public enum Failure: Error, Equatable, Sendable {
@@ -55,6 +57,8 @@ public enum CodexRateLimitsParser {
               let snapshot = ((result["rateLimitsByLimitId"] as? [String: Any])?["codex"] as? [String: Any])
                 ?? (result["rateLimits"] as? [String: Any])
         else { return .failure(.schemaChanged) }
+        let accountId = result["accountId"]
+        guard accountId == nil || accountId is NSNull || accountId is String else { return .failure(.schemaChanged) }
         var windows: [UsageWindow] = []
         for key in ["primary", "secondary"] {
             guard let raw = snapshot[key], !(raw is NSNull) else { continue }
@@ -68,7 +72,8 @@ public enum CodexRateLimitsParser {
             windows.append(UsageWindow(durationMinutes: duration, usedPercent: Double(used),
                                        resetsAt: resets.map { Date(timeIntervalSince1970: TimeInterval($0)) }))
         }
-        return .success(Parsed(windows: windows, plan: snapshot["planType"] as? String))
+        return .success(Parsed(windows: windows, plan: snapshot["planType"] as? String,
+                               accountId: accountId as? String))
     }
 
     /// Maps the error to a reason without keeping its text. The chatgpt-specific message must be
@@ -139,11 +144,12 @@ public struct CodexUsageCollector: Sendable {
             let digest = SHA256.hash(data: Data("\(accountId)|\(email.lowercased())".utf8))
             return digest.map { String(format: "%02x", $0) }.joined()
         }()
-        func finish(_ state: UsageState, _ windows: [UsageWindow] = [], plan: String? = nil) -> AccountUsage {
+        func finish(_ state: UsageState, _ windows: [UsageWindow] = [], plan: String? = nil,
+                    attributed: Bool = true) -> AccountUsage {
             AccountUsage(id: "codex:\(account.id)", provider: .codex, accountRef: account.id,
                          label: account.label, plan: plan, windows: windows, state: state,
                          readAt: now(), toolVersion: toolVersion,
-                         authentication: authentication, identityKey: identityKey)
+                         authentication: authentication, identityKey: attributed ? identityKey : nil)
         }
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
@@ -166,7 +172,13 @@ public struct CodexUsageCollector: Sendable {
         case .outputLimit: return finish(.unavailable(.refused))
         case .stopped, .exited:
             switch CodexRateLimitsParser.read(result.lines) {
-            case .success(let parsed): return finish(.ok, parsed.windows, plan: parsed.plan)
+            case .success(let parsed):
+                // A read attributed to another account (a login changed mid-read) is never this home's
+                // quota, and drops the login fingerprint so no earlier windows are kept for it either.
+                if let reported = parsed.accountId, account.identity?.owns(accountId: reported) != true {
+                    return finish(.failed(.refused), attributed: false)
+                }
+                return finish(.ok, parsed.windows, plan: parsed.plan)
             case .failure(let failure): return finish(Self.state(for: failure))
             }
         }
