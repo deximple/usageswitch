@@ -34,6 +34,7 @@ final class UsageModel: ObservableObject {
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
     private var lastReadStartedAt: Date?
+    private var refreshStartedAt: Date?
     /// Last ok sample per window key, for pace. Session-scoped: a restart starts over.
     private var previousSamples: [String: UsagePace.Sample] = [:]
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
@@ -111,7 +112,14 @@ final class UsageModel: ObservableObject {
     /// A tick is not a manual refresh: it waits out a busy Codex tab and fires on the interval or
     /// when a window reset since the last read began.
     private func tickNow() {
-        guard !isDemo, !isRefreshing, !AppModel.codex.isBusy else { return }
+        guard !isDemo else { return }
+        if isRefreshing {
+            if UsageRefreshPolicy.isRefreshStalled(startedAt: refreshStartedAt, now: Date()) {
+                refresh()
+            }
+            return
+        }
+        guard !AppModel.codex.isBusy else { return }
         if UsageRefreshPolicy.isDue(now: Date(), nextRefresh: nextRefresh,
                                     lastReadStartedAt: lastReadStartedAt, usages: usages) {
             refresh()
@@ -125,7 +133,9 @@ final class UsageModel: ObservableObject {
         generation += 1
         let generation = generation
         isRefreshing = true
-        lastReadStartedAt = Date()
+        let startedAt = Date()
+        refreshStartedAt = startedAt
+        lastReadStartedAt = startedAt
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
@@ -206,7 +216,11 @@ final class UsageModel: ObservableObject {
     func requestRefresh() {
         guard !isDemo else { return }
         if isRefreshing {
-            pendingRefresh = true
+            if UsageRefreshPolicy.isRefreshStalled(startedAt: refreshStartedAt, now: Date()) {
+                refresh()
+            } else {
+                pendingRefresh = true
+            }
         } else {
             refresh()
         }
@@ -328,6 +342,7 @@ final class UsageModel: ObservableObject {
         }
         deliverAlerts(now: now)
         isRefreshing = false
+        refreshStartedAt = nil
         nextRefresh = now.addingTimeInterval(Self.interval)
         if pendingRefresh {
             pendingRefresh = false

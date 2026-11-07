@@ -193,6 +193,14 @@ struct UsageRefreshPolicyTests {
             refreshedWithoutClaudeStatus: false))
     }
 
+    @Test("a refresh is stalled at the watchdog limit")
+    func refreshStallThreshold() {
+        #expect(!UsageRefreshPolicy.isRefreshStalled(startedAt: nil, now: now.addingTimeInterval(601)))
+        #expect(!UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(599)))
+        #expect(UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(600)))
+        #expect(UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(601)))
+    }
+
     func usage(resetsAt: Date?) -> AccountUsage {
         AccountUsage(id: "codex:a", provider: .codex, accountRef: "a", label: "A", plan: nil,
                      windows: [UsageWindow(durationMinutes: 300, usedPercent: 50, resetsAt: resetsAt)],
