@@ -35,13 +35,15 @@ struct UsageProcessRunnerTests {
     @Test("cancellation terminates and reaps the child promptly")
     func cancelled() async throws {
         let processRunner = SystemUsageProcessRunner()
-        let request = request(executable: "/bin/sleep", ["30"], timeout: 60)
-        let task = Task.detached { processRunner.run(request) }
+        let marker = UUID().uuidString
+        var processRequest = request(executable: "/bin/sleep", ["30"], timeout: 60)
+        processRequest.environment["USAGESWITCH_CANCELLATION_TEST_ID"] = marker
+        let task = Task.detached { processRunner.run(processRequest) }
         let deadline = Date().addingTimeInterval(3)
         var childPID: pid_t?
         while Date() < deadline {
             childPID = RunningCommands.shared.all.first {
-                $0.executableURL?.path == "/bin/sleep" && $0.arguments == ["30"]
+                $0.environment?["USAGESWITCH_CANCELLATION_TEST_ID"] == marker
             }?.processIdentifier
             if childPID != nil { break }
             try? await Task.sleep(nanoseconds: 20_000_000)
