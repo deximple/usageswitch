@@ -36,6 +36,8 @@ public enum SituationCode: String, Codable, Equatable, Sendable {
 
 public enum SuggestionNoneReason: Equatable, Sendable {
     case noCandidates
+    case noCatalogMatch
+    case excluded
     case invalidTask
     case invalidWarnThreshold
 }
@@ -46,6 +48,13 @@ public enum SuggestionResult: Equatable, Sendable {
     case neutral(accountID: String, provider: UsageProvider, modelKey: String, effort: String?,
                  situation: SituationCode, limitingWindowKey: String)
     case none(SuggestionNoneReason)
+}
+
+public enum SuggestionGuideFallback {
+    public static func shouldShowLegacyProposal(for result: SuggestionResult) -> Bool {
+        if case .none(.noCatalogMatch) = result { return true }
+        return false
+    }
 }
 
 /// Pure ranking over fresh usage readings and a pinned, validated catalog. It never
@@ -79,26 +88,41 @@ public enum SuggestionEngine {
         }
 
         var candidates: [Candidate] = []
+        var freshAccountMapsToCatalog = false
+        var candidateWasExcluded = false
         for usage in usages {
             guard usage.state == .ok,
                   (0...maximumReadingAge).contains(now.timeIntervalSince(usage.readAt))
             else { continue }
-            for mapped in harnessMap.candidateModels(for: usage.provider, catalog: catalog) {
+            let mappedModels = harnessMap.candidateModels(for: usage.provider, catalog: catalog)
+            freshAccountMapsToCatalog = freshAccountMapsToCatalog || !mappedModels.isEmpty
+            for mapped in mappedModels {
+                let entries = catalog.entries.filter {
+                    $0.key == mapped.model.key
+                        && permits($0, model: mapped.model, mode: mode)
+                        && quality($0.rank, task: task) != nil
+                }
+                guard !entries.isEmpty else { continue }
                 let windows = harnessMap.spentWindows(in: usage, for: mapped)
-                guard !windows.isEmpty,
-                      windows.allSatisfy({
-                          $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
-                              && ($0.resetsAt.map { $0 > now } ?? true)
-                              && $0.usedPercent < warnThreshold
-                      })
-                else { continue }
+                guard !windows.isEmpty else { continue }
+                guard windows.allSatisfy({
+                    $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                        && ($0.resetsAt.map { $0 > now } ?? true)
+                        && $0.usedPercent < warnThreshold
+                }) else {
+                    candidateWasExcluded = true
+                    continue
+                }
 
                 let paceReadings = windows.map { window -> UsagePace.Reading in
                     pace[UsagePriority.key(usage, window)] ?? .unknown
                 }
                 guard !zip(windows, paceReadings).contains(where: {
                     UsagePace.runsOutEarly($0.1, window: $0.0) != nil
-                }) else { continue }
+                }) else {
+                    candidateWasExcluded = true
+                    continue
+                }
                 guard let remaining = windows.map({ (100 - $0.usedPercent) / 100 }).min(),
                       let limiting = windows.enumerated().min(by: {
                           let left = (100 - $0.element.usedPercent)
@@ -110,10 +134,8 @@ public enum SuggestionEngine {
 
                 let situation: SituationCode = paceReadings.contains(.unknown)
                     ? .remainingShare : .windowHeadroom
-                for entry in catalog.entries where entry.key == mapped.model.key {
-                    guard permits(entry, model: mapped.model, mode: mode),
-                          let quality = quality(entry.rank, task: task)
-                    else { continue }
+                for entry in entries {
+                    guard let quality = quality(entry.rank, task: task) else { continue }
                     candidates.append(Candidate(
                         usage: usage,
                         modelKey: mapped.model.key,
@@ -125,8 +147,12 @@ public enum SuggestionEngine {
             }
         }
 
-        guard let best = candidates.sorted(by: isBetter).first else { return .none(.noCandidates) }
-        let result: SuggestionResult = candidates.count == 1 ? .neutral(
+        guard let best = candidates.sorted(by: isBetter).first else {
+            if !freshAccountMapsToCatalog { return .none(.noCatalogMatch) }
+            return .none(candidateWasExcluded ? .excluded : .noCandidates)
+        }
+        let hasOneAccount = Set(candidates.map { $0.usage.id }).count == 1
+        let result: SuggestionResult = hasOneAccount ? .neutral(
             accountID: best.usage.id, provider: best.usage.provider, modelKey: best.modelKey,
             effort: best.effort, situation: best.situation,
             limitingWindowKey: best.limitingWindowKey

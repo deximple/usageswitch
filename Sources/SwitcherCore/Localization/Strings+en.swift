@@ -299,6 +299,7 @@ extension Strings {
         .suggestionSituationHeadroom: "%@ headroom (%@ remaining)",
         .suggestionSituationRemaining: "current %@ remaining (%@)",
         .suggestionLine: "Right now, with %@: %@ → %@ → %@",
+        .suggestionRecentEffort: " · recently mostly: %@",
         .suggestionEffortNone: "None",
         .suggestionEffortMinimal: "Minimal",
         .suggestionEffortLow: "Low",

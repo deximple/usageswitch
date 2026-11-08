@@ -86,7 +86,8 @@ public struct SuggestionStateTracker: Sendable {
 
     public func track(previous: [String: SuggestionObservation],
                       previousIdentityKeys: [String: String],
-                      fresh: [AccountUsage]) -> Result {
+                      fresh: [AccountUsage],
+                      accountRefKey: (UsageProvider, String) -> String? = { _, value in value }) -> Result {
         var observations: [SuggestionObservation] = []
         var deltas: [SuggestionDelta] = []
         var resets: [SuggestionResetEvent] = []
@@ -95,7 +96,8 @@ public struct SuggestionStateTracker: Sendable {
             for window in usage.windows where window.usedPercent.isFinite
                 && (0...100).contains(window.usedPercent) {
                 let windowKey = SuggestionObservation.windowKey(for: window)
-                let accountRef = UsageSnapshot.maskedString(usage.accountRef)
+                guard let accountRef = accountRefKey(usage.provider, usage.accountRef),
+                      !accountRef.isEmpty else { continue }
                 let key = Self.key(provider: usage.provider, accountRef: accountRef,
                                    windowKey: windowKey)
                 let observation = SuggestionObservation(
@@ -143,7 +145,7 @@ public struct SuggestionStateTracker: Sendable {
     }
 
     public static func key(provider: UsageProvider, accountRef: String, windowKey: String) -> String {
-        "\(provider.rawValue)\u{1f}\(UsageSnapshot.maskedString(accountRef))\u{1f}\(windowKey)"
+        "\(provider.rawValue)\u{1f}\(accountRef)\u{1f}\(windowKey)"
     }
 
     private static func resetShiftIsConsistent(_ old: Date, _ new: Date, _ windowKey: String) -> Bool {

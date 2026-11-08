@@ -122,7 +122,7 @@ struct SuggestionEngineTests {
                       simple: 1, reasoning: 1),
         ])
         let google = usage("gemini:account", provider: .gemini,
-                           windows: [UsageWindow(scope: noEffort.name, durationMinutes: nil,
+                           windows: [UsageWindow(scope: noEffort.model, durationMinutes: nil,
                                                 usedPercent: 20,
                                                 resetsAt: now.addingTimeInterval(3600))])
         for mode in SuggestionMode.allCases {
@@ -185,13 +185,13 @@ struct SuggestionEngineTests {
         let warning = UsageWindow(durationMinutes: 300, usedPercent: 80,
                                   resetsAt: now.addingTimeInterval(3600))
         #expect(run(.balanced, catalog: catalog,
-                    usages: [usage(state: .failed(.network))]) == .none(.noCandidates))
+                    usages: [usage(state: .failed(.network))]) == .none(.noCatalogMatch))
         #expect(run(.balanced, catalog: catalog,
-                    usages: [usage(readAt: now.addingTimeInterval(-601))]) == .none(.noCandidates))
+                    usages: [usage(readAt: now.addingTimeInterval(-601))]) == .none(.noCatalogMatch))
         #expect(run(.balanced, catalog: catalog,
-                    usages: [usage(windows: [expired])]) == .none(.noCandidates))
+                    usages: [usage(windows: [expired])]) == .none(.excluded))
         #expect(run(.balanced, catalog: catalog,
-                    usages: [usage(windows: [warning])]) == .none(.noCandidates))
+                    usages: [usage(windows: [warning])]) == .none(.excluded))
     }
 
     @Test("a window projected to run out before reset excludes its candidates")
@@ -209,7 +209,10 @@ struct SuggestionEngineTests {
             UsagePriority.key(account, window): .depleting(at: now.addingTimeInterval(1800)),
         ]
         #expect(run(.balanced, catalog: catalog, usages: [account], pace: reading)
-                == .none(.noCandidates))
+                == .none(.excluded))
+        #expect(!SuggestionGuideFallback.shouldShowLegacyProposal(
+            for: run(.balanced, catalog: catalog, usages: [account], pace: reading)))
+        #expect(SuggestionGuideFallback.shouldShowLegacyProposal(for: .none(.noCatalogMatch)))
     }
 
     @Test("unknown pace uses current remaining share and produces a neutral single candidate")
@@ -229,6 +232,23 @@ struct SuggestionEngineTests {
         #expect(choice.limitingWindowKey == UsagePriority.key(account, window))
     }
 
+    @Test("one account with multiple model candidates remains neutral")
+    func oneAccountMultipleModelsIsNeutral() throws {
+        let first = TestModel(vendor: "openai", model: "first",
+                              name: "First", efforts: ["medium"])
+        let second = TestModel(vendor: "openai", model: "second",
+                               name: "Second", efforts: ["medium"])
+        let catalog = try makeCatalog(models: [first, second], entries: [
+            TestEntry(modelKey: first.key, effort: "medium", tier: "mid",
+                      simple: 2, reasoning: 2),
+            TestEntry(modelKey: second.key, effort: "medium", tier: "mid",
+                      simple: 1, reasoning: 1),
+        ])
+        let choice = try #require(selected(run(.balanced, catalog: catalog, usages: [usage()])))
+        #expect(choice.neutral)
+        #expect(choice.modelKey == second.key)
+    }
+
     @Test("equal scores break by AccountUsage id")
     func tieBreak() throws {
         let model = TestModel(vendor: "openai", model: "tie",
@@ -245,7 +265,7 @@ struct SuggestionEngineTests {
         #expect(!choice.neutral)
     }
 
-    @Test("scoped windows match model names and family words only")
+    @Test("scoped windows require exact IDs except for explicitly mapped Claude Fable")
     func scopedWindowMatching() throws {
         let model = TestModel(vendor: "claude", model: "claude-fable-5-1",
                               name: "Claude Fable 5.1", efforts: ["medium"])
@@ -270,6 +290,34 @@ struct SuggestionEngineTests {
         #expect(choice.limitingWindowKey == UsagePriority.key(account, fable))
     }
 
+    @Test("Gemini scopes match full normalized IDs, not shared family words")
+    func geminiScopedModelIdentity() throws {
+        let model = TestModel(vendor: "google", model: "gemini-3.5-flash-lite",
+                              name: "Gemini 3.5 Flash Lite", efforts: ["medium"])
+        let catalog = try makeCatalog(models: [model], entries: [
+            TestEntry(modelKey: model.key, effort: "medium", tier: "mid",
+                      simple: 1, reasoning: 1),
+        ])
+        let common = UsageWindow(durationMinutes: 300, usedPercent: 20,
+                                 resetsAt: now.addingTimeInterval(3600))
+        let unrelated = UsageWindow(scope: "gemini-3.8-flash", durationMinutes: 1440,
+                                    usedPercent: 79, resetsAt: now.addingTimeInterval(7200))
+        let account = usage("gemini:account", provider: .gemini,
+                            windows: [common, unrelated])
+        let mapped = try #require(SuggestionHarnessMap.standard
+            .candidateModels(for: .gemini, catalog: catalog).first)
+        #expect(SuggestionHarnessMap.standard.spentWindows(in: account, for: mapped) == [common])
+        let choice = try #require(selected(run(.balanced, catalog: catalog, usages: [account])))
+        #expect(choice.limitingWindowKey == UsagePriority.key(account, common))
+
+        let equivalent = UsageWindow(scope: "models/Gemini_3.5.Flash-Lite",
+                                     durationMinutes: 1440, usedPercent: 45,
+                                     resetsAt: now.addingTimeInterval(7200))
+        #expect(SuggestionHarnessMap.standard.spentWindows(
+            in: usage("gemini:account", provider: .gemini, windows: [equivalent]),
+            for: mapped) == [equivalent])
+    }
+
     @Test("Cursor and Devin 2-bundle rows are never scored")
     func twoBundleProvidersNeverScored() throws {
         let model = TestModel(vendor: "openai", model: "available",
@@ -281,7 +329,7 @@ struct SuggestionEngineTests {
         for provider in [UsageProvider.cursor, .devin] {
             #expect(run(.balanced, catalog: catalog,
                         usages: [usage("\(provider.rawValue):account", provider: provider)])
-                    == .none(.noCandidates))
+                    == .none(.noCatalogMatch))
         }
     }
 

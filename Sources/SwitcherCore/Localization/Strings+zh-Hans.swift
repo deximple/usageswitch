@@ -299,6 +299,7 @@ extension Strings {
         .suggestionSituationHeadroom: "%@余量（剩余%@）",
         .suggestionSituationRemaining: "%@当前剩余（%@）",
         .suggestionLine: "此刻考虑到%@：%@ → %@ → %@",
+        .suggestionRecentEffort: " · 最近主要使用的强度：%@",
         .suggestionEffortNone: "无",
         .suggestionEffortMinimal: "最低",
         .suggestionEffortLow: "低",

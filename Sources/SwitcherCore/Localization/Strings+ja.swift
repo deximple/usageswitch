@@ -299,6 +299,7 @@ extension Strings {
         .suggestionSituationHeadroom: "%@の余裕（残り%@）",
         .suggestionSituationRemaining: "%@の現在の残り（%@）",
         .suggestionLine: "現在、%@を踏まえると %@ → %@ → %@",
+        .suggestionRecentEffort: " · 最近よく使った強度: %@",
         .suggestionEffortNone: "なし",
         .suggestionEffortMinimal: "最小",
         .suggestionEffortLow: "低",

@@ -299,6 +299,7 @@ extension Strings {
         .suggestionSituationHeadroom: "%@ 여유분 (%@ 남음)",
         .suggestionSituationRemaining: "%@ 현재 남은 양 (%@)",
         .suggestionLine: "지금 %@을 고려하면 %@ → %@ → %@",
+        .suggestionRecentEffort: " · 최근 주로 쓴 강도: %@",
         .suggestionEffortNone: "없음",
         .suggestionEffortMinimal: "최소",
         .suggestionEffortLow: "낮음",

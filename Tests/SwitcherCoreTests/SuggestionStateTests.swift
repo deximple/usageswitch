@@ -24,11 +24,9 @@ struct SuggestionStateTests {
             scope: "model", durationMinutes: 300, usedPercent: 10, resetsAt: nil)) == "session:300:model")
         #expect(Observation.windowKey(for: UsageWindow(
             durationMinutes: nil, usedPercent: 10, resetsAt: nil)) == "other:?:*")
-        #expect(SuggestionStateTracker.key(provider: .codex, accountRef: "jay.song@example.com",
+        #expect(SuggestionStateTracker.key(provider: .codex, accountRef: "acct-0123456789abcdef",
                                            windowKey: "session:300:*")
-            == SuggestionStateTracker.key(provider: .codex,
-                accountRef: UsageSnapshot.maskedString("jay.song@example.com"),
-                windowKey: "session:300:*"))
+            == "codex\u{1f}acct-0123456789abcdef\u{1f}session:300:*")
     }
 
     @Test("continuous observations produce a delta; gaps and duration changes start segments")
@@ -101,19 +99,20 @@ struct SuggestionStateTests {
         #expect(text.contains("private@example.com") == false)
         #expect(text.contains("jay.song@example.com") == false)
         #expect(text.contains("cli.user@example.com") == false)
-        #expect(text.contains(UsageSnapshot.maskedString("jay.song@example.com")))
         #expect(text.contains(UsageSnapshot.maskedString("cli.user@example.com")))
         #expect(text.contains("identity") == false)
         let reloaded = SuggestionStateStore(env: env, fs: SafeFS(env: env)).loadLastObservations()
-        let key = SuggestionStateTracker.key(provider: .codex, accountRef: "jay.song@example.com",
+        let accountRefKey = try #require(SuggestionAccountReference(
+            env: env, fs: SafeFS(env: env)).key(for: "jay.song@example.com"))
+        let key = SuggestionStateTracker.key(provider: .codex, accountRef: accountRefKey,
                                              windowKey: "session:300:*")
-        #expect(reloaded[key]?.accountRef == UsageSnapshot.maskedString("jay.song@example.com"))
+        #expect(reloaded[key]?.accountRef == accountRefKey)
         #expect(reloaded[key]?.usedPercent == 47)
         let eventFile = directory.appendingPathComponent("events-2023-11-14.jsonl")
         let eventText = try String(contentsOf: eventFile, encoding: .utf8)
         #expect(eventText.contains("jay.song@example.com") == false)
         #expect(eventText.contains("cli.user@example.com") == false)
-        #expect(eventText.contains(UsageSnapshot.maskedString("jay.song@example.com")))
+        #expect(eventText.contains(accountRefKey))
         let eventLine = try #require(eventText.split(separator: "\n").last)
         let decoded = try JSONDecoder().decode(SuggestionStateEvent.self, from: Data(eventLine.utf8))
         if case .delta(let delta) = decoded {
@@ -123,8 +122,14 @@ struct SuggestionStateTests {
         }
         let directoryMode = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
         let fileMode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+        let snapshotMode = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("last-observations.json").path)[.posixPermissions] as? NSNumber
+        let saltMode = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("salt").path)[.posixPermissions] as? NSNumber
         #expect(directoryMode?.intValue == 0o700)
         #expect(fileMode?.intValue == 0o600)
+        #expect(snapshotMode?.intValue == 0o600)
+        #expect(saltMode?.intValue == 0o600)
     }
 
     @Test("a store write failure is contained")
@@ -137,6 +142,106 @@ struct SuggestionStateTests {
         SuggestionStateStore(env: env, fs: SafeFS(env: env)).record([usage(20, at: start)], now: start)
         #expect(!FileManager.default.fileExists(atPath:
             env.storeDir.appendingPathComponent("suggestion/observations-2023-11-14.jsonl").path))
+    }
+
+    @Test("account references use stable, distinct HMAC keys and never persist raw identifiers")
+    func stableOpaqueAccountReferences() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let firstRef = "app:11111111-1111-4111-8111-111111111111__aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        let secondRef = "app:22222222-2222-4222-8222-222222222222__bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        let firstKey = try #require(SuggestionAccountReference(
+            env: env, fs: SafeFS(env: env)).key(for: firstRef))
+        let secondKey = try #require(SuggestionAccountReference(
+            env: env, fs: SafeFS(env: env)).key(for: secondRef))
+        #expect(firstKey.hasPrefix("acct-") && firstKey.count == 21)
+        #expect(secondKey.hasPrefix("acct-") && secondKey.count == 21)
+        #expect(firstKey != secondKey)
+
+        SuggestionStateStore(env: env, fs: SafeFS(env: env)).record([
+            usage(20, at: start, resetsAt: reset, accountRef: firstRef),
+            usage(30, at: start, resetsAt: reset, accountRef: secondRef),
+        ], now: start)
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        for file in try FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil) {
+            let text = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+            #expect(!text.contains(firstRef))
+            #expect(!text.contains(secondRef))
+        }
+
+        let reloaded = SuggestionStateStore(env: env, fs: SafeFS(env: env)).loadLastObservations()
+        #expect(Set(reloaded.values.map(\.accountRef)) == Set([firstKey, secondKey]))
+        #expect(SuggestionAccountReference(env: env, fs: SafeFS(env: env)).key(for: firstRef) == firstKey)
+    }
+
+    @Test("latest-observation snapshot is capped at 512 account-window keys")
+    func snapshotKeyLimit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let rows = (0..<513).map {
+            usage(Double($0 % 90), at: start, resetsAt: reset, accountRef: "account-\($0)")
+        }
+        SuggestionStateStore(env: env, fs: SafeFS(env: env)).record(rows, now: start)
+        let loaded = SuggestionStateStore(env: env, fs: SafeFS(env: env)).loadLastObservations()
+        #expect(loaded.count == 512)
+    }
+
+    @Test("latest-observation snapshot reloads despite oversized daily JSONL and across dates")
+    func boundedSnapshotReloadAndDateChange() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let fs = SafeFS(env: env)
+        let store = SuggestionStateStore(env: env, fs: fs)
+        store.record([usage(20, at: start, resetsAt: reset, accountRef: "one")], now: start)
+        store.record([usage(30, at: start.addingTimeInterval(86_400),
+                            resetsAt: reset, accountRef: "two")],
+                     now: start.addingTimeInterval(86_400))
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        let today = directory.appendingPathComponent("observations-2023-11-15.jsonl")
+        try Data(repeating: 120, count: 1_048_577).write(to: today)
+
+        let loaded = SuggestionStateStore(env: env, fs: fs).loadLastObservations()
+        #expect(loaded.count == 2)
+        #expect(Set(loaded.values.map(\.usedPercent)) == Set([20, 30]))
+        #expect(FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("observations-2023-11-14.jsonl").path))
+    }
+
+    @Test("daily JSONL rotates over one MiB and retention prunes old files once per UTC day")
+    func rotationAndRetention() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let fs = SafeFS(env: env)
+        let store = SuggestionStateStore(env: env, fs: fs)
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        try fs.createDirectory(directory)
+        try Data(repeating: 120, count: 1_048_577)
+            .write(to: directory.appendingPathComponent("observations-2023-11-14.jsonl"))
+        try Data(repeating: 120, count: 1_048_577)
+            .write(to: directory.appendingPathComponent("events-2023-11-14.jsonl"))
+        try Data("old\n".utf8).write(to: directory.appendingPathComponent("log-usage-2023-01-01.jsonl"))
+        let next = start.addingTimeInterval(120)
+        store.record([usage(20, at: start, resetsAt: reset)], now: start)
+        store.record([usage(25, at: next, resetsAt: reset)], now: next)
+        #expect(FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("observations-2023-11-14-2.jsonl").path))
+        #expect(FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("events-2023-11-14-2.jsonl").path))
+        #expect(!FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("log-usage-2023-01-01.jsonl").path))
+
+        let oldFile = directory.appendingPathComponent("events-2023-01-01.jsonl")
+        try Data("later old file\n".utf8).write(to: oldFile)
+        SuggestionRetention.prune(directory: directory, fs: fs, now: start.addingTimeInterval(60))
+        #expect(FileManager.default.fileExists(atPath: oldFile.path))
+        SuggestionRetention.prune(directory: directory, fs: fs,
+                                  now: start.addingTimeInterval(86_400))
+        #expect(!FileManager.default.fileExists(atPath: oldFile.path))
     }
 
     @Test("stale refresh generations cannot record rows after profile or consent changes")

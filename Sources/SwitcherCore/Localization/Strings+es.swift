@@ -299,6 +299,7 @@ extension Strings {
         .suggestionSituationHeadroom: "margen de %@ (%@ restante)",
         .suggestionSituationRemaining: "%@ restante ahora (%@)",
         .suggestionLine: "Ahora, teniendo en cuenta %@: %@ → %@ → %@",
+        .suggestionRecentEffort: " · esfuerzo más usado recientemente: %@",
         .suggestionEffortNone: "Ninguno",
         .suggestionEffortMinimal: "Mínimo",
         .suggestionEffortLow: "Bajo",

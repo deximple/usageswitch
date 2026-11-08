@@ -31,11 +31,13 @@ public enum SuggestionStateEvent: Codable, Sendable {
 }
 
 public final class SuggestionStateStore: @unchecked Sendable {
-    private static let maxLineBytes = 16_384
-    private static let maxReadBytes = 1_048_576
+    private static let maxSnapshotBytes = 1_048_576
+    private static let maxSnapshotKeys = 512
     private let directory: URL
+    private let lastObservationsFile: URL
     private let fs: SafeFS
     private let reader: BoundedReader
+    private let accountReferences: SuggestionAccountReference
     private let lock = NSLock()
     private var loaded = false
     private var last: [String: SuggestionObservation] = [:]
@@ -44,8 +46,10 @@ public final class SuggestionStateStore: @unchecked Sendable {
 
     public init(env: SwitcherEnvironment, fs: SafeFS, reader: BoundedReader = .shared) {
         directory = env.storeDir.appendingPathComponent("suggestion", isDirectory: true)
+        lastObservationsFile = directory.appendingPathComponent("last-observations.json")
         self.fs = fs
         self.reader = reader
+        accountReferences = SuggestionAccountReference(env: env, fs: fs)
     }
 
     public func loadLastObservations() -> [String: SuggestionObservation] {
@@ -67,104 +71,89 @@ public final class SuggestionStateStore: @unchecked Sendable {
         guard generation >= minimumGeneration else { return }
         loadIfNeeded()
         let result = SuggestionStateTracker().track(
-            previous: last, previousIdentityKeys: identityKeys, fresh: fresh)
+            previous: last, previousIdentityKeys: identityKeys, fresh: fresh,
+            accountRefKey: { [accountReferences] provider, rawRef in
+                accountReferences.key(for: rawRef)
+            })
         guard !result.observations.isEmpty else { return }
-        let observations = result.observations.map {
-            SuggestionObservation(
-                at: $0.at, accountRef: UsageSnapshot.maskedString($0.accountRef),
-                provider: $0.provider, windowKey: $0.windowKey, usedPercent: $0.usedPercent,
-                resetsAt: $0.resetsAt, source: $0.source,
-                toolVersion: $0.toolVersion.map(UsageSnapshot.maskedString))
-        }
+        let observations = result.observations
         do {
             try fs.createDirectory(directory)
-            let date = Self.dayString(now)
-            try appendLines(observations,
-                            to: directory.appendingPathComponent("observations-\(date).jsonl"))
+            SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: reader)
+            let date = SuggestionRetention.utcDay(now)
+            try SuggestionStorage.appendLines(observations, component: "observations",
+                                              day: date, directory: directory, fs: fs)
             let events = result.deltas.map(SuggestionStateEvent.delta)
                 + result.resets.map(SuggestionStateEvent.reset)
-            try appendLines(events, to: directory.appendingPathComponent("events-\(date).jsonl"))
+            try SuggestionStorage.appendLines(events, component: "events", day: date,
+                                              directory: directory, fs: fs)
+            for observation in observations {
+                let key = SuggestionStateTracker.key(provider: observation.provider,
+                                                     accountRef: observation.accountRef,
+                                                     windowKey: observation.windowKey)
+                last[key] = observation
+                if let identity = fresh.first(where: {
+                    $0.provider == observation.provider
+                        && accountReferences.key(for: $0.accountRef) == observation.accountRef
+                })?.identityKey {
+                    identityKeys[key] = identity
+                } else {
+                    identityKeys.removeValue(forKey: key)
+                }
+            }
+            limitSnapshot()
+            try writeLastObservations()
         } catch {
             return
-        }
-        for observation in observations {
-            let key = SuggestionStateTracker.key(provider: observation.provider,
-                                                 accountRef: observation.accountRef,
-                                                 windowKey: observation.windowKey)
-            last[key] = observation
-            if let identity = fresh.first(where: {
-                UsageSnapshot.maskedString($0.accountRef) == observation.accountRef
-                    && $0.provider == observation.provider
-            })?.identityKey {
-                identityKeys[key] = identity
-            } else {
-                identityKeys.removeValue(forKey: key)
-            }
         }
     }
 
     private func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil) else { return }
-        let newest = files.filter { $0.lastPathComponent.hasPrefix("observations-")
-            && $0.pathExtension == "jsonl" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }.prefix(14)
+        guard case let .data(data) = reader.read(atPath: lastObservationsFile.path, using: { path in
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  (attrs[.size] as? NSNumber)?.intValue ?? 0 <= Self.maxSnapshotBytes else { return nil }
+            return FileManager.default.contents(atPath: path)
+        }) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        for file in newest {
-            guard case let .data(data) = reader.read(atPath: file.path, using: { path in
-                guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                      (attrs[.size] as? NSNumber)?.intValue ?? 0 <= Self.maxReadBytes else { return nil }
-                return FileManager.default.contents(atPath: path)
-            }) else { continue }
-            for line in data.split(separator: 10) where line.count <= Self.maxLineBytes {
-                guard let observation = try? decoder.decode(
-                    SuggestionObservation.self, from: Data(line)) else { continue }
-                let key = SuggestionStateTracker.key(provider: observation.provider,
-                                                     accountRef: observation.accountRef,
-                                                     windowKey: observation.windowKey)
-                if last[key].map({ $0.at < observation.at }) ?? true { last[key] = observation }
-            }
+        guard let observations = try? decoder.decode([SuggestionObservation].self, from: data) else { return }
+        for observation in observations.prefix(Self.maxSnapshotKeys) {
+            let key = SuggestionStateTracker.key(provider: observation.provider,
+                                                 accountRef: observation.accountRef,
+                                                 windowKey: observation.windowKey)
+            last[key] = observation
         }
     }
 
-    private func appendLines<T: Encodable>(_ values: [T], to file: URL) throws {
-        guard !values.isEmpty else { return }
+    private func limitSnapshot() {
+        let ordered = last.sorted {
+            $0.value.at == $1.value.at ? $0.key < $1.key : $0.value.at > $1.value.at
+        }
+        last = Dictionary(uniqueKeysWithValues: ordered.prefix(Self.maxSnapshotKeys).map { ($0.key, $0.value) })
+        identityKeys = identityKeys.filter { last[$0.key] != nil }
+    }
+
+    private func writeLastObservations() throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        var data = Data()
-        for value in values {
-            let line = try encoder.encode(value)
-            guard line.count <= Self.maxLineBytes else { continue }
-            data.append(line)
-            data.append(10)
+        let ordered = last.sorted {
+            $0.value.at == $1.value.at ? $0.key < $1.key : $0.value.at > $1.value.at
+        }.map(\.value)
+        var bounded = ordered
+        var data = try encoder.encode(bounded)
+        while data.count > Self.maxSnapshotBytes, !bounded.isEmpty {
+            bounded.removeLast()
+            data = try encoder.encode(bounded)
         }
-        guard !data.isEmpty else { return }
-        try fs.check(file)
-        let fd = open(file.path, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw SwitcherError.io("open suggestion log") }
-        defer { close(fd) }
-        guard fchmod(fd, 0o600) == 0 else { throw SwitcherError.io("chmod suggestion log") }
-        try data.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress else { return }
-            var offset = 0
-            while offset < bytes.count {
-                let count = write(fd, base.advanced(by: offset), bytes.count - offset)
-                guard count > 0 else { throw SwitcherError.io("append suggestion log") }
-                offset += count
-            }
-        }
-    }
-
-    private static func dayString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        try fs.write(data, to: lastObservationsFile)
+        let retained = Set(bounded.map {
+            SuggestionStateTracker.key(provider: $0.provider, accountRef: $0.accountRef,
+                                       windowKey: $0.windowKey)
+        })
+        last = last.filter { retained.contains($0.key) }
+        identityKeys = identityKeys.filter { retained.contains($0.key) }
     }
 }

@@ -16,6 +16,7 @@ final class UsageModel: ObservableObject {
     private(set) var refreshedWithoutClaudeStatus = false
     /// Drain speed per window key; `unknown` until two readings line up.
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
+    @Published private(set) var suggestionLogHints: [String: SuggestionLogSummary.Hint] = [:]
     /// Guide / All Usage, not persisted.
     @Published var segment: Segment
     /// Whether the collapsed Guide auxiliary is open; memory only, starts closed.
@@ -31,6 +32,9 @@ final class UsageModel: ObservableObject {
     /// can't overwrite revoked-provider values.
     private var refreshTask: Task<Void, Never>?
     private var suggestionStore: SuggestionStateStore?
+    private var suggestionLogReader: SuggestionLogReader?
+    private var suggestionLogTask: Task<Void, Never>?
+    private var lastSuggestionLogReadAt: Date?
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
     private var claudeBindings: [ClaudeProfileBinding]
@@ -80,7 +84,7 @@ final class UsageModel: ObservableObject {
     var pins: Set<String> { Set(settings.usagePins) }
 
     func suggestionResult(now: Date = Date()) -> SuggestionResult {
-        guard let catalog = Self.suggestionCatalog else { return .none(.noCandidates) }
+        guard let catalog = Self.suggestionCatalog else { return .none(.noCatalogMatch) }
         return SuggestionEngine.suggest(
             mode: settings.effectiveSuggestionMode(now: now),
             task: settings.suggestionTask,
@@ -93,17 +97,26 @@ final class UsageModel: ObservableObject {
     }
 
     func hasSuggestion(now: Date = Date()) -> Bool {
-        switch suggestionResult(now: now) {
+        let result = suggestionResult(now: now)
+        switch result {
         case .suggest, .neutral:
             return true
-        case .none:
+        case .none where SuggestionGuideFallback.shouldShowLegacyProposal(
+            for: result):
             return !UsageGuidance.proposals(usages, now: now,
                                             warnAt: Double(settings.usageWarnPercent)).isEmpty
+        case .none:
+            return false
         }
     }
 
     func suggestionModelName(for key: String) -> String? {
         Self.suggestionCatalog?.models.first { $0.key == key }?.name
+    }
+
+    func suggestionLogEffort(for usage: AccountUsage) -> String? {
+        guard let accountRef = suggestionLogReader?.accountRefKey(for: usage.accountRef) else { return nil }
+        return SuggestionLogSummary.recentEffort(for: accountRef, in: suggestionLogHints)
     }
 
     func togglePin(_ key: String) {
@@ -282,6 +295,7 @@ final class UsageModel: ObservableObject {
         }
         generation += 1
         refreshTask?.cancel()
+        suggestionLogTask?.cancel()
         suggestionStore?.invalidateBefore(generation)
         // revoked providers drop their rows now — installed ones leave a neutral
         // placeholder, absent ones disappear entirely
@@ -299,6 +313,7 @@ final class UsageModel: ObservableObject {
         guard !isDemo else { return }
         generation += 1
         refreshTask?.cancel()
+        suggestionLogTask?.cancel()
         suggestionStore?.invalidateBefore(generation)
         let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
         for old in claudeBindings where next[old.accountId] != old {
@@ -381,6 +396,7 @@ final class UsageModel: ObservableObject {
                 store.record(fresh, now: now, generation: generation)
             }
         }
+        scheduleSuggestionLogRead(now: now, generation: generation, env: env)
         // The `--cli usage` file: display-safe identity, authentication and window
         // data only — labels always email-masked, never credentials or raw emails.
         if AppModel.shared.status != nil {
@@ -398,6 +414,53 @@ final class UsageModel: ObservableObject {
             pendingRefresh = false
             refresh()
         }
+    }
+
+    private func scheduleSuggestionLogRead(now: Date, generation: Int,
+                                           env: SwitcherEnvironment) {
+        if let lastSuggestionLogReadAt,
+           now.timeIntervalSince(lastSuggestionLogReadAt) < 10 * 60 {
+            return
+        }
+        let reader = suggestionLogReader ?? SuggestionLogReader(
+            env: env, fs: SafeFS(env: env), catalog: Self.suggestionCatalog)
+        suggestionLogReader = reader
+        lastSuggestionLogReadAt = now
+        let roots = suggestionLogRoots(env: env)
+        suggestionLogTask = Task.detached(priority: .utility) { [weak self] in
+            _ = reader.read(roots: roots, now: now)
+            let hints = reader.recentSummary(now: now)
+            await MainActor.run {
+                guard let self, self.generation == generation else { return }
+                self.suggestionLogHints = hints
+            }
+        }
+    }
+
+    private func suggestionLogRoots(env: SwitcherEnvironment) -> [SuggestionLogRoot] {
+        var roots: [SuggestionLogRoot] = []
+        var seen = Set<String>()
+        func append(_ provider: UsageProvider, _ accountRef: String, _ directory: URL) {
+            let identity = "\(provider.rawValue)\u{0}\(accountRef)\u{0}\(directory.standardizedFileURL.path)"
+            guard seen.insert(identity).inserted else { return }
+            roots.append(SuggestionLogRoot(provider: provider, accountRef: accountRef,
+                                           directory: directory))
+        }
+
+        append(.claude, "cli", env.home.appendingPathComponent(".claude", isDirectory: true))
+        let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
+        for binding in claudeBindings where registeredClaudeIds.contains(binding.accountId) {
+            append(.claude, "app:\(binding.accountId)",
+                   URL(fileURLWithPath: binding.profilePath, isDirectory: true))
+        }
+
+        append(.codex, "standard", env.codexStandardHome)
+        if let codex = AppModel.codex.status {
+            for account in codex.accounts + codex.found {
+                append(.codex, account.id, URL(fileURLWithPath: account.home, isDirectory: true))
+            }
+        }
+        return roots
     }
 
     /// Pace compares each fresh ok window with the previous sample of the same window. Samples are

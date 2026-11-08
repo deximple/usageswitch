@@ -221,7 +221,8 @@ struct UsageContent: View {
                 if let line = suggestionLine(suggestion) {
                     Text(line).font(.system(size: 13)).foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if let proposal = proposals.first,
+                } else if SuggestionGuideFallback.shouldShowLegacyProposal(for: suggestion),
+                          let proposal = proposals.first,
                           let usage = model.usages.first(where: { $0.id == proposal.usageID }) {
                     proposalBlock(proposal, usage: usage, now: now)
                 }
@@ -302,8 +303,12 @@ struct UsageContent: View {
             situationText = L10n.t(.suggestionSituationRemaining,
                                    UsageText.name(of: window), UsageText.left(window))
         }
-        return L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
-                      effortName(effort))
+        let line = L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
+                          effortName(effort))
+        guard let recentEffort = model.suggestionLogEffort(for: usage) else {
+            return line
+        }
+        return line + L10n.t(.suggestionRecentEffort, effortName(recentEffort))
     }
 
     private func effortName(_ effort: String?) -> String {

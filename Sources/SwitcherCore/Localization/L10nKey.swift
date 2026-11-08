@@ -358,6 +358,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case suggestionSituationHeadroom = "suggestion.situation.headroom"
     case suggestionSituationRemaining = "suggestion.situation.remaining"
     case suggestionLine = "suggestion.line"
+    case suggestionRecentEffort = "suggestion.recentEffort"
     case suggestionEffortNone = "suggestion.effort.none"
     case suggestionEffortMinimal = "suggestion.effort.minimal"
     case suggestionEffortLow = "suggestion.effort.low"
