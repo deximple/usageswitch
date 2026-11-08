@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.3 — Cursor sign-in guidance, corrected
+
+- 2.1.2's `cursor-agent status` renewal is removed. On the owner Mac it never renewed an
+  expired cursor-agent token, so it only ran a process every 10 minutes for nothing.
+- An expired Cursor sign-in again says `cursor-agent login`. A browser `cursor-agent login`
+  session lasts about 60 days; an API-key sign-in lasts about an hour.
+- Cursor's Connect dialog keeps its own text, which says what Cursor reads and sends.
+
 ## 2.1.2 — Cursor stays readable
 
 - When the cursor-agent sign-in has expired, UsageSwitch runs `cursor-agent status` at most

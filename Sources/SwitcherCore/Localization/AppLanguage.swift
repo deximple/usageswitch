@@ -129,24 +129,16 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var geminiTokenRefreshAllowed: Bool {
         (usageConnections ?? []).contains("gemini.tokenRefresh")
     }
-    /// Granted only when Cursor was enabled under the alert text that discloses
-    /// the throttled `cursor-agent status` run. Cursor's own enable flag stays its SSOT.
-    public var cursorCLIRenewalAllowed: Bool {
-        (usageConnections ?? []).contains("cursor.cliRenewal")
-    }
 
     /// The persisted `usageConnections` value for a consent set. Gemini's refresh
     /// opt-in rides along as a non-provider extra entry, so unrelated provider
     /// toggles must round-trip it through here or they silently drop it.
     public static func usageConnectionsValue(providers: Set<UsageProvider>,
-                                             geminiTokenRefresh: Bool,
-                                             cursorEnabled: Bool = false,
-                                             cursorCLIRenewal: Bool = false) -> [String]? {
+                                             geminiTokenRefresh: Bool) -> [String]? {
         var values = providers.map(\.rawValue)
         if geminiTokenRefresh, providers.contains(.gemini) {
             values.append("gemini.tokenRefresh")
         }
-        if cursorCLIRenewal, cursorEnabled { values.append("cursor.cliRenewal") }
         return values.isEmpty ? nil : values.sorted()
     }
     public var effectiveUsagePins: [String] {

@@ -50,7 +50,6 @@ final class UsageModel: ObservableObject {
     private var alertedKeys: Set<String> = []
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
-    private let cursorRenewal = CursorCLIRenewalThrottle()
     private let geminiClientFinder = GeminiOAuthClientFinder()
     private let antigravityScreenCache = AntigravityUsageScreenCache()
 
@@ -351,8 +350,6 @@ final class UsageModel: ObservableObject {
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
         let geminiRefreshAllowed = settings.geminiTokenRefreshAllowed
-        let cursorCLIRenewalAllowed = settings.cursorCLIRenewalAllowed
-        let cursorRenewal = self.cursorRenewal
         let antigravityTokenCache = self.antigravityTokenCache
         let geminiTokenCache = self.geminiTokenCache
         let geminiClientFinder = self.geminiClientFinder
@@ -401,9 +398,7 @@ final class UsageModel: ObservableObject {
                             clientVersion: version).collect()
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
-                            http: http, home: env.home,
-                            renewAllowed: cursorCLIRenewalAllowed,
-                            cli: installation.cli, renewal: cursorRenewal).collect()
+                            http: http, home: env.home).collect()
                     case .grok:
                         return GrokUsageCollector(enabled: true, http: transport,
                             credentials: credentials, home: env.home,

@@ -414,7 +414,7 @@ extension Strings {
         .uiSettingShowUsage: "在菜单栏显示用量",
         .uiSettingCursorUsage: "Cursor 用量…",
         .usageCursorAlertTitle: "开启 Cursor 用量？",
-        .usageCursorAlertBody: "UsageSwitch 会从钥匙串或 ~/.cursor/auth.json 读取 Cursor 登录信息（macOS 可能会询问一次），并在每次刷新时向 Cursor API 发送一次请求。令牌不会被保存。 如果 cursor-agent 登录已过期，UsageSwitch 最多每 10 分钟运行一次 `cursor-agent status`，让 cursor-agent 自行续期登录。",
+        .usageCursorAlertBody: "UsageSwitch 会从钥匙串或 ~/.cursor/auth.json 读取 Cursor 登录信息（macOS 可能会询问一次），并在每次刷新时向 Cursor API 发送一次请求。令牌不会被保存。",
         .usageCursorAlertOn: "开启",
         .usageRefreshHelp: "立即重新读取用量",
         .usageRunsOut: "按此速度 %@ 后耗尽",
