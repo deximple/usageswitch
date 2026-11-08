@@ -24,6 +24,8 @@ final class UsageModel: ObservableObject {
 
     private let settings: SwitcherModel
     private var generation = 0
+    private var abandonedRefreshes = 0
+    private var abandonedRefreshGenerations: Set<Int> = []
     private var pendingRefresh = false
     /// The in-flight refresh; a consent change cancels it so superseded work
     /// can't overwrite revoked-provider values.
@@ -109,14 +111,21 @@ final class UsageModel: ObservableObject {
 
     // MARK: - Refreshing
 
+    private func restartStalledRefreshIfAllowed() -> Bool {
+        guard UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: refreshStartedAt, now: Date(), abandoned: abandonedRefreshes) else { return false }
+        abandonedRefreshes += 1
+        abandonedRefreshGenerations.insert(generation)
+        refresh()
+        return true
+    }
+
     /// A tick is not a manual refresh: it waits out a busy Codex tab and fires on the interval or
     /// when a window reset since the last read began.
     private func tickNow() {
         guard !isDemo else { return }
         if isRefreshing {
-            if UsageRefreshPolicy.isRefreshStalled(startedAt: refreshStartedAt, now: Date()) {
-                refresh()
-            }
+            _ = restartStalledRefreshIfAllowed()
             return
         }
         guard !AppModel.codex.isBusy else { return }
@@ -216,9 +225,7 @@ final class UsageModel: ObservableObject {
     func requestRefresh() {
         guard !isDemo else { return }
         if isRefreshing {
-            if UsageRefreshPolicy.isRefreshStalled(startedAt: refreshStartedAt, now: Date()) {
-                refresh()
-            } else {
+            if !restartStalledRefreshIfAllowed() {
                 pendingRefresh = true
             }
         } else {
@@ -322,7 +329,12 @@ final class UsageModel: ObservableObject {
 
     private func finish(_ fresh: [AccountUsage], installed: [UsageInstallation],
                         generation: Int, env: SwitcherEnvironment) {
-        guard generation == self.generation else { return }
+        guard generation == self.generation else {
+            if abandonedRefreshGenerations.remove(generation) != nil {
+                abandonedRefreshes = max(0, abandonedRefreshes - 1)
+            }
+            return
+        }
         let now = Date()
         installations = installed
         // Same-login subscription readings keep their previous windows on failure; every other

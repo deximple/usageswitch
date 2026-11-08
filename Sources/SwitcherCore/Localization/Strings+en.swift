@@ -70,6 +70,7 @@ extension Strings {
         .reasonWrongAccount: "Started as a different account (accountId=%1$@…, orgId=%2$@…)",
         .reasonCookieMetaMissing: "Cookies meta.version missing",
         .reasonRelauncherSuspendFailed: "Couldn't pause LaunchAgent %1$@: %2$@",
+        .reasonRelauncherUnverified: "LaunchAgent %@ didn't respond, so UsageSwitch couldn't check whether it relaunches Claude. Switching was stopped so Claude isn't reopened mid-switch.",
         .reasonCookiesMissing: "Claude's cookie file is missing",
         .reasonFileMissing: "%@ is missing",
         .reasonHashMismatch: "%@ hash mismatch",

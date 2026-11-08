@@ -70,6 +70,7 @@ extension Strings {
         .reasonWrongAccount: "以其他账户身份启动（accountId=%1$@…，orgId=%2$@…）",
         .reasonCookieMetaMissing: "缺少 Cookies meta.version",
         .reasonRelauncherSuspendFailed: "无法暂停 LaunchAgent %1$@：%2$@",
+        .reasonRelauncherUnverified: "LaunchAgent %@ 未响应，UsageSwitch 无法确认它是否会重新启动 Claude。为避免 Claude 在切换期间重新打开，已停止切换。",
         .reasonCookiesMissing: "缺少 Claude 的 Cookie 文件",
         .reasonFileMissing: "缺少 %@",
         .reasonHashMismatch: "%@ 哈希值不匹配",

@@ -76,6 +76,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case reasonWrongAccount = "reason.wrongAccount"
     case reasonCookieMetaMissing = "reason.cookieMetaMissing"
     case reasonRelauncherSuspendFailed = "reason.relauncherSuspendFailed"
+    case reasonRelauncherUnverified = "reason.relauncherUnverified"
     case reasonCookiesMissing = "reason.cookiesMissing"
     case reasonFileMissing = "reason.fileMissing"
     case reasonHashMismatch = "reason.hashMismatch"

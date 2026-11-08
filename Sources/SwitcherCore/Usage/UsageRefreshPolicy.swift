@@ -5,6 +5,13 @@ import Foundation
 /// or a failed read would spawn the vendor tools forever.
 public enum UsageRefreshPolicy {
     public static let stallLimit: TimeInterval = 600
+    public static let maxAbandonedRefreshes = 2
+
+    public static func shouldRestartStalledRefresh(startedAt: Date?, now: Date,
+                                                    abandoned: Int) -> Bool {
+        isRefreshStalled(startedAt: startedAt, now: now)
+            && abandoned < maxAbandonedRefreshes
+    }
 
     /// Refresh when the saved Claude registry changes, or when status arrives after an
     /// earlier usage read started without it.

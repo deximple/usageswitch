@@ -201,6 +201,18 @@ struct UsageRefreshPolicyTests {
         #expect(UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(601)))
     }
 
+    @Test("watchdog restarts stop at the abandoned refresh cap")
+    func stalledRefreshRestartCap() {
+        #expect(UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 0))
+        #expect(UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 1))
+        #expect(!UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 2))
+        #expect(!UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(599), abandoned: 0))
+    }
+
     func usage(resetsAt: Date?) -> AccountUsage {
         AccountUsage(id: "codex:a", provider: .codex, accountRef: "a", label: "A", plan: nil,
                      windows: [UsageWindow(durationMinutes: 300, usedPercent: 50, resetsAt: resetsAt)],

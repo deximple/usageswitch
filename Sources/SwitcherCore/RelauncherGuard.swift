@@ -23,24 +23,49 @@ public struct RelauncherGuard: Sendable {
     }
 
     public func discover() -> [Relauncher] {
+        scan().relaunchers
+    }
+
+    func scan() -> (relaunchers: [Relauncher], unverified: [String]) {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: env.launchAgentsDir.path) else { return [] }
-        return names.sorted().filter { $0.hasSuffix(".plist") }.compactMap { name in
+        guard let names = try? fm.contentsOfDirectory(atPath: env.launchAgentsDir.path) else { return ([], []) }
+        var relaunchers: [Relauncher] = []
+        var unverified: [String] = []
+        for name in names.sorted() where name.hasSuffix(".plist") {
             let url = env.launchAgentsDir.appendingPathComponent(name)
-            guard let data = reader.contents(atPath: url.path, using: { FileManager.default.contents(atPath: $0) }),
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                  let label = plist["Label"] as? String else { return nil }
+            let plistData: Data
+            switch reader.read(atPath: url.path, using: { FileManager.default.contents(atPath: $0) }) {
+            case let .data(data):
+                plistData = data
+            case .unreadable:
+                continue
+            case .timedOut:
+                unverified.append(name)
+                continue
+            }
+            guard let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+                  let label = plist["Label"] as? String else { continue }
             var args = plist["ProgramArguments"] as? [String] ?? []
             if let program = plist["Program"] as? String { args.insert(program, at: 0) }
             var text = args.joined(separator: " ")
+            var scriptTimedOut = false
             for arg in args where arg.hasPrefix("/") {
                 // Only small text scripts are inspected; binaries (NUL bytes) are skipped.
-                if let body = reader.contents(atPath: arg), !body.contains(0) {
-                    text += "\n" + String(decoding: body, as: UTF8.self)
+                switch reader.read(atPath: arg) {
+                case let .data(body):
+                    if !body.contains(0) { text += "\n" + String(decoding: body, as: UTF8.self) }
+                case .unreadable:
+                    continue
+                case .timedOut:
+                    scriptTimedOut = true
                 }
             }
-            return Self.relaunchesClaude(text) ? Relauncher(label: label, plistPath: url.path) : nil
+            if scriptTimedOut { unverified.append(name) }
+            if Self.relaunchesClaude(text) {
+                relaunchers.append(Relauncher(label: label, plistPath: url.path))
+            }
         }
+        return (relaunchers, unverified)
     }
 
     /// Lines are pre-filtered with cheap substring checks and length-capped so the regexes stay linear.
@@ -65,7 +90,11 @@ public struct RelauncherGuard: Sendable {
 
     /// Boots out every loaded relauncher; returns the ones suspended. Journal is written first.
     public func suspendAll() throws -> [Relauncher] {
-        let loaded = discover().filter(isLoaded)
+        let result = scan()
+        guard result.unverified.isEmpty else {
+            throw SwitcherError.io(L10n.t(.reasonRelauncherUnverified, result.unverified.joined(separator: ", ")))
+        }
+        let loaded = result.relaunchers.filter(isLoaded)
         guard !loaded.isEmpty else { return [] }
         let pending = (journal() + loaded).uniqued()
         try saveJournal(pending)

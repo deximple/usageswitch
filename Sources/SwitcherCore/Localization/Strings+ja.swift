@@ -70,6 +70,7 @@ extension Strings {
         .reasonWrongAccount: "別のアカウントで起動しました（accountId=%1$@…, orgId=%2$@…）",
         .reasonCookieMetaMissing: "Cookies の meta.version がありません",
         .reasonRelauncherSuspendFailed: "LaunchAgent %1$@ を一時停止できませんでした：%2$@",
+        .reasonRelauncherUnverified: "LaunchAgent %@ が応答しなかったため、Claude を再起動するか確認できませんでした。切り替え中に Claude が再び開かないよう、切り替えを中止しました。",
         .reasonCookiesMissing: "Claude の Cookie ファイルがありません",
         .reasonFileMissing: "%@ がありません",
         .reasonHashMismatch: "%@ のハッシュが一致しません",

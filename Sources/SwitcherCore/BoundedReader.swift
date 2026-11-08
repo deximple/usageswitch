@@ -1,6 +1,12 @@
 import Foundation
 
-/// Bounds filesystem reads that can stall; a read that misses the deadline is treated as unreadable.
+public enum BoundedRead: Equatable {
+    case data(Data)
+    case unreadable
+    case timedOut
+}
+
+/// Bounds potentially stalled file reads and reports timeouts separately from unreadable files.
 public final class BoundedReader: @unchecked Sendable {
     private final class ResultBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -35,15 +41,26 @@ public final class BoundedReader: @unchecked Sendable {
     }
 
     public func contents(atPath path: String) -> Data? {
-        contents(atPath: path, using: read)
+        if case let .data(data) = read(atPath: path) { return data }
+        return nil
     }
 
     public func contents(atPath path: String,
                          using read: @escaping @Sendable (String) -> Data?) -> Data? {
+        if case let .data(data) = self.read(atPath: path, using: read) { return data }
+        return nil
+    }
+
+    public func read(atPath path: String) -> BoundedRead {
+        self.read(atPath: path, using: read)
+    }
+
+    public func read(atPath path: String,
+                     using read: @escaping @Sendable (String) -> Data?) -> BoundedRead {
         lock.lock()
         guard !stalled.contains(path) else {
             lock.unlock()
-            return nil
+            return .timedOut
         }
         let readID = UUID()
         inFlight[path, default: []].insert(readID)
@@ -72,16 +89,17 @@ public final class BoundedReader: @unchecked Sendable {
             self.lock.unlock()
             semaphore.signal()
         }.start()
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+        if semaphore.wait(timeout: .now() + timeout) != .success {
             lock.lock()
-            if inFlight[path]?.contains(readID) == true {
+            let stillInFlight = inFlight[path]?.contains(readID) == true
+            if stillInFlight {
                 timedOut[path, default: []].insert(readID)
                 stalled.insert(path)
             }
             lock.unlock()
-            return nil
+            if stillInFlight { return .timedOut }
         }
-        return result.get()
+        return result.get().map(BoundedRead.data) ?? .unreadable
     }
 
     public static func readSmallText(_ path: String) -> Data? {

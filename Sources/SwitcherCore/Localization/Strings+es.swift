@@ -70,6 +70,7 @@ extension Strings {
         .reasonWrongAccount: "Se inició con otra cuenta (accountId=%1$@…, orgId=%2$@…)",
         .reasonCookieMetaMissing: "Falta meta.version en Cookies",
         .reasonRelauncherSuspendFailed: "No se pudo pausar el LaunchAgent %1$@: %2$@",
+        .reasonRelauncherUnverified: "El LaunchAgent %@ no respondió, así que UsageSwitch no pudo comprobar si vuelve a abrir Claude. Se detuvo el cambio para evitar que Claude se vuelva a abrir durante la operación.",
         .reasonCookiesMissing: "Falta el archivo de cookies de Claude",
         .reasonFileMissing: "Falta %@",
         .reasonHashMismatch: "El hash de %@ no coincide",

@@ -8,7 +8,9 @@ struct BoundedReaderTests {
     func fastRead() {
         let expected = Data("contents".utf8)
         let reader = BoundedReader { _ in expected }
+        #expect(reader.read(atPath: "result") == .data(expected))
         #expect(reader.contents(atPath: "fast") == expected)
+        #expect(reader.read(atPath: "missing", using: { _ in nil }) == .unreadable)
     }
 
     @Test("times out and caches the stalled path")
@@ -23,7 +25,7 @@ struct BoundedReaderTests {
         }
 
         let started = Date()
-        #expect(reader.contents(atPath: "stalled") == nil)
+        #expect(reader.read(atPath: "stalled") == .timedOut)
         #expect(Date().timeIntervalSince(started) < 1)
         #expect(reader.contents(atPath: "stalled") == nil)
         #expect(calls.value == 1)
