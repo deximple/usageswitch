@@ -54,13 +54,20 @@ public struct AntigravityUsageCollector: Sendable {
         }
         guard enabled else { return [] }
         let keychainRead = readKeychainRecord()
+        let legacyTokenRead: LegacyFileTokenRead?
         switch keychainRead {
         case .record(let record):
             let fingerprint = Data(SHA256.hash(data: Data(record.refreshToken.utf8)))
             tokenCache.updateAccountFingerprint(fingerprint, screenCache: screenCache)
-        case .unavailable:
-            tokenCache.updateAccountFingerprint(Data(), screenCache: screenCache)
-        case .refused, .schemaChanged:
+            legacyTokenRead = nil
+        case .missing:
+            let read = readLegacyFileToken()
+            let identity = read.accessToken.map { "file:\($0)" } ?? "none"
+            let fingerprint = Data(SHA256.hash(data: Data(identity.utf8)))
+            tokenCache.updateAccountFingerprint(fingerprint, screenCache: screenCache)
+            legacyTokenRead = read
+        case .refused, .schemaChanged, .unavailable:
+            legacyTokenRead = nil
             break
         }
         let screenResult: AntigravityScreenResult
@@ -86,7 +93,7 @@ public struct AntigravityUsageCollector: Sendable {
             screenResult = .failure(.failed(.timeout))
             screenReadAt = nil
         }
-        let apiResult = quota(keychainRead)
+        let apiResult = quota(keychainRead, legacyTokenRead: legacyTokenRead)
         switch (screenResult.state, apiResult) {
         case (.ok, .success(let apiWindows)):
             let windows = screenResult.windows.map { screenWindow in
@@ -137,6 +144,12 @@ public struct AntigravityUsageCollector: Sendable {
         let projectID: String?
     }
 
+    private struct LegacyFileTokenRead {
+        let accessToken: String?
+        let expiry: Date?
+        let failure: UsageState?
+    }
+
     private enum TokenResult {
         case token(String, projectID: String?)
         case failure(UsageState)
@@ -144,13 +157,15 @@ public struct AntigravityUsageCollector: Sendable {
 
     private enum KeychainRead {
         case record(KeychainRecord)
+        case missing
         case schemaChanged
         case refused
         case unavailable
     }
 
-    private func quota(_ keychainRead: KeychainRead) -> APIResult {
-        switch accessToken(keychainRead) {
+    private func quota(_ keychainRead: KeychainRead,
+                       legacyTokenRead: LegacyFileTokenRead?) -> APIResult {
+        switch accessToken(keychainRead, legacyTokenRead: legacyTokenRead) {
         case .failure(let state): return .failure(state)
         case .token(let token, let fallbackProject):
             let headers = [
@@ -251,6 +266,8 @@ public struct AntigravityUsageCollector: Sendable {
                 return .schemaChanged
             }
             return .record(record)
+        case .exited(44):
+            return .missing
         case .outputLimit:
             return .schemaChanged
         case .cancelled:
@@ -260,7 +277,8 @@ public struct AntigravityUsageCollector: Sendable {
         }
     }
 
-    private func accessToken(_ keychainRead: KeychainRead) -> TokenResult {
+    private func accessToken(_ keychainRead: KeychainRead,
+                             legacyTokenRead: LegacyFileTokenRead?) -> TokenResult {
         let current = now()
         switch keychainRead {
         case .record(let record):
@@ -268,12 +286,17 @@ public struct AntigravityUsageCollector: Sendable {
                 return .token(cached.accessToken, projectID: cached.projectID)
             }
             return exchange(record)
+        case .missing:
+            return fileToken(at: current, read: legacyTokenRead ?? readLegacyFileToken())
         case .schemaChanged:
             return .failure(.unavailable(.schemaChanged))
         case .refused:
             return .failure(.failed(.refused))
         case .unavailable:
-            return fileToken(at: current)
+            if let cached = tokenCache.value(at: current) {
+                return .token(cached.accessToken, projectID: cached.projectID)
+            }
+            return fileToken(at: current, read: legacyTokenRead ?? readLegacyFileToken())
         }
     }
 
@@ -311,16 +334,31 @@ public struct AntigravityUsageCollector: Sendable {
         return .token(access, projectID: record.projectID)
     }
 
-    private func fileToken(at current: Date) -> TokenResult {
+    private func readLegacyFileToken() -> LegacyFileTokenRead {
         guard let data = credentials.read(home.appendingPathComponent(
             ".gemini/jetski-standalone-oauth-token")) else {
-            return .failure(.unavailable(.noSignIn))
+            return LegacyFileTokenRead(accessToken: nil, expiry: nil,
+                                       failure: .unavailable(.noSignIn))
         }
         guard let object = UsageJSON.object(data),
               let token = object["token"] as? [String: Any],
-              let expiry = UsageJSON.expiryDate(token["expiry"]),
               let access = UsageJSON.token(token["access_token"]) else {
-            return .failure(.unavailable(.schemaChanged))
+            return LegacyFileTokenRead(accessToken: nil, expiry: nil,
+                                       failure: .unavailable(.schemaChanged))
+        }
+        guard let expiry = UsageJSON.expiryDate(token["expiry"]) else {
+            return LegacyFileTokenRead(accessToken: access, expiry: nil,
+                                       failure: .unavailable(.schemaChanged))
+        }
+        return LegacyFileTokenRead(accessToken: access, expiry: expiry, failure: nil)
+    }
+
+    private func fileToken(at current: Date, read: LegacyFileTokenRead) -> TokenResult {
+        guard let access = read.accessToken else {
+            return .failure(read.failure ?? .unavailable(.schemaChanged))
+        }
+        guard let expiry = read.expiry else {
+            return .failure(read.failure ?? .unavailable(.schemaChanged))
         }
         guard expiry > current else { return .failure(.unavailable(.noSignIn)) }
         return .token(access, projectID: nil)
