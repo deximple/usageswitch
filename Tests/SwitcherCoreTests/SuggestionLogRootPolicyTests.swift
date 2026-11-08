@@ -12,24 +12,33 @@ struct SuggestionLogRootPolicyTests {
                      authentication: authentication)
     }
 
-    @Test("Claude profile roots exclude a matching account mismatch")
-    func claudeProfileRootExcludesAccountMismatch() {
+    @Test("Claude app roots require an ok row and leave cli ungated")
+    func claudeAppRootRequiresOk() {
         let accountRef = "app:profile-id"
-        let mismatch = usage(.claude, accountRef: accountRef,
-                             state: .failed(.accountMismatch),
+        let ok = usage(.claude, accountRef: accountRef, state: .ok,
+                       readAt: Date(timeIntervalSince1970: 1))
+        let noSignIn = usage(.claude, accountRef: accountRef,
+                             state: .unavailable(.noSignIn),
                              readAt: Date(timeIntervalSince1970: 2))
-        let olderOk = usage(.claude, accountRef: accountRef, state: .ok,
-                            readAt: Date(timeIntervalSince1970: 1))
-        let otherFailure = usage(.claude, accountRef: accountRef,
-                                 state: .failed(.timeout),
-                                 readAt: Date(timeIntervalSince1970: 3))
+        let profileInvalid = usage(.claude, accountRef: accountRef,
+                                   state: .failed(.profileInvalid),
+                                   readAt: Date(timeIntervalSince1970: 3))
+        let timeout = usage(.claude, accountRef: accountRef,
+                            state: .failed(.timeout),
+                            readAt: Date(timeIntervalSince1970: 4))
 
+        #expect(SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
+                                                 usages: [ok]))
         #expect(!SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
-                                                   usages: [mismatch, olderOk]))
-        #expect(SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
-                                                 usages: [mismatch, otherFailure]))
-        #expect(SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
-                                                 usages: [olderOk]))
+                                                   usages: [noSignIn]))
+        #expect(!SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
+                                                   usages: [profileInvalid]))
+        #expect(!SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
+                                                   usages: [timeout]))
+        #expect(!SuggestionLogRootPolicy.includes(provider: .claude, accountRef: accountRef,
+                                                   usages: []))
+        #expect(SuggestionLogRootPolicy.includes(provider: .claude, accountRef: "cli",
+                                                 usages: [profileInvalid]))
     }
 
     @Test("Codex API-key rows and missing rows remain eligible")
