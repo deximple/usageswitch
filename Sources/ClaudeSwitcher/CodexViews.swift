@@ -4,7 +4,7 @@ import SwitcherCore
 // MARK: - Tabs
 
 enum AppTab: String, CaseIterable {
-    case usage, claude, codex
+    case usage, api, claude, codex
 }
 
 /// The selected tab, shared by the window and the menu. Remembered between launches, except for demo screens.
@@ -26,10 +26,9 @@ final class TabSelection: ObservableObject {
         tab = forced ?? AppTab(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .usage
     }
 
-    /// Tabs shown for the given providers: Usage always, then Claude / Codex when present. A forced
-    /// demo tab always stays visible so management fixtures keep rendering.
+    /// Usage and API are always available; Claude and Codex appear when present.
     func visibleTabs(_ providers: Set<UsageProvider>) -> [AppTab] {
-        var tabs: [AppTab] = [.usage]
+        var tabs: [AppTab] = [.usage, .api]
         if providers.contains(.claude) || forced == .claude { tabs.append(.claude) }
         if providers.contains(.codex) || forced == .codex { tabs.append(.codex) }
         return tabs
@@ -81,6 +80,7 @@ struct TabSwitcher: View {
     private func label(of tab: AppTab) -> String {
         switch tab {
         case .usage: return L10n.t(.tabUsage)
+        case .api: return L10n.t(.tabAPI)
         case .claude: return L10n.t(.tabClaude)
         case .codex: return L10n.t(.tabCodex)
         }

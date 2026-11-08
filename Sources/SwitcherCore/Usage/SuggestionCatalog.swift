@@ -68,6 +68,11 @@ public struct SuggestionCatalog: Equatable, Sendable {
         "monthlyLimitUSD", "defaultEffort", "comparativeLatency",
     ]
 
+    public static func bundled() throws(LoadError) -> SuggestionCatalog {
+        try SuggestionCatalog(facts: Data(ModelTFSnapshot.facts.utf8),
+                              tiers: Data(ModelTFSnapshot.tiers.utf8))
+    }
+
     public init(facts: Data, tiers: Data) throws(LoadError) {
         guard facts.count <= Self.sizeLimit, tiers.count <= Self.sizeLimit else {
             throw .oversized

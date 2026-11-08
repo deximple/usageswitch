@@ -76,6 +76,8 @@ treated as subscription balances.
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
 | OpenCode Go | Go usage endpoint | Opt-in; only the Go plan, not an OpenCode total |
 
+Suggestion model data is bundled as a frozen snapshot; the app does not fetch it at runtime.
+
 The six optional providers are all **off by default**. Enabling one explains that
 UsageSwitch reads that provider's local sign-in and sends read-only usage requests to a
 fixed allowlist over HTTPS — no redirects, bounded responses. Gemini may make two API
@@ -133,6 +135,11 @@ Optional-provider reads happen only after explicit opt-in and their tokens are n
 persisted or logged by the collectors; Claude sign-in snapshots are deliberately stored
 encrypted for switching. No raw HTTP or credential values appear in the UI. Full
 sources, destinations and write boundaries: [PRIVACY.md](PRIVACY.md).
+
+The API tab estimates spend only from local logs belonging to accounts marked as API-key
+accounts; all figures are estimates, not provider balances. Budgets are stored locally.
+API keys entered in the optional vault are stored in macOS Keychain and are never sent
+anywhere because no verified read-only balance endpoint is available.
 
 ## Build and contribute
 

@@ -48,6 +48,15 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var appearanceChoice: AppAppearance = .system
     @Published private(set) var usageWarnPercent = 80
     @Published private(set) var usageAlertsEnabled = true
+    @Published private(set) var suggestionMode: SuggestionMode = .balanced
+    @Published private(set) var suggestionTask = 0.5
+    @Published private(set) var suggestionQuietSignal = true
+    @Published private(set) var suggestionUrgentUntil: Date?
+    @Published private(set) var apiBudgetAnthropic: APIBudget?
+    @Published private(set) var apiBudgetOpenAI: APIBudget?
+    @Published private(set) var apiBudgetGoogle: APIBudget?
+    @Published private(set) var apiBudgetXAI: APIBudget?
+    @Published private(set) var apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy = .standard
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -84,10 +93,20 @@ final class SwitcherModel: ObservableObject {
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
         usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
+        suggestionMode = demo == nil ? settings.effectiveSuggestionMode : .balanced
+        suggestionTask = demo == nil ? settings.effectiveSuggestionTask : 0.5
+        suggestionQuietSignal = demo == nil ? settings.effectiveSuggestionQuietSignal : true
+        suggestionUrgentUntil = demo == nil ? settings.suggestionUrgentUntil : nil
+        apiBudgetAnthropic = demo == nil ? settings.apiBudgetAnthropic : nil
+        apiBudgetOpenAI = demo == nil ? settings.apiBudgetOpenAI : nil
+        apiBudgetGoogle = demo == nil ? settings.apiBudgetGoogle : nil
+        apiBudgetXAI = demo == nil ? settings.apiBudgetXAI : nil
+        apiKeyVaultAccessPolicy = demo == nil ? settings.effectiveAPIKeyVaultAccessPolicy : .standard
         status = demo
         phase = demoPhase
         steps = demoSteps
         banner = demoBanner
+        if demo == nil { expireSuggestionUrgentModeIfNeeded(now: Date()) }
         guard demo == nil else { return }
         recovering = true
         Task.detached(priority: .userInitiated) { [switcher] in
@@ -113,6 +132,8 @@ final class SwitcherModel: ObservableObject {
     }
 
     func refreshIfIdle() {
+        expireSuggestionUrgentModeIfNeeded(
+            now: Date(), snapshot: AppModel.usage.suggestionUsageSnapshot())
         if case .working = phase { return }
         refresh()
     }
@@ -462,6 +483,114 @@ final class SwitcherModel: ObservableObject {
         let before = usageWarnPercent
         usageWarnPercent = percent
         if !saveSettings({ $0.usageWarnPercent = percent }) { usageWarnPercent = before }
+    }
+
+    func setSuggestionMode(_ mode: SuggestionMode, urgentUntil: Date? = nil,
+                           snapshot: [SuggestionUsageSnapshot] = []) {
+        let beforeMode = suggestionMode
+        let beforeUntil = suggestionUrgentUntil
+        suggestionMode = mode
+        suggestionUrgentUntil = mode == .urgent
+            ? urgentUntil ?? SuggestionMode.urgentExpiry(usages: [], now: Date()) : nil
+        if !saveSettings({
+            $0.suggestionMode = self.suggestionMode
+            $0.suggestionUrgentUntil = self.suggestionUrgentUntil
+        }) {
+            suggestionMode = beforeMode
+            suggestionUrgentUntil = beforeUntil
+        } else if !isDemo, beforeMode != mode {
+            suggestionStore().recordEventAfterSettingsSave(
+                .modeChanged(from: beforeMode, to: mode, snapshot: snapshot, at: Date()),
+                succeeded: true)
+        }
+    }
+
+    func setSuggestionTask(_ task: Double, snapshot: [SuggestionUsageSnapshot] = []) {
+        guard task.isFinite else { return }
+        let before = suggestionTask
+        suggestionTask = min(max(task, 0), 1)
+        if !saveSettings({ $0.suggestionTask = self.suggestionTask }) {
+            suggestionTask = before
+        } else if !isDemo, before != suggestionTask {
+            suggestionStore().recordEventAfterSettingsSave(
+                .taskChanged(from: before, to: suggestionTask, source: .declared,
+                             snapshot: snapshot, at: Date()), succeeded: true)
+        }
+    }
+
+    private func suggestionStore() -> SuggestionStateStore {
+        SuggestionStateStore(env: switcher.env, fs: switcher.fs)
+    }
+
+    func setSuggestionQuietSignal(_ enabled: Bool) {
+        let before = suggestionQuietSignal
+        suggestionQuietSignal = enabled
+        if !saveSettings({ $0.suggestionQuietSignal = enabled }) {
+            suggestionQuietSignal = before
+        }
+    }
+
+    func apiBudget(for vendor: APIVendor) -> APIBudget? {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic
+        case .openai: apiBudgetOpenAI
+        case .google: apiBudgetGoogle
+        case .xai: apiBudgetXAI
+        }
+    }
+
+    func setAPIBudget(_ budget: APIBudget?, for vendor: APIVendor) {
+        let before = apiBudget(for: vendor)
+        assignAPIBudget(budget, to: vendor)
+        let saved = saveSettings { settings in
+            switch vendor {
+            case .anthropic: settings.apiBudgetAnthropic = budget
+            case .openai: settings.apiBudgetOpenAI = budget
+            case .google: settings.apiBudgetGoogle = budget
+            case .xai: settings.apiBudgetXAI = budget
+            }
+        }
+        if !saved { assignAPIBudget(before, to: vendor) }
+    }
+
+    func setAPIKeyVaultAccessPolicy(_ policy: APIKeyVaultAccessPolicy) {
+        let before = apiKeyVaultAccessPolicy
+        apiKeyVaultAccessPolicy = policy
+        if !saveSettings({ $0.apiKeyVaultAccessPolicy = policy }) {
+            apiKeyVaultAccessPolicy = before
+        }
+    }
+
+    private func assignAPIBudget(_ budget: APIBudget?, to vendor: APIVendor) {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic = budget
+        case .openai: apiBudgetOpenAI = budget
+        case .google: apiBudgetGoogle = budget
+        case .xai: apiBudgetXAI = budget
+        }
+    }
+
+    func effectiveSuggestionMode(now: Date) -> SuggestionMode {
+        SuggestionMode.effectiveMode(suggestionMode, urgentUntil: suggestionUrgentUntil, now: now)
+    }
+
+    private func expireSuggestionUrgentModeIfNeeded(now: Date,
+                                                    snapshot: [SuggestionUsageSnapshot] = []) {
+        guard suggestionMode == .urgent,
+              SuggestionMode.urgentHasExpired(until: suggestionUrgentUntil, now: now)
+        else { return }
+        let before = suggestionMode
+        suggestionMode = .balanced
+        suggestionUrgentUntil = nil
+        guard saveSettings({
+            $0.suggestionMode = .balanced
+            $0.suggestionUrgentUntil = nil
+        }) else { return }
+        if !isDemo, before != .balanced {
+            suggestionStore().recordEventAfterSettingsSave(
+                .modeChanged(from: before, to: .balanced, snapshot: snapshot, at: now),
+                succeeded: true)
+        }
     }
 
     func setUsageAlertsEnabled(_ on: Bool) {

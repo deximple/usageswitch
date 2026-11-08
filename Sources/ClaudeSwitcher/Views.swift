@@ -334,7 +334,7 @@ struct MainView: View {
                 switch tabs.effectiveTab(providers) {
                 case .usage:
                     VStack(spacing: 0) {
-                        UsageListHeader(model: usage)
+                        UsageListHeader(model: usage, settings: model)
                             .frame(maxWidth: 712)
                             .frame(maxWidth: .infinity)
                             .padding([.horizontal, .top], Theme.gapGroup)
@@ -348,6 +348,8 @@ struct MainView: View {
                             .padding(.horizontal, Theme.gapGroup)
                             .padding(.bottom, 12)
                     }
+                case .api:
+                    APIContent(usage: usage, settings: model)
                 case .claude:
                     if let status = model.status {
                         content(status)
@@ -490,7 +492,9 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: Theme.gapRow) {
             VStack(alignment: .leading, spacing: Theme.gapRow) {
                 TabSwitcher(selection: tabs, visibleProviders: providers).frame(maxWidth: .infinity)
-                if tabs.effectiveTab(providers) == .usage { UsageListHeader(model: usage) }
+                if tabs.effectiveTab(providers) == .usage {
+                    UsageListHeader(model: usage, settings: model)
+                }
             }
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { chromeTop = $0 }
             ScrollViewReader { proxy in
@@ -498,6 +502,7 @@ struct MenuView: View {
                     VStack(alignment: .leading, spacing: Theme.gapRow) {
                         switch tabs.effectiveTab(providers) {
                         case .usage: UsageContent(model: usage, settings: model, codex: codex, tabs: tabs, compact: true)
+                        case .api: APIContent(usage: usage, settings: model, compact: true)
                         case .claude: claudeContent
                         case .codex: CodexMenuContent(model: codex, settings: model)
                         }
