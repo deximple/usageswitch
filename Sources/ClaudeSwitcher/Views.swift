@@ -348,6 +348,8 @@ struct MainView: View {
                             .padding(.horizontal, Theme.gapGroup)
                             .padding(.bottom, 12)
                     }
+                case .api:
+                    APIContent(usage: usage, settings: model)
                 case .claude:
                     if let status = model.status {
                         content(status)
@@ -500,6 +502,7 @@ struct MenuView: View {
                     VStack(alignment: .leading, spacing: Theme.gapRow) {
                         switch tabs.effectiveTab(providers) {
                         case .usage: UsageContent(model: usage, settings: model, codex: codex, tabs: tabs, compact: true)
+                        case .api: APIContent(usage: usage, settings: model, compact: true)
                         case .claude: claudeContent
                         case .codex: CodexMenuContent(model: codex, settings: model)
                         }

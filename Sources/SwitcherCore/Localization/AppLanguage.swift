@@ -70,13 +70,21 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var suggestionQuietSignal: Bool?
     /// Expiry for a confirmed urgent mode selection.
     public var suggestionUrgentUntil: Date?
+    public var apiBudgetAnthropic: APIBudget?
+    public var apiBudgetOpenAI: APIBudget?
+    public var apiBudgetGoogle: APIBudget?
+    public var apiBudgetXAI: APIBudget?
+    public var apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy?
 
     public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil,
                 usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil, appearance: String? = nil,
                 usageWarnPercent: Int? = nil, usageAlertsEnabled: Bool? = nil,
                 usageConnections: [String]? = nil, claudeUsageProfiles: [ClaudeProfileBinding]? = nil,
                 suggestionMode: SuggestionMode? = nil, suggestionTask: Double? = nil,
-                suggestionQuietSignal: Bool? = nil, suggestionUrgentUntil: Date? = nil) {
+                suggestionQuietSignal: Bool? = nil, suggestionUrgentUntil: Date? = nil,
+                apiBudgetAnthropic: APIBudget? = nil, apiBudgetOpenAI: APIBudget? = nil,
+                apiBudgetGoogle: APIBudget? = nil, apiBudgetXAI: APIBudget? = nil,
+                apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
@@ -92,6 +100,11 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         self.suggestionTask = suggestionTask
         self.suggestionQuietSignal = suggestionQuietSignal
         self.suggestionUrgentUntil = suggestionUrgentUntil
+        self.apiBudgetAnthropic = apiBudgetAnthropic
+        self.apiBudgetOpenAI = apiBudgetOpenAI
+        self.apiBudgetGoogle = apiBudgetGoogle
+        self.apiBudgetXAI = apiBudgetXAI
+        self.apiKeyVaultAccessPolicy = apiKeyVaultAccessPolicy
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
@@ -130,6 +143,18 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         return suggestionTask
     }
     public var effectiveSuggestionQuietSignal: Bool { suggestionQuietSignal ?? true }
+    public var effectiveAPIKeyVaultAccessPolicy: APIKeyVaultAccessPolicy {
+        apiKeyVaultAccessPolicy ?? .standard
+    }
+
+    public func apiBudget(for vendor: APIVendor) -> APIBudget? {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic
+        case .openai: apiBudgetOpenAI
+        case .google: apiBudgetGoogle
+        case .xai: apiBudgetXAI
+        }
+    }
 
     /// Invalid duplicate bindings never become grants. The settings writer also
     /// enforces these constraints when creating a binding.

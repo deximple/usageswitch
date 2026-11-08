@@ -52,6 +52,11 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var suggestionTask = 0.5
     @Published private(set) var suggestionQuietSignal = true
     @Published private(set) var suggestionUrgentUntil: Date?
+    @Published private(set) var apiBudgetAnthropic: APIBudget?
+    @Published private(set) var apiBudgetOpenAI: APIBudget?
+    @Published private(set) var apiBudgetGoogle: APIBudget?
+    @Published private(set) var apiBudgetXAI: APIBudget?
+    @Published private(set) var apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy = .standard
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -92,6 +97,11 @@ final class SwitcherModel: ObservableObject {
         suggestionTask = demo == nil ? settings.effectiveSuggestionTask : 0.5
         suggestionQuietSignal = demo == nil ? settings.effectiveSuggestionQuietSignal : true
         suggestionUrgentUntil = demo == nil ? settings.suggestionUrgentUntil : nil
+        apiBudgetAnthropic = demo == nil ? settings.apiBudgetAnthropic : nil
+        apiBudgetOpenAI = demo == nil ? settings.apiBudgetOpenAI : nil
+        apiBudgetGoogle = demo == nil ? settings.apiBudgetGoogle : nil
+        apiBudgetXAI = demo == nil ? settings.apiBudgetXAI : nil
+        apiKeyVaultAccessPolicy = demo == nil ? settings.effectiveAPIKeyVaultAccessPolicy : .standard
         status = demo
         phase = demoPhase
         steps = demoSteps
@@ -517,6 +527,46 @@ final class SwitcherModel: ObservableObject {
         suggestionQuietSignal = enabled
         if !saveSettings({ $0.suggestionQuietSignal = enabled }) {
             suggestionQuietSignal = before
+        }
+    }
+
+    func apiBudget(for vendor: APIVendor) -> APIBudget? {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic
+        case .openai: apiBudgetOpenAI
+        case .google: apiBudgetGoogle
+        case .xai: apiBudgetXAI
+        }
+    }
+
+    func setAPIBudget(_ budget: APIBudget?, for vendor: APIVendor) {
+        let before = apiBudget(for: vendor)
+        assignAPIBudget(budget, to: vendor)
+        let saved = saveSettings { settings in
+            switch vendor {
+            case .anthropic: settings.apiBudgetAnthropic = budget
+            case .openai: settings.apiBudgetOpenAI = budget
+            case .google: settings.apiBudgetGoogle = budget
+            case .xai: settings.apiBudgetXAI = budget
+            }
+        }
+        if !saved { assignAPIBudget(before, to: vendor) }
+    }
+
+    func setAPIKeyVaultAccessPolicy(_ policy: APIKeyVaultAccessPolicy) {
+        let before = apiKeyVaultAccessPolicy
+        apiKeyVaultAccessPolicy = policy
+        if !saveSettings({ $0.apiKeyVaultAccessPolicy = policy }) {
+            apiKeyVaultAccessPolicy = before
+        }
+    }
+
+    private func assignAPIBudget(_ budget: APIBudget?, to vendor: APIVendor) {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic = budget
+        case .openai: apiBudgetOpenAI = budget
+        case .google: apiBudgetGoogle = budget
+        case .xai: apiBudgetXAI = budget
         }
     }
 

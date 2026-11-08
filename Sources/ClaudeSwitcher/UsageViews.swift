@@ -541,6 +541,10 @@ struct UsageContent: View {
                             compact: compact, fresh: fresh(usage, now: now),
                             pace: model.pace[UsagePriority.key(usage, window)])
             }
+            if let balance = model.apiUsageBalanceHint(for: usage, shownWindows: usage.windows, now: now) {
+                Text(L10n.t(.apiBalance, String(format: "$%.2f", balance)))
+                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+            }
             if compact, usage.windows.count > shown.count {
                 Button(L10n.t(.usageMoreLimits, usage.windows.count - shown.count)) {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)

@@ -122,6 +122,11 @@ persisted or logged by the collectors; Claude sign-in snapshots are deliberately
 encrypted for switching. No raw HTTP or credential values appear in the UI. Full
 sources, destinations and write boundaries: [PRIVACY.md](PRIVACY.md).
 
+The API tab estimates spend only from local logs belonging to accounts marked as API-key
+accounts; all figures are estimates, not provider balances. Budgets are stored locally.
+API keys entered in the optional vault are stored in macOS Keychain and are never sent
+anywhere because no verified read-only balance endpoint is available.
+
 ## Build and contribute
 
 Requires Xcode 16+ (Swift 6) on macOS 15+.

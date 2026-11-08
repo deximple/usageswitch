@@ -17,6 +17,7 @@ final class UsageModel: ObservableObject {
     /// Drain speed per window key; `unknown` until two readings line up.
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
     @Published private(set) var suggestionLogHints: [String: SuggestionLogSummary.Hint] = [:]
+    @Published private(set) var apiUsageEstimates: [APIVendor: APIUsageEstimate] = [:]
     /// Guide / All Usage, not persisted.
     @Published var segment: Segment
     /// Whether the collapsed Guide auxiliary is open; memory only, starts closed.
@@ -203,6 +204,7 @@ final class UsageModel: ObservableObject {
         suggestionLogReader = nil
         lastSuggestionLogReadAt = nil
         suggestionLogHints = [:]
+        apiUsageEstimates = [:]
         pace = [:]
         previousSamples = [:]
         alertedKeys = []
@@ -218,6 +220,39 @@ final class UsageModel: ObservableObject {
     func suggestionLogEffort(for usage: AccountUsage) -> String? {
         guard let accountRef = suggestionLogReader?.accountRefKey(for: usage.accountRef) else { return nil }
         return SuggestionLogSummary.recentEffort(for: accountRef, in: suggestionLogHints)
+    }
+
+    func apiBudgetRemaining(for vendor: APIVendor, now: Date = Date()) -> Double? {
+        guard let budget = settings.apiBudget(for: vendor),
+              let estimate = apiUsageEstimates[vendor],
+              estimate.hasAPIKeyAccounts, estimate.spendIsComplete else { return nil }
+        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now)
+    }
+
+    func apiUsageBalanceHint(for usage: AccountUsage, shownWindows: [UsageWindow],
+                             now: Date = Date()) -> Double? {
+        guard usage.state == .ok, usage.authentication == .subscription,
+              shownWindows.contains(where: { $0.usedPercent.isFinite && $0.usedPercent >= 95 }),
+              let vendor = APIVendor.matching(usage.provider),
+              let remaining = apiBudgetRemaining(for: vendor, now: now), remaining > 0 else { return nil }
+        return remaining
+    }
+
+    func subscriptionWindows(for vendor: APIVendor) -> [UsageWindow] {
+        let accounts = usages.filter {
+            $0.provider == vendor.usageProvider && $0.authentication == .subscription
+        }
+        guard !accounts.isEmpty,
+              accounts.allSatisfy({ $0.state == .ok && !$0.windows.isEmpty }) else { return [] }
+        return accounts.flatMap(\.windows)
+    }
+
+    func hasSubscriptionRoom(for vendor: APIVendor) -> Bool {
+        guard let estimate = apiUsageEstimates[vendor] else { return false }
+        return APIBudgetMath.showSubscriptionRoom(
+            dailyRateUSD: estimate.dailyRateUSD,
+            medianDailyRateUSD: estimate.medianDailyRate14DaysUSD,
+            subscriptionWindows: subscriptionWindows(for: vendor))
     }
 
     func togglePin(_ key: String) {
@@ -527,6 +562,12 @@ final class UsageModel: ObservableObject {
         suggestionLogReader = reader
         lastSuggestionLogReadAt = now
         let roots = suggestionLogRoots(env: env)
+        let apiKeyAccounts = Set(usages.compactMap { usage -> APIKeyAccountKey? in
+            guard usage.authentication == .apiKey,
+                  let key = reader.accountRefKey(for: usage.accountRef) else { return nil }
+            return APIKeyAccountKey(provider: usage.provider, accountKey: key)
+        })
+        let catalog = Self.suggestionCatalog
         let stateStore = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
         suggestionStore = stateStore
         let backgroundTask = Task.detached(priority: .utility) {
@@ -537,16 +578,21 @@ final class UsageModel: ObservableObject {
                     accountKey: record.accountRef, model: record.model, effort: record.effort)
                 _ = stateStore.recordObservedAcceptance(candidate: candidate, observedAt: observedAt)
             }
-            return reader.recentSummary(now: now)
+            let estimates = catalog.map {
+                APIUsageEstimator.estimate(records: reader.recentRecords(now: now, days: 35),
+                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now)
+            } ?? [:]
+            return (reader.recentSummary(now: now), estimates)
         }
         suggestionLogTask = Task { @MainActor [weak self] in
-            let hints = await withTaskCancellationHandler(operation: {
+            let result = await withTaskCancellationHandler(operation: {
                 await backgroundTask.value
             }, onCancel: {
                 backgroundTask.cancel()
             })
             guard let self, self.generation == generation else { return }
-            self.suggestionLogHints = hints
+            self.suggestionLogHints = result.0
+            self.apiUsageEstimates = result.1
         }
     }
 
