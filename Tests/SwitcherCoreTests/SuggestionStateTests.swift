@@ -255,4 +255,23 @@ struct SuggestionStateTests {
         #expect(!FileManager.default.fileExists(atPath:
             env.storeDir.appendingPathComponent("suggestion").path))
     }
+
+    @Test("flush preserves the minimum accepted generation")
+    func flushKeepsGenerationFloor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let store = SuggestionStateStore(env: env, fs: SafeFS(env: env))
+        store.invalidateBefore(5)
+        try store.flush()
+        store.record([usage(20, at: start)], now: start, generation: 3)
+
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        #expect(!FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("observations-2023-11-14.jsonl").path))
+        #expect(!FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("events-2023-11-14.jsonl").path))
+        #expect(!FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("last-observations.json").path))
+    }
 }

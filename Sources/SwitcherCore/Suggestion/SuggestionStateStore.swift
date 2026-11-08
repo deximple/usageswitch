@@ -302,7 +302,6 @@ public final class SuggestionStateStore: @unchecked Sendable {
         heartbeatLoaded = true
         shownState = nil
         shownLoaded = true
-        minimumGeneration = 0
     }
 
     private func appendEvent(_ event: SuggestionStateEvent, now: Date) throws {
