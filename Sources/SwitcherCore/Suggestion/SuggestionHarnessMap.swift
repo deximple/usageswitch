@@ -103,11 +103,23 @@ public struct SuggestionHarnessMap: Sendable {
     }
 
     private static func scopeMatchesModelID(_ scope: String, model: SuggestionCatalog.Model) -> Bool {
-        let trimmed = scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = modelIDScope(scope)
         let modelID = normalizedModelID(model.model)
         let scopedID = normalizedModelID(trimmed.hasPrefix("models/")
             ? String(trimmed.dropFirst("models/".count)) : trimmed)
         return !scopedID.isEmpty && scopedID == modelID
+    }
+
+    private static func modelIDScope(_ scope: String) -> String {
+        let trimmed = scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmed.hasSuffix("]"),
+              let opening = trimmed.lastIndex(of: "["),
+              trimmed.index(after: opening) < trimmed.index(before: trimmed.endIndex),
+              !trimmed[trimmed.index(after: opening)..<trimmed.index(before: trimmed.endIndex)]
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return trimmed
+        }
+        return String(trimmed[..<opening]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalizedModelID(_ value: String) -> String {

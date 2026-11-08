@@ -316,6 +316,12 @@ struct SuggestionEngineTests {
         #expect(SuggestionHarnessMap.standard.spentWindows(
             in: usage("gemini:account", provider: .gemini, windows: [equivalent]),
             for: mapped) == [equivalent])
+
+        let typed = UsageWindow(scope: "gemini-3.5-flash-lite [input]", durationMinutes: nil,
+                                usedPercent: 80, resetsAt: now.addingTimeInterval(7200))
+        let typedAccount = usage("gemini:account", provider: .gemini, windows: [typed])
+        #expect(SuggestionHarnessMap.standard.spentWindows(in: typedAccount, for: mapped) == [typed])
+        #expect(run(.balanced, catalog: catalog, usages: [typedAccount]) == .none(.excluded))
     }
 
     @Test("Cursor and Devin 2-bundle rows are never scored")
