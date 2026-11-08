@@ -15,6 +15,7 @@ enum UsageColors {
 /// control stays reachable no matter how long the account list grows.
 struct UsageListHeader: View {
     @ObservedObject var model: UsageModel
+    @ObservedObject var settings: SwitcherModel
 
     var body: some View {
         HStack {
@@ -26,6 +27,10 @@ struct UsageListHeader: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(L10n.t(.usageSegGuide))
+                    if settings.suggestionQuietSignal && model.hasSuggestion() {
+                        Circle().fill(Theme.active).frame(width: 5, height: 5)
+                            .accessibilityLabel(Text(L10n.t(.suggestionAvailable)))
+                    }
                     Image(systemName: model.guideExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .accessibilityHidden(true)
@@ -79,6 +84,7 @@ struct UsageContent: View {
     @ObservedObject var settings: SwitcherModel
     @ObservedObject var codex: CodexModel
     @ObservedObject var tabs: TabSelection
+    @State private var confirmingUrgentMode = false
     var compact = false
 
     var body: some View {
@@ -91,6 +97,16 @@ struct UsageContent: View {
                     allUsage(now: context.date)
                 }
             }
+        }
+        .alert(L10n.t(.suggestionUrgentTitle), isPresented: $confirmingUrgentMode) {
+            Button(L10n.t(.uiCancel), role: .cancel) {}
+            Button(L10n.t(.suggestionUrgentConfirm)) {
+                settings.setSuggestionMode(
+                    .urgent,
+                    urgentUntil: SuggestionMode.urgentExpiry(usages: model.usages, now: Date()))
+            }
+        } message: {
+            Text(L10n.t(.suggestionUrgentMessage))
         }
     }
 
@@ -186,10 +202,12 @@ struct UsageContent: View {
 
     @ViewBuilder
     private func guide(now: Date) -> some View {
+        let suggestion = model.suggestionResult(now: now)
         let proposals = UsageGuidance.proposals(model.usages, now: now,
                                                 warnAt: Double(settings.usageWarnPercent))
         let items = attention(now: now)
         VStack(alignment: .leading, spacing: Theme.gapRow) {
+            suggestionControls
             if model.usages.isEmpty && model.isRefreshing {
                 HStack(spacing: 8) {
                     ProgressView().scaleEffect(0.7)
@@ -200,8 +218,11 @@ struct UsageContent: View {
                     Text(item.text).font(.system(size: 12))
                         .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
                 }
-                if let proposal = proposals.first,
-                   let usage = model.usages.first(where: { $0.id == proposal.usageID }) {
+                if let line = suggestionLine(suggestion) {
+                    Text(line).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let proposal = proposals.first,
+                          let usage = model.usages.first(where: { $0.id == proposal.usageID }) {
                     proposalBlock(proposal, usage: usage, now: now)
                 }
                 claudeRow(now: now)
@@ -209,6 +230,93 @@ struct UsageContent: View {
                     Text(L10n.t(.usageGuideNone)).font(Theme.body).foregroundStyle(Theme.inkMuted)
                 }
             }
+        }
+    }
+
+    private var suggestionControls: some View {
+        VStack(alignment: .leading, spacing: Theme.gapTight) {
+            Picker(L10n.t(.suggestionModeLabel), selection: Binding(
+                get: { settings.effectiveSuggestionMode(now: Date()) },
+                set: { mode in
+                    if mode == .urgent {
+                        confirmingUrgentMode = true
+                    } else {
+                        settings.setSuggestionMode(mode)
+                    }
+                })) {
+                    ForEach(SuggestionMode.allCases, id: \.self) { mode in
+                        Text(modeName(mode)).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel(Text(L10n.t(.suggestionModeLabel)))
+            HStack(spacing: 8) {
+                Text(L10n.t(.suggestionTaskSimple))
+                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                Slider(value: Binding(
+                    get: { settings.suggestionTask },
+                    set: { settings.setSuggestionTask($0) }), in: 0...1)
+                    .accessibilityLabel(Text(L10n.t(.suggestionTaskLabel)))
+                Text(L10n.t(.suggestionTaskReasoning))
+                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+            }
+        }
+    }
+
+    private func modeName(_ mode: SuggestionMode) -> String {
+        switch mode {
+        case .saver: L10n.t(.suggestionModeSaver)
+        case .balanced: L10n.t(.suggestionModeBalanced)
+        case .focus: L10n.t(.suggestionModeFocus)
+        case .urgent: L10n.t(.suggestionModeUrgent)
+        }
+    }
+
+    private func suggestionLine(_ result: SuggestionResult) -> String? {
+        let accountID: String
+        let modelKey: String
+        let effort: String?
+        let situation: SituationCode
+        let limitingWindowKey: String
+        switch result {
+        case .suggest(let id, _, let key, let value, let code, let window):
+            accountID = id; modelKey = key; effort = value; situation = code
+            limitingWindowKey = window
+        case .neutral(let id, _, let key, let value, let code, let window):
+            accountID = id; modelKey = key; effort = value; situation = code
+            limitingWindowKey = window
+        case .none:
+            return nil
+        }
+        guard let usage = model.usages.first(where: { $0.id == accountID }),
+              let modelName = model.suggestionModelName(for: modelKey),
+              let window = usage.windows.first(where: {
+                  UsagePriority.key(usage, $0) == limitingWindowKey
+              }) else { return nil }
+        let situationText: String
+        switch situation {
+        case .windowHeadroom:
+            situationText = L10n.t(.suggestionSituationHeadroom,
+                                   UsageText.name(of: window), UsageText.left(window))
+        case .remainingShare:
+            situationText = L10n.t(.suggestionSituationRemaining,
+                                   UsageText.name(of: window), UsageText.left(window))
+        }
+        return L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
+                      effortName(effort))
+    }
+
+    private func effortName(_ effort: String?) -> String {
+        guard let effort else { return L10n.t(.suggestionEffortUnspecified) }
+        return switch effort {
+        case "none": L10n.t(.suggestionEffortNone)
+        case "minimal": L10n.t(.suggestionEffortMinimal)
+        case "low": L10n.t(.suggestionEffortLow)
+        case "medium": L10n.t(.suggestionEffortMedium)
+        case "high": L10n.t(.suggestionEffortHigh)
+        case "xhigh": L10n.t(.suggestionEffortXHigh)
+        case "max": L10n.t(.suggestionEffortMax)
+        default: L10n.t(.suggestionEffortUnspecified)
         }
     }
 

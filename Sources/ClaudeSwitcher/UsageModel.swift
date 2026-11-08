@@ -45,6 +45,7 @@ final class UsageModel: ObservableObject {
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
+    private static let suggestionCatalog = try? SuggestionCatalog.bundled()
 
     init(settings: SwitcherModel) {
         self.settings = settings
@@ -77,6 +78,33 @@ final class UsageModel: ObservableObject {
     }
 
     var pins: Set<String> { Set(settings.usagePins) }
+
+    func suggestionResult(now: Date = Date()) -> SuggestionResult {
+        guard let catalog = Self.suggestionCatalog else { return .none(.noCandidates) }
+        return SuggestionEngine.suggest(
+            mode: settings.effectiveSuggestionMode(now: now),
+            task: settings.suggestionTask,
+            catalog: catalog,
+            harnessMap: .standard,
+            usages: usages,
+            pace: pace,
+            now: now,
+            warnThreshold: Double(settings.usageWarnPercent))
+    }
+
+    func hasSuggestion(now: Date = Date()) -> Bool {
+        switch suggestionResult(now: now) {
+        case .suggest, .neutral:
+            return true
+        case .none:
+            return !UsageGuidance.proposals(usages, now: now,
+                                            warnAt: Double(settings.usageWarnPercent)).isEmpty
+        }
+    }
+
+    func suggestionModelName(for key: String) -> String? {
+        Self.suggestionCatalog?.models.first { $0.key == key }?.name
+    }
 
     func togglePin(_ key: String) {
         var next = Set(settings.usagePins)

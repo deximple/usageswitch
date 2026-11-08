@@ -48,6 +48,10 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var appearanceChoice: AppAppearance = .system
     @Published private(set) var usageWarnPercent = 80
     @Published private(set) var usageAlertsEnabled = true
+    @Published private(set) var suggestionMode: SuggestionMode = .balanced
+    @Published private(set) var suggestionTask = 0.5
+    @Published private(set) var suggestionQuietSignal = true
+    @Published private(set) var suggestionUrgentUntil: Date?
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -84,10 +88,15 @@ final class SwitcherModel: ObservableObject {
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
         usageAlertsEnabled = demo == nil ? settings.effectiveUsageAlertsEnabled : true
+        suggestionMode = demo == nil ? settings.effectiveSuggestionMode : .balanced
+        suggestionTask = demo == nil ? settings.effectiveSuggestionTask : 0.5
+        suggestionQuietSignal = demo == nil ? settings.effectiveSuggestionQuietSignal : true
+        suggestionUrgentUntil = demo == nil ? settings.suggestionUrgentUntil : nil
         status = demo
         phase = demoPhase
         steps = demoSteps
         banner = demoBanner
+        if demo == nil { expireSuggestionUrgentModeIfNeeded(now: Date()) }
         guard demo == nil else { return }
         recovering = true
         Task.detached(priority: .userInitiated) { [switcher] in
@@ -113,6 +122,7 @@ final class SwitcherModel: ObservableObject {
     }
 
     func refreshIfIdle() {
+        expireSuggestionUrgentModeIfNeeded(now: Date())
         if case .working = phase { return }
         refresh()
     }
@@ -462,6 +472,54 @@ final class SwitcherModel: ObservableObject {
         let before = usageWarnPercent
         usageWarnPercent = percent
         if !saveSettings({ $0.usageWarnPercent = percent }) { usageWarnPercent = before }
+    }
+
+    func setSuggestionMode(_ mode: SuggestionMode, urgentUntil: Date? = nil) {
+        let beforeMode = suggestionMode
+        let beforeUntil = suggestionUrgentUntil
+        suggestionMode = mode
+        suggestionUrgentUntil = mode == .urgent
+            ? urgentUntil ?? SuggestionMode.urgentExpiry(usages: [], now: Date()) : nil
+        if !saveSettings({
+            $0.suggestionMode = self.suggestionMode
+            $0.suggestionUrgentUntil = self.suggestionUrgentUntil
+        }) {
+            suggestionMode = beforeMode
+            suggestionUrgentUntil = beforeUntil
+        }
+    }
+
+    func setSuggestionTask(_ task: Double) {
+        guard task.isFinite else { return }
+        let before = suggestionTask
+        suggestionTask = min(max(task, 0), 1)
+        if !saveSettings({ $0.suggestionTask = self.suggestionTask }) {
+            suggestionTask = before
+        }
+    }
+
+    func setSuggestionQuietSignal(_ enabled: Bool) {
+        let before = suggestionQuietSignal
+        suggestionQuietSignal = enabled
+        if !saveSettings({ $0.suggestionQuietSignal = enabled }) {
+            suggestionQuietSignal = before
+        }
+    }
+
+    func effectiveSuggestionMode(now: Date) -> SuggestionMode {
+        SuggestionMode.effectiveMode(suggestionMode, urgentUntil: suggestionUrgentUntil, now: now)
+    }
+
+    private func expireSuggestionUrgentModeIfNeeded(now: Date) {
+        guard suggestionMode == .urgent,
+              SuggestionMode.urgentHasExpired(until: suggestionUrgentUntil, now: now)
+        else { return }
+        suggestionMode = .balanced
+        suggestionUrgentUntil = nil
+        _ = saveSettings {
+            $0.suggestionMode = .balanced
+            $0.suggestionUrgentUntil = nil
+        }
     }
 
     func setUsageAlertsEnabled(_ on: Bool) {
