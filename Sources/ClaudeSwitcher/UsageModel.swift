@@ -49,6 +49,8 @@ final class UsageModel: ObservableObject {
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
     private var alertedKeys: Set<String> = []
     private let antigravityTokenCache = AntigravityAccessTokenCache()
+    private let geminiTokenCache = GeminiAccessTokenCache()
+    private let geminiClientFinder = GeminiOAuthClientFinder()
     private let antigravityScreenCache = AntigravityUsageScreenCache()
 
     static let interval: TimeInterval = 300
@@ -347,7 +349,10 @@ final class UsageModel: ObservableObject {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
+        let geminiRefreshAllowed = settings.geminiTokenRefreshAllowed
         let antigravityTokenCache = self.antigravityTokenCache
+        let geminiTokenCache = self.geminiTokenCache
+        let geminiClientFinder = self.geminiClientFinder
         let antigravityScreenCache = self.antigravityScreenCache
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
@@ -401,7 +406,11 @@ final class UsageModel: ObservableObject {
                     case .gemini:
                         return GeminiUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner, home: env.home,
-                            environment: environment).collect()
+                            environment: environment,
+                            refreshAllowed: geminiRefreshAllowed,
+                            cli: installation.cli,
+                            clientFinder: geminiClientFinder,
+                            tokenCache: geminiTokenCache).collect()
                     case .antigravity:
                         return AntigravityUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner, tokenCache: antigravityTokenCache,
@@ -462,6 +471,7 @@ final class UsageModel: ObservableObject {
         suggestionLogTask?.cancel()
         suggestionStore?.invalidateBefore(generation)
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
+        if !enabled.contains(.gemini) { geminiTokenCache.clear() }
         // revoked providers drop their rows now — installed ones leave a neutral
         // placeholder, absent ones disappear entirely
         for provider in UsageProvider.allCases where provider.requiresConsent

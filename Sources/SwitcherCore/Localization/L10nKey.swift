@@ -162,6 +162,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case uiConnectUsageTitle = "ui.connectUsage.title"
     case uiConnectUsageBody = "ui.connectUsage.body"
     case uiConnectAntigravityBody = "ui.connectAntigravity.body"
+    case uiConnectGeminiBody = "ui.connectGemini.body"
     case uiConnectUsageEnable = "ui.connectUsage.enable"
     case uiClaudeProfileConnect = "ui.claudeProfile.connect"
     case uiClaudeProfileDisconnect = "ui.claudeProfile.disconnect"

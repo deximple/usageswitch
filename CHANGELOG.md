@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.1.1 — per-account usage, Suggestion and the API tab
+
+**Usage, per account:**
+- Saved Claude accounts can show their own usage: in Details, connect a Claude CLI profile
+  you signed in to yourself (off by default). The profile's identity and sign-in are checked
+  before and after every read; disconnecting removes the reading. "Not linked to CLI quota"
+  appears only on saved accounts without a profile.
+- Codex readings are attributed to the account that answered; a reading that names another
+  account is dropped.
+- Antigravity is a new provider: the hidden `agy /usage` screen, with the read-only quota API
+  as fallback. Gemini is listed only for the official Google Gemini CLI.
+- Cursor windows use the dashboard's pool names (Cursor Models, Other Models) next to the
+  monthly included total; existing Auto/API pins keep working.
+- Gemini can exchange its stored refresh token for an access token kept only in memory, when
+  its Connect dialog allowed it; nothing is written back.
+- An expired sign-in (Gemini, Grok, Antigravity, Cursor) names the CLI command to run; a
+  missing sign-in names the provider to sign in to; a rejected one reads as refused.
+- Status and usage no longer stall when a folder such as `~/Documents` hangs; a stuck refresh
+  restarts after 10 minutes.
+- `--cli usage` account ids are opaque; emails stay masked.
+
+**Suggestion and API tab:**
+- Guide mode dial (power saving, balanced, focus, urgent) and task selector, ranked with a
+  model catalog bundled in the app and never fetched at runtime.
+- Learning data stays in the app's store with salted account keys only (no labels, emails or
+  content), is archived and deleted after 180 days, and can be flushed in Settings.
+- API tab: per-vendor budgets, spend estimated from local API-key logs (Codex subscription
+  sessions excluded), and a Keychain key vault that asks for device-owner authentication.
+  Keys are never sent anywhere.
+
+**Fixes:**
+- UI fixtures never write to the real store.
+- Flaky Antigravity terminal tests fixed.
+
 ## 2.1.0 — environment-first usage, details and consent
 
 **Quiet List:**
@@ -18,10 +52,6 @@
   then send bounded read-only HTTPS to a fixed allowlist. Experimental — private
   endpoints may change and live-account compatibility is unverified. Cursor keeps its
   own opt-in flag.
-- Cursor windows use the dashboard's pool names (Cursor Models, Other Models) next to the
-  monthly included total; existing Auto/API pins keep working.
-- An expired local sign-in (Gemini, Grok, Antigravity, Cursor) names the CLI command to run; a missing
-  sign-in names the provider to sign in to.
 
 **Guide, pace, alerts:**
 - The optional Guide offers at most one conservative next-account candidate.

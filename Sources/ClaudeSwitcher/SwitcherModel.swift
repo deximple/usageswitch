@@ -43,6 +43,8 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var cursorUsageEnabled = false
     /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
     @Published private(set) var usageConnections: Set<UsageProvider> = []
+    /// Granted only when Gemini was connected under the refresh-disclosing text.
+    @Published private(set) var geminiTokenRefreshAllowed = false
     @Published private(set) var claudeUsageProfiles: [ClaudeProfileBinding] = []
     /// Appearance choice persisted in settings; system follows the OS live.
     @Published private(set) var appearanceChoice: AppAppearance = .system
@@ -89,6 +91,7 @@ final class SwitcherModel: ObservableObject {
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
+        geminiTokenRefreshAllowed = demo == nil && settings.geminiTokenRefreshAllowed
         claudeUsageProfiles = demo == nil ? settings.effectiveClaudeUsageProfiles : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
@@ -386,10 +389,16 @@ final class SwitcherModel: ObservableObject {
         if provider == .cursor { setCursorUsageEnabled(on); return }
         let before = usageConnections
         if on { usageConnections.insert(provider) } else { usageConnections.remove(provider) }
+        // Gemini's refresh disclosure is stored as an extra entry alongside `gemini`;
+        // revoking removes both. It is not a UsageProvider rawValue, so it can never
+        // enable a provider by itself.
         if !saveSettings({
-            $0.usageConnections = self.usageConnections.isEmpty
-                ? nil : self.usageConnections.map { $0.rawValue }.sorted()
-        }) { usageConnections = before }
+            $0.usageConnections = SwitcherSettings.usageConnectionsValue(
+                providers: self.usageConnections,
+                geminiTokenRefresh: provider == .gemini ? on : self.geminiTokenRefreshAllowed)
+        }) { usageConnections = before } else if provider == .gemini {
+            geminiTokenRefreshAllowed = on
+        }
     }
 
     func setClaudeUsageProfiles(_ bindings: [ClaudeProfileBinding]) -> Bool {

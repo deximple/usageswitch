@@ -749,3 +749,189 @@ struct SignInReasonTests {
         #expect(UsageText.cliCommand(.antigravity) == "agy")
     }
 }
+
+
+final class FakeGeminiClientFinder: GeminiOAuthClientFinding, @unchecked Sendable {
+    var client: (id: String, secret: String)?
+    init(_ client: (id: String, secret: String)? = nil) { self.client = client }
+    func client(for cli: URL?) -> (id: String, secret: String)? { client }
+}
+
+/// Synthetic OAuth client shapes, assembled at runtime so no source literal looks like a credential.
+private enum FakeGoogleClient {
+    static let host = ["apps", "googleusercontent", "com"].joined(separator: ".")
+    static func id(_ prefix: String) -> String { "\(prefix).\(host)" }
+    static let secret = ["GOCSPX", String(repeating: "x", count: 28)].joined(separator: "-")
+}
+
+@Suite("Gemini token refresh")
+struct GeminiRefreshTests {
+    private let home = URL(fileURLWithPath: "/tmp/gemini-refresh-home")
+    private let expiredFile = #"{"access_token":"old","expiry_date":1,"refresh_token":"r1"}"#
+    private let assist = #"{"cloudaicompanionProject":"p"}"#
+    private let quota = #"{"buckets":[{"modelId":"g","remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}]}"#
+    private let client = (id: FakeGoogleClient.id("1-abc"), secret: FakeGoogleClient.secret)
+
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           allowed: Bool = true,
+                           finder: GeminiOAuthClientFinding = FakeGeminiClientFinder(nil),
+                           cache: GeminiAccessTokenCache = GeminiAccessTokenCache()) -> GeminiUsageCollector {
+        GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                             runner: FakeUsageRunner(), home: home,
+                             refreshAllowed: allowed, cli: URL(fileURLWithPath: "/x/@google/gemini-cli/bin/gemini"),
+                             clientFinder: finder, tokenCache: cache,
+                             now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+
+    @Test("expired token exchanges once and reuses the cache; different refresh key re-exchanges")
+    func exchangeAndCache() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-refresh-home/.gemini/oauth_creds.json"] = expiredFile.data(using: .utf8)
+        let cache = GeminiAccessTokenCache()
+        let finder = FakeGeminiClientFinder(client)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"access_token":"new-access","expires_in":3600,"refresh_token":"ignored"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: assist.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: quota.data(using: .utf8)!),
+        ]
+        let first = collector(http, creds, finder: finder, cache: cache).collect().first
+        #expect(first?.state == .ok)
+        #expect(http.requests.count == 3)
+        #expect(http.requests[0].url.host == "oauth2.googleapis.com")
+        let form = String(decoding: http.requests[0].body ?? Data(), as: UTF8.self)
+        #expect(form.contains("grant_type=refresh_token") && form.contains("client_id=\(FakeGoogleClient.id("1-abc"))"))
+        #expect(http.requests[1].headers["Authorization"] == "Bearer new-access")
+        // second collect inside the lifetime: cached token, no new exchange
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: assist.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: quota.data(using: .utf8)!),
+        ]
+        let second = collector(http, creds, finder: finder, cache: cache).collect().first
+        #expect(second?.state == .ok && http.requests.count == 5)
+        // a different refresh token keys a different cache entry → re-exchange
+        creds.files["/tmp/gemini-refresh-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"old","expiry_date":1,"refresh_token":"r2"}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"access_token":"newer","expires_in":3600}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: assist.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: quota.data(using: .utf8)!),
+        ]
+        _ = collector(http, creds, finder: finder, cache: cache).collect()
+        #expect(http.requests.count == 8)
+    }
+
+    @Test("exchange 400 reports signInExpired; no client or no permission sends zero requests")
+    func failureModes() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-refresh-home/.gemini/oauth_creds.json"] = expiredFile.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 400, body: Data())]
+        #expect(collector(http, creds, finder: FakeGeminiClientFinder(client)).collect().first?.state
+                == .unavailable(.signInExpired))
+        #expect(http.requests.count == 1)
+        http.queue = []
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.signInExpired))
+        #expect(http.requests.count == 1)
+        #expect(collector(http, creds, allowed: false,
+                        finder: FakeGeminiClientFinder(client)).collect().first?.state
+                == .unavailable(.signInExpired))
+        #expect(http.requests.count == 1)
+    }
+}
+
+@Suite("Gemini OAuth client scan")
+struct GeminiOAuthScanTests {
+    private func package(_ files: [(name: String, body: String, sizePad: Int)]) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gcli-\(UUID().uuidString)/@google/gemini-cli")
+        let bundle = dir.appendingPathComponent("bundle")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        for f in files {
+            try (f.body + String(repeating: " ", count: f.sizePad)).write(
+                to: bundle.appendingPathComponent(f.name), atomically: true, encoding: .utf8)
+        }
+        return dir.appendingPathComponent("bin/gemini")
+    }
+
+    private let id = FakeGoogleClient.id("123-abc")
+    private let secret = FakeGoogleClient.secret
+
+    @Test("three identical copies are accepted and cached")
+    func identical() throws {
+        let body = #"var OAUTH_CLIENT_ID = "\#(id)"; var OAUTH_CLIENT_SECRET = "\#(secret)";"#
+        let cli = try package([("a.js", body, 0), ("b.js", body, 0), ("c.js", body, 0)])
+        #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
+    }
+
+    @Test("an in-place bundle rewrite is rescanned by the same finder")
+    func rescansInPlaceUpdate() throws {
+        let cli = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        let finder = GeminiOAuthClientFinder()
+        #expect(finder.client(for: cli)?.id == id)
+        let file = cli.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("bundle/a.js")
+        let other = FakeGoogleClient.id("456-def")
+        try #"OAUTH_CLIENT_ID = "\#(other)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+            .write(to: file, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)],
+                                              ofItemAtPath: file.path)
+        #expect(finder.client(for: cli)?.id == other)
+        // a replacement file with the same name, size and mtime (npm's fixed mtime) still rescans
+        let third = FakeGoogleClient.id("789-ghi")
+        let kept = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        try FileManager.default.removeItem(at: file)
+        try #"OAUTH_CLIENT_ID = "\#(third)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+            .write(to: file, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: try #require(kept)], ofItemAtPath: file.path)
+        #expect(finder.client(for: cli)?.id == third)
+    }
+
+    @Test("two different values or malformed shapes are rejected")
+    func rejects() throws {
+        let a = #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+        let b = #"OAUTH_CLIENT_ID = "\#(FakeGoogleClient.id("999-zzz"))"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+        let bad = #"OAUTH_CLIENT_ID = "not-an-id"; OAUTH_CLIENT_SECRET = "not-a-secret";"#
+        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", a, 0), ("b.js", b, 0)])) == nil)
+        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", bad, 0)])) == nil)
+        // an oversized file is skipped — the valid pair in the small file still wins
+        let cli = try package([("big.js", bad, 33 * 1024 * 1024), ("a.js", a, 0)])
+        #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
+    }
+}
+
+
+@Suite("Gemini refresh consent pair")
+struct GeminiConsentPairTests {
+    @Test("extra entry pairs with the provider; unknown values never enable providers")
+    func pair() {
+        // grant stores the pair; the extra entry alone can never enable the provider
+        let granted = SwitcherSettings(usageConnections: ["gemini", "gemini.tokenRefresh"])
+        #expect(granted.geminiTokenRefreshAllowed)
+        #expect(granted.enabledUsageProviders.contains(.gemini))
+        let extraOnly = SwitcherSettings(usageConnections: ["gemini.tokenRefresh", "bogus.x"])
+        #expect(extraOnly.geminiTokenRefreshAllowed)
+        #expect(extraOnly.enabledUsageProviders.isEmpty)
+        // revoke removes both — neither entry remains
+        let revoked = SwitcherSettings(usageConnections: nil)
+        #expect(!revoked.geminiTokenRefreshAllowed)
+        #expect(revoked.enabledUsageProviders.isEmpty)
+    }
+}
+
+
+@Suite("usageConnections persistence")
+struct UsageConnectionsValueTests {
+    @Test("gemini grant pairs the refresh entry; unrelated toggles preserve it")
+    func builder() {
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: true)
+                == ["gemini", "gemini.tokenRefresh"])
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini, .grok], geminiTokenRefresh: true)
+                == ["gemini", "gemini.tokenRefresh", "grok"])
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: true)
+                == ["gemini", "gemini.tokenRefresh"])
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [], geminiTokenRefresh: false) == nil)
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.grok], geminiTokenRefresh: true)
+                == ["grok"])
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: false)
+                == ["gemini"])
+    }
+}

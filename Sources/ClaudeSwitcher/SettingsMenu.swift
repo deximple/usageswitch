@@ -132,14 +132,14 @@ struct SettingsMenu: View {
         }
     }
 
-    /// Shared opt-in explanation for any consent-required provider. Antigravity's
-    /// specific copy describes its temporary in-memory token exchange.
+    /// Shared opt-in explanation for any consent-required provider. Antigravity's and
+    /// Gemini's specific copies describe their temporary in-memory token exchanges.
     /// Turning off never asks. Returns via `enable` only on the explicit action.
     static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()
         alert.messageText = L10n.t(.uiConnectUsageTitle, UsageText.providerName(provider))
-        alert.informativeText = provider == .antigravity
-            ? L10n.t(.uiConnectAntigravityBody)
+        alert.informativeText = provider == .antigravity ? L10n.t(.uiConnectAntigravityBody)
+            : provider == .gemini ? L10n.t(.uiConnectGeminiBody)
             : L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
         alert.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
         alert.addButton(withTitle: L10n.t(.uiCancel))
