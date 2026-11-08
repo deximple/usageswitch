@@ -18,6 +18,11 @@ struct ProviderIcon: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
+        } else if provider == .antigravity {
+            Image(systemName: UsageText.providerGlyph(provider))
+                .font(.system(size: size * 0.9, weight: .medium))
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
         }
     }
 
@@ -39,6 +44,7 @@ struct ProviderIcon: View {
         case .claude: name = "Claude.app"
         case .codex: name = "Codex.app"
         case .cursor: name = "Cursor.app"
+        case .antigravity: name = "Antigravity.app"
         case .grok, .gemini, .devin, .opencode: return nil // CLI-only for now
         }
         let folders = [URL(fileURLWithPath: "/Applications", isDirectory: true),

@@ -1,8 +1,7 @@
 import Foundation
 
-/// Gemini CLI usage adapter: bounded read of `~/.gemini/oauth_creds.json`, then the
-/// two-step loadCodeAssist -> retrieveUserQuota flow. Distinct model quotas stay
-/// distinct; only fully identical records for the same model/metric collapse.
+/// Gemini CLI usage adapter: Keychain first, then the legacy bounded auth file,
+/// followed by loadCodeAssist -> retrieveUserQuota.
 public struct GeminiUsageCollector: Sendable {
     public static let rowID = "gemini:current"
     public static let rowAccountRef = "current"
@@ -14,24 +13,72 @@ public struct GeminiUsageCollector: Sendable {
     private let enabled: Bool
     private let http: any UsageHTTPTransport
     private let credentials: any UsageCredentialReading
+    private let runner: any UsageProcessRunner
     private let home: URL
+    private let environment: [String: String]
     private let now: @Sendable () -> Date
 
     public init(enabled: Bool, http: any UsageHTTPTransport,
                 credentials: any UsageCredentialReading,
+                runner: any UsageProcessRunner,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 environment: [String: String] = [:],
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.enabled = enabled; self.http = http; self.credentials = credentials
-        self.home = home; self.now = now
+        self.runner = runner; self.home = home; self.environment = environment; self.now = now
     }
 
-    private func token() -> String? {
-        guard let data = credentials.read(home.appendingPathComponent(".gemini/oauth_creds.json")),
-              let object = UsageJSON.object(data) else { return nil }
-        guard let expiry = UsageJSON.double(object["expiry_date"]), expiry.isFinite,
-              expiry > now().timeIntervalSince1970 * 1000 else { return nil }
-        return UsageJSON.token(object["access_token"])
+    private enum CredentialResult {
+        case token(String)
+        case unavailable(UsageProblem)
+    }
+
+    private func token() -> CredentialResult {
+        guard environment["GEMINI_FORCE_ENCRYPTED_FILE_STORAGE"] != "true" else {
+            return .unavailable(.noSignIn)
+        }
+        let keychain = runner.run(UsageProcessRequest(
+            executable: URL(fileURLWithPath: "/usr/bin/security"),
+            arguments: ["find-generic-password", "-a", "main-account",
+                        "-s", "gemini-cli-oauth", "-w"],
+            environment: SystemClaudeAppControl.cleanEnvironment(from: environment),
+            workingDirectory: FileManager.default.temporaryDirectory,
+            maxOutputBytes: 64 * 1024, timeout: 3))
+        switch keychain.outcome {
+        case .exited(0):
+            let raw = keychain.lines.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty {
+                guard let data = raw.data(using: .utf8),
+                      let object = UsageJSON.object(data),
+                      object["serverName"] as? String == "main-account",
+                      let token = object["token"] as? [String: Any],
+                      let expiry = UsageJSON.double(token["expiresAt"]),
+                      let access = UsageJSON.token(token["accessToken"]) else {
+                    return .unavailable(.schemaChanged)
+                }
+                guard expiry > now().timeIntervalSince1970 * 1000 else {
+                    return .unavailable(.noSignIn)
+                }
+                return .token(access)
+            }
+        case .outputLimit:
+            return .unavailable(.schemaChanged)
+        default:
+            break
+        }
+        guard let data = credentials.read(home.appendingPathComponent(".gemini/oauth_creds.json")) else {
+            return .unavailable(.noSignIn)
+        }
+        guard let object = UsageJSON.object(data),
+              let expiry = UsageJSON.double(object["expiry_date"]),
+              let access = UsageJSON.token(object["access_token"]) else {
+            return .unavailable(.schemaChanged)
+        }
+        guard expiry > now().timeIntervalSince1970 * 1000 else {
+            return .unavailable(.noSignIn)
+        }
+        return .token(access)
     }
 
     public func collect() -> [AccountUsage] {
@@ -41,7 +88,11 @@ public struct GeminiUsageCollector: Sendable {
                          state: state, readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        guard let key = token() else { return [finish(.unavailable(.noSignIn))] }
+        let key: String
+        switch token() {
+        case .token(let access): key = access
+        case .unavailable(let problem): return [finish(.unavailable(problem))]
+        }
         let headers = ["Authorization": "Bearer \(key)", "Content-Type": "application/json"]
 
         // Step 1: project id — the opaque project string is serialized as JSON, never

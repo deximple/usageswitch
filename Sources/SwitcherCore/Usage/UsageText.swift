@@ -108,6 +108,7 @@ public enum UsageText {
         case .cursor: return "Cursor"
         case .grok: return "Grok"
         case .gemini: return "Gemini"
+        case .antigravity: return "Antigravity"
         case .devin: return "Devin"
         case .opencode: return "OpenCode"
         }
@@ -121,6 +122,7 @@ public enum UsageText {
         case .cursor: return "cube"
         case .grok: return "star"
         case .gemini: return "sparkle"
+        case .antigravity: return "sparkles"
         case .devin: return "diamond"
         case .opencode: return "circle"
         }

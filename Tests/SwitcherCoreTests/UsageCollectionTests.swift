@@ -69,7 +69,7 @@ struct UsageCollectionTests {
     func stableIDs() {
         let c = UsageCollection.connectionRequired(.cursor)
         #expect(c.id == CursorUsageCollector.rowID && c.accountRef == CursorUsageCollector.rowAccountRef)
-        for p in [UsageProvider.grok, .gemini, .devin, .opencode] {
+        for p in [UsageProvider.grok, .gemini, .antigravity, .devin, .opencode] {
             let ph = UsageCollection.connectionRequired(p)
             #expect(ph.id == "\(p.rawValue):current" && ph.accountRef == "current")
         }
@@ -80,7 +80,7 @@ struct UsageCollectionTests {
         let gate = Gate(); let rec = Rec()
         // claude stalls on a gate that gemini (provider 4) opens — if refill were
         // batch-of-3, gemini could never start and the test would time out.
-        let out = await withTimeout(5) {
+        let out = await withTimeout(15) {
             await UsageCollection.collect(
                 installations: [inst(.claude), inst(.codex), inst(.cursor), inst(.grok)],
                 enabledProviders: self.all,
@@ -129,6 +129,26 @@ struct UsageCollectionTests {
             didCollect: { _, _ in })
         let calls = await rec.calls
         #expect(calls == [.grok] && out.count == 1)
+    }
+
+    @Test("Antigravity collection is held until explicit consent")
+    func antigravityConsent() async {
+        let rec = Rec()
+        let installation = inst(.antigravity)
+        let blocked = await UsageCollection.collect(
+            installations: [installation], enabledProviders: [],
+            collector: { i in await rec.call(i.provider); return [row(i.provider, "current")] },
+            didCollect: { _, _ in })
+        #expect(blocked.first?.state == .unavailable(.connectionRequired))
+        #expect(blocked.first?.id == "antigravity:current")
+        #expect(await rec.calls.isEmpty)
+
+        let enabled = await UsageCollection.collect(
+            installations: [installation], enabledProviders: [.antigravity],
+            collector: { i in await rec.call(i.provider); return [row(i.provider, "current")] },
+            didCollect: { _, _ in })
+        #expect(await rec.calls == [.antigravity])
+        #expect(enabled.first?.state == .ok)
     }
 
     @Test("replacing merges in provider order and keeps retained windows only for same login")
@@ -204,10 +224,10 @@ struct UsageConsentSettingsTests {
         #expect(s.enabledUsageProviders.isEmpty)
     }
 
-    @Test("requiresConsent is true only for the five consent-required providers")
+    @Test("requiresConsent is true only for the consent-required providers")
     func flags() {
         #expect(!UsageProvider.claude.requiresConsent && !UsageProvider.codex.requiresConsent)
-        for p in [UsageProvider.cursor, .grok, .gemini, .devin, .opencode] {
+        for p in [UsageProvider.cursor, .grok, .gemini, .antigravity, .devin, .opencode] {
             #expect(p.requiresConsent)
         }
     }

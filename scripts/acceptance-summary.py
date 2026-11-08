@@ -7,7 +7,7 @@ plans and timestamps are never printed. With --expect, each provider's count of
 distinct rows that report at least one fresh window is compared with the expected count.
 
     UsageSwitch --cli usage | python3 scripts/acceptance-summary.py \
-        --expect claude=3,codex=2,opencode=1,gemini=1,cursor=1,devin=1,grok=1
+        --expect claude=3,codex=2,opencode=1,gemini=1,antigravity=1,cursor=1,devin=1,grok=1
 
 Exit 0 only when the snapshot is present, recent, privacy-clean and every expectation holds.
 The email scan covers every script and flags any unmasked address.
@@ -46,6 +46,8 @@ UUID_VALUE = re.compile(
     re.IGNORECASE)
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
+KNOWN_PROVIDERS = {"claude", "codex", "cursor", "grok", "gemini", "antigravity",
+                   "devin", "opencode"}
 MAX_AGE_SECONDS = 600
 
 
@@ -171,6 +173,10 @@ def summarize(doc, expect, now, out):
         failures += 1
         out("snapshot: STALE")
     for provider, count in parse_expect(expect).items():
+        if provider not in KNOWN_PROVIDERS:
+            failures += 1
+            out(f"expect {provider}: unknown provider -> FAIL")
+            continue
         got = len(usable.get(provider, ()))
         verdict = "PASS" if got >= count else "OPEN"
         failures += verdict != "PASS"
@@ -197,6 +203,9 @@ def self_test():
         lines = []
         return summarize(doc, expect, now, lines.append), lines
     assert run([row()])[0] == 0, "masked label must pass"
+    assert run([row(id="antigravity:current", provider="antigravity", label="Antigravity")],
+               expect="antigravity=1")[0] == 0, "Antigravity expectations must pass"
+    assert run([row()], expect="unknown=1")[0] == 1, "unknown provider expectations must fail"
     assert run([row(label="alex@example.com")])[0] == 1, "raw email must fail"
     assert run([row(problem="alex@example.com")])[0] == 1, "email in any field must fail"
     assert run([row(label="Account 123e4567-e89b-12d3-a456-426614174000")])[0] == 1, \
