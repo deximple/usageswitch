@@ -41,6 +41,7 @@ final class UsageModel: ObservableObject {
     private var previousSamples: [String: UsagePace.Sample] = [:]
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
     private var alertedKeys: Set<String> = []
+    private let antigravityTokenCache = AntigravityAccessTokenCache()
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
@@ -148,6 +149,7 @@ final class UsageModel: ObservableObject {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
+        let antigravityTokenCache = self.antigravityTokenCache
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
         refreshTask?.cancel()
@@ -203,7 +205,8 @@ final class UsageModel: ObservableObject {
                             environment: environment).collect()
                     case .antigravity:
                         return AntigravityUsageCollector(enabled: true, http: transport,
-                            credentials: credentials, home: env.home).collect()
+                            credentials: credentials, runner: runner, tokenCache: antigravityTokenCache,
+                            home: env.home, agy: installation.cli, environment: environment).collect()
                     case .devin:
                         return DevinUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner,
@@ -256,6 +259,7 @@ final class UsageModel: ObservableObject {
         }
         generation += 1
         refreshTask?.cancel()
+        if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
         // revoked providers drop their rows now — installed ones leave a neutral
         // placeholder, absent ones disappear entirely
         for provider in UsageProvider.allCases where provider.requiresConsent

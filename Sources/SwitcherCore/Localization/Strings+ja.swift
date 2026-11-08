@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "使用量の接続",
         .uiConnectUsageTitle: "%@ の使用量を接続",
         .uiConnectUsageBody: "UsageSwitch は %@ のサインイン情報を読み取り、HTTPS で読み取り専用の使用量リクエストを送信します。タスク実行・トークン更新・サインインは行いません。",
-        .uiConnectAntigravityBody: "UsageSwitch は Antigravity のローカルアクセストークンを読み取り、HTTPS で読み取り専用の使用量リクエストを送信します。リフレッシュトークンの使用やトークン更新、モデルタスクの実行、サインインは行いません。",
+        .uiConnectAntigravityBody: "UsageSwitch は非表示のターミナルで agy を実行して /usage を読み取ります。必要な場合は agy の gemini キーチェーンログインを使い、読み取り専用の使用量リクエスト用の一時アクセストークンをメモリ内だけで取得することがあります。macOS がキーチェーンアクセスの許可を求める場合があります。UsageSwitch は何も保存せず、サインインプロンプトやモデルリクエストを送信したり、モデルタスクを実行したりしません。",
         .uiConnectUsageEnable: "有効にする",
         .uiClaudeProfileConnect: "CLI プロファイルで使用量を接続…",
         .uiClaudeProfileDisconnect: "接続を解除",

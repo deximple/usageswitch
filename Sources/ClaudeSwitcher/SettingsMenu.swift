@@ -106,8 +106,8 @@ struct SettingsMenu: View {
         }
     }
 
-    /// Shared opt-in explanation for any consent-required provider: local sign-in
-    /// read + read-only provider HTTPS usage requests, no task/token refresh/login.
+    /// Shared opt-in explanation for any consent-required provider. Antigravity's
+    /// specific copy describes its temporary in-memory token exchange.
     /// Turning off never asks. Returns via `enable` only on the explicit action.
     static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()

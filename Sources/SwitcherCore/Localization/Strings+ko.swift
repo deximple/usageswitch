@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "사용량 연결",
         .uiConnectUsageTitle: "%@ 사용량 연결",
         .uiConnectUsageBody: "UsageSwitch가 %@의 로컬 로그인 정보를 읽고, HTTPS로 읽기 전용 사용량을 요청합니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
-        .uiConnectAntigravityBody: "UsageSwitch는 Antigravity의 로컬 액세스 토큰을 읽고 HTTPS로 읽기 전용 사용량 요청을 보냅니다. 리프레시 토큰을 사용하거나 갱신하지 않으며, 모델 작업을 실행하거나 로그인하지 않습니다.",
+        .uiConnectAntigravityBody: "UsageSwitch는 숨겨진 터미널에서 agy를 실행해 /usage를 읽습니다. 필요하면 agy의 gemini 키체인 로그인을 사용해 읽기 전용 쿼터 요청용 임시 액세스 토큰을 메모리에만 보관할 수 있습니다. macOS가 키체인 접근 허용을 요청할 수 있습니다. UsageSwitch는 아무것도 저장하지 않고 로그인 프롬프트나 모델 요청을 보내거나 모델 작업을 실행하지 않습니다.",
         .uiConnectUsageEnable: "활성화",
         .uiClaudeProfileConnect: "CLI 프로필로 사용량 연결…",
         .uiClaudeProfileDisconnect: "연결 해제",

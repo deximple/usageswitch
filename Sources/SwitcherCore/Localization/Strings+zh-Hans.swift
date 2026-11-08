@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "用量连接",
         .uiConnectUsageTitle: "连接 %@ 用量",
         .uiConnectUsageBody: "UsageSwitch 将读取 %@ 的本地登录信息并通过 HTTPS 发送只读用量请求。不会执行任务、刷新令牌或登录。",
-        .uiConnectAntigravityBody: "UsageSwitch 会读取 Antigravity 的本地访问令牌，并通过 HTTPS 发送只读用量请求。它不会使用刷新令牌、更新令牌、运行模型任务或登录。",
+        .uiConnectAntigravityBody: "UsageSwitch 会在隐藏终端中运行 agy 读取 /usage。必要时，它可能使用 agy 的 gemini 钥匙串登录信息，在内存中获取用于只读配额请求的临时访问令牌。macOS 可能会请求允许访问钥匙串。UsageSwitch 不会保存任何内容、发送登录提示或模型请求，也不会运行模型任务。",
         .uiConnectUsageEnable: "启用",
         .uiClaudeProfileConnect: "通过 CLI 配置目录连接用量…",
         .uiClaudeProfileDisconnect: "断开连接",

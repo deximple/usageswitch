@@ -1,39 +1,44 @@
 import Foundation
 
-/// Antigravity usage adapter. The endpoint and response fields are inferred from
-/// strings in the agy binary, not from a published API contract.
+/// Antigravity reads the local `/usage` screen first and supplements it with the
+/// read-only quota summary API when that API is available.
 public struct AntigravityUsageCollector: Sendable {
     public static let rowID = "antigravity:current"
     public static let rowAccountRef = "current"
     private static let assistURL = URL(string:
         "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
-    private static let modelsURL = URL(string:
-        "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")!
+    private static let quotaURL = URL(string:
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
 
     private let enabled: Bool
     private let http: any UsageHTTPTransport
     private let credentials: any UsageCredentialReading
+    private let runner: any UsageProcessRunner
+    private let screen: any AntigravityUsageScreenReading
+    private let tokenCache: AntigravityAccessTokenCache
     private let home: URL
+    private let agy: URL?
+    private let environment: [String: String]
     private let now: @Sendable () -> Date
 
     public init(enabled: Bool, http: any UsageHTTPTransport,
                 credentials: any UsageCredentialReading,
+                runner: any UsageProcessRunner = SystemUsageProcessRunner(),
+                screen: any AntigravityUsageScreenReading = AntigravityUsageScreen(),
+                tokenCache: AntigravityAccessTokenCache = AntigravityAccessTokenCache(),
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                agy: URL? = nil, environment: [String: String] = ProcessInfo.processInfo.environment,
                 now: @escaping @Sendable () -> Date = { Date() }) {
-        self.enabled = enabled; self.http = http; self.credentials = credentials
-        self.home = home; self.now = now
-    }
-
-    private func token() -> String? {
-        guard let data = credentials.read(home.appendingPathComponent(
-            ".gemini/jetski-standalone-oauth-token")),
-              let object = UsageJSON.object(data),
-              let token = object["token"] as? [String: Any],
-              let expiry = UsageJSON.expiryDate(token["expiry"]),
-              expiry > now(),
-              let accessToken = UsageJSON.token(token["access_token"])
-        else { return nil }
-        return accessToken
+        self.enabled = enabled
+        self.http = http
+        self.credentials = credentials
+        self.runner = runner
+        self.screen = screen
+        self.tokenCache = tokenCache
+        self.home = home
+        self.agy = agy
+        self.environment = environment
+        self.now = now
     }
 
     public func collect() -> [AccountUsage] {
@@ -43,97 +48,277 @@ public struct AntigravityUsageCollector: Sendable {
                          readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        guard let accessToken = token() else { return [finish(.unavailable(.noSignIn))] }
-        let headers = ["Authorization": "Bearer \(accessToken)", "Content-Type": "application/json"]
-
-        let metadata = UsageHTTPRequest(
-            url: Self.assistURL, method: .post, headers: headers,
-            body: #"{"metadata":{"ideType":"ANTIGRAVITY","pluginType":"GEMINI"}}"#.data(using: .utf8),
-            timeout: 10)
-        guard let assist = http.send(metadata) else { return [finish(.failed(.network))] }
-        switch assist.status {
-        case 200: break
-        case 401, 403: return [finish(.failed(.refused))]
-        case 429: return [finish(.failed(.rateLimited))]
-        default: return [finish(.failed(.network))]
+        let screenResult = screen.read(executable: agy, now: now())
+        let apiResult = quota()
+        switch (screenResult.state, apiResult) {
+        case (.ok, .success(let apiWindows)):
+            let windows = screenResult.windows.map { screenWindow in
+                let reset = apiWindows.first {
+                    $0.durationMinutes == screenWindow.durationMinutes
+                        && ($0.scope ?? "").caseInsensitiveCompare(screenWindow.scope ?? "") == .orderedSame
+                }?.resetsAt
+                return UsageWindow(scope: screenWindow.scope,
+                                   durationMinutes: screenWindow.durationMinutes,
+                                   usedPercent: screenWindow.usedPercent,
+                                   resetsAt: reset ?? screenWindow.resetsAt)
+            }
+            return [finish(.ok, windows)]
+        case (.ok, .failure):
+            return [finish(.ok, screenResult.windows)]
+        case (_, .success(let windows)):
+            return [finish(.ok, windows)]
+        case (_, .failure(let apiState)):
+            return [finish(Self.preferredFailure(screenResult.state, apiState))]
         }
-        guard let object = UsageJSON.object(assist.body),
-              let project = UsageJSON.plainID(object["cloudaicompanionProject"], max: 200) else {
-            return [finish(.unavailable(.schemaChanged))]
-        }
+    }
 
-        struct Body: Encodable { let project: String }
-        let modelsRequest = UsageHTTPRequest(
-            url: Self.modelsURL, method: .post, headers: headers,
-            body: try? JSONEncoder().encode(Body(project: project)), timeout: 10)
-        guard let response = http.send(modelsRequest) else { return [finish(.failed(.network))] }
+    private static func preferredFailure(_ screen: UsageState, _ api: UsageState) -> UsageState {
+        switch api {
+        case .failed(.refused), .failed(.rateLimited), .unavailable(.noSignIn):
+            return api
+        default:
+            break
+        }
+        switch screen {
+        case .failed(.timeout), .failed(.network):
+            return api
+        default:
+            return screen
+        }
+    }
+
+    private enum APIResult {
+        case success([UsageWindow])
+        case failure(UsageState)
+    }
+
+    private struct KeychainRecord {
+        let clientID: String
+        let clientSecret: String
+        let refreshToken: String
+        let tokenURL: URL
+        let projectID: String?
+    }
+
+    private enum TokenResult {
+        case token(String, projectID: String?)
+        case failure(UsageState)
+    }
+
+    private func quota() -> APIResult {
+        switch accessToken() {
+        case .failure(let state): return .failure(state)
+        case .token(let token, let fallbackProject):
+            let headers = [
+                "Authorization": "Bearer \(token)",
+                "Content-Type": "application/json",
+                "User-Agent": "antigravity",
+            ]
+            let metadata = UsageHTTPRequest(
+                url: Self.assistURL, method: .post, headers: headers,
+                body: #"{"metadata":{"ideType":"ANTIGRAVITY","pluginType":"GEMINI"}}"#.data(using: .utf8),
+                timeout: 10)
+            let assist = http.send(metadata)
+            let project = assist.flatMap { response -> String? in
+                guard response.status == 200,
+                      let object = UsageJSON.object(response.body) else { return nil }
+                return UsageJSON.plainID(object["cloudaicompanionProject"], max: 200)
+            } ?? fallbackProject
+            guard let project else {
+                return .failure(assist.flatMap(Self.apiFailure) ?? .unavailable(.schemaChanged))
+            }
+
+            struct Body: Encodable { let project: String }
+            let request = UsageHTTPRequest(
+                url: Self.quotaURL, method: .post, headers: headers,
+                body: try? JSONEncoder().encode(Body(project: project)), timeout: 10)
+            guard let response = http.send(request) else {
+                return .failure(.failed(.network))
+            }
+            guard response.status == 200 else {
+                return .failure(Self.apiFailure(response) ?? .failed(.network))
+            }
+            return Self.parseQuota(response.body)
+        }
+    }
+
+    private static func apiFailure(_ response: UsageHTTPResponse) -> UsageState? {
         switch response.status {
-        case 200: break
-        case 401, 403: return [finish(.failed(.refused))]
-        case 429: return [finish(.failed(.rateLimited))]
-        default: return [finish(.failed(.network))]
+        case 401, 403: return .failed(.refused)
+        case 429: return .failed(.rateLimited)
+        case 200: return nil
+        default: return .failed(.network)
         }
+    }
 
-        guard let entries = modelEntries(response.body), !entries.isEmpty else {
-            return [finish(.notReporting)]
+    private static func parseQuota(_ data: Data) -> APIResult {
+        guard let root = UsageJSON.object(data), let groups = root["groups"] as? [[String: Any]] else {
+            return .failure(.unavailable(.schemaChanged))
         }
-        var windowsByScope: [String: UsageWindow] = [:]
-        var order: [String] = []
-        for (dictionaryKey, model) in entries {
-            guard let rawQuota = model["quotaInfo"], !(rawQuota is NSNull) else { continue }
-            guard let scope = modelScope(model, dictionaryKey: dictionaryKey),
-                  let quota = rawQuota as? [String: Any],
-                  let remaining = UsageJSON.double(quota["remainingFraction"]),
-                  remaining.isFinite,
-                  let reset = UsageJSON.resetDateISO(quota["resetTime"])
-            else { return [finish(.unavailable(.schemaChanged))] }
-            let used = min(100, max(0, (1 - remaining) * 100))
-            let candidate = UsageWindow(scope: scope, durationMinutes: nil,
-                                        usedPercent: used, resetsAt: reset)
-            if let existing = windowsByScope[scope] {
-                guard existing.usedPercent == candidate.usedPercent,
-                      existing.resetsAt == candidate.resetsAt else {
-                    return [finish(.unavailable(.schemaChanged))]
+        var windows: [UsageWindow] = []
+        for group in groups {
+            guard let rawScope = UsageJSON.string(group["displayName"]),
+                  validAPIScope(rawScope),
+                  let buckets = group["buckets"] as? [[String: Any]] else {
+                return .failure(.unavailable(.schemaChanged))
+            }
+            for bucket in buckets {
+                guard let kind = UsageJSON.string(bucket["window"])?.lowercased() else {
+                    return .failure(.unavailable(.schemaChanged))
                 }
-                continue
+                let duration: Int
+                switch kind {
+                case "weekly": duration = 10_080
+                case "5h": duration = 300
+                default: continue
+                }
+                guard let remaining = UsageJSON.double(bucket["remainingFraction"]),
+                      (0...1).contains(remaining),
+                      let reset = UsageJSON.resetDateISO(bucket["resetTime"]) else {
+                    return .failure(.unavailable(.schemaChanged))
+                }
+                windows.append(UsageWindow(scope: rawScope, durationMinutes: duration,
+                                           usedPercent: (1 - remaining) * 100, resetsAt: reset))
             }
-            windowsByScope[scope] = candidate
-            order.append(scope)
         }
-        let windows = order.compactMap { windowsByScope[$0] }
-        return windows.isEmpty ? [finish(.notReporting)] : [finish(.ok, windows)]
+        return windows.isEmpty ? .failure(.unavailable(.schemaChanged)) : .success(windows)
     }
 
-    private func modelEntries(_ data: Data) -> [(String?, [String: Any])]? {
-        guard let object = UsageJSON.object(data), let rawModels = object["models"] else { return nil }
-        if let models = rawModels as? [String: Any] {
-            var entries: [(String?, [String: Any])] = []
-            for key in models.keys.sorted() {
-                guard let model = models[key] as? [String: Any] else { return nil }
-                entries.append((key, model))
-            }
-            return entries
+    private static func validAPIScope(_ scope: String) -> Bool {
+        (1...40).contains(scope.count) && scope.unicodeScalars.allSatisfy { scalar in
+            (65...90).contains(scalar.value) || (97...122).contains(scalar.value)
+                || (48...57).contains(scalar.value) || scalar == " " || scalar == "."
+                || scalar == "&" || scalar == "-"
         }
-        if let models = rawModels as? [[String: Any]] {
-            return models.map { (nil, $0) }
-        }
-        return nil
     }
 
-    private func modelScope(_ model: [String: Any], dictionaryKey: String?) -> String? {
-        for key in ["modelId", "id", "model"] {
-            if let value = UsageJSON.plainID(model[key], max: 128) { return value }
+    private func accessToken() -> TokenResult {
+        let current = now()
+        if let cached = tokenCache.value(at: current) {
+            return .token(cached.accessToken, projectID: cached.projectID)
         }
-        if let dictionaryKey, let value = UsageJSON.plainID(dictionaryKey, max: 128) {
-            return value
+        let keychain = runner.run(UsageProcessRequest(
+            executable: URL(fileURLWithPath: "/usr/bin/security"),
+            arguments: ["find-generic-password", "-s", "gemini", "-a", "antigravity-acp", "-w"],
+            environment: SystemClaudeAppControl.cleanEnvironment(from: environment),
+            workingDirectory: FileManager.default.temporaryDirectory,
+            maxOutputBytes: 64 * 1024, timeout: 3))
+        switch keychain.outcome {
+        case .exited(0):
+            let raw = keychain.lines.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = raw.data(using: .utf8), let record = Self.keychainRecord(data) else {
+                return .failure(.unavailable(.schemaChanged))
+            }
+            return exchange(record)
+        case .outputLimit:
+            return .failure(.unavailable(.schemaChanged))
+        case .cancelled:
+            return .failure(.failed(.refused))
+        default:
+            return fileToken(at: current)
         }
-        for key in ["displayName", "name"] {
-            guard let value = UsageJSON.string(model[key]), value.count <= 128,
-                  !value.contains("@"),
-                  value.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
-            else { continue }
-            return value
+    }
+
+    private func exchange(_ record: KeychainRecord) -> TokenResult {
+        var form = URLComponents()
+        form.queryItems = [
+            URLQueryItem(name: "grant_type", value: "refresh_token"),
+            URLQueryItem(name: "refresh_token", value: record.refreshToken),
+            URLQueryItem(name: "client_id", value: record.clientID),
+            URLQueryItem(name: "client_secret", value: record.clientSecret),
+        ]
+        guard let body = form.percentEncodedQuery?.data(using: .utf8) else {
+            return .failure(.unavailable(.schemaChanged))
         }
-        return nil
+        let request = UsageHTTPRequest(
+            url: record.tokenURL, method: .post,
+            headers: ["Content-Type": "application/x-www-form-urlencoded"],
+            body: body, timeout: 10)
+        guard let response = http.send(request) else { return .failure(.failed(.network)) }
+        switch response.status {
+        case 400, 401: return .failure(.unavailable(.noSignIn))
+        case 429: return .failure(.failed(.rateLimited))
+        case 200: break
+        default: return .failure(.failed(.network))
+        }
+        guard let object = UsageJSON.object(response.body),
+              let access = UsageJSON.token(object["access_token"]),
+              let expires = UsageJSON.double(object["expires_in"]), expires > 0 else {
+            return .failure(.unavailable(.schemaChanged))
+        }
+        let refreshedAt = now()
+        tokenCache.store(accessToken: access,
+                         validUntil: refreshedAt.addingTimeInterval(max(0, expires - 60)),
+                         projectID: record.projectID)
+        return .token(access, projectID: record.projectID)
+    }
+
+    private func fileToken(at current: Date) -> TokenResult {
+        guard let data = credentials.read(home.appendingPathComponent(
+            ".gemini/jetski-standalone-oauth-token")) else {
+            return .failure(.unavailable(.noSignIn))
+        }
+        guard let object = UsageJSON.object(data),
+              let token = object["token"] as? [String: Any],
+              let expiry = UsageJSON.expiryDate(token["expiry"]),
+              let access = UsageJSON.token(token["access_token"]) else {
+            return .failure(.unavailable(.schemaChanged))
+        }
+        guard expiry > current else { return .failure(.unavailable(.noSignIn)) }
+        tokenCache.store(accessToken: access, validUntil: expiry.addingTimeInterval(-60), projectID: nil)
+        return .token(access, projectID: nil)
+    }
+
+    private static func keychainRecord(_ data: Data) -> KeychainRecord? {
+        guard data.count <= 64 * 1024,
+              let object = UsageJSON.object(data),
+              let clientID = UsageJSON.token(object["client_id"], max: 1024),
+              let clientSecret = UsageJSON.token(object["client_secret"]),
+              let refreshToken = UsageJSON.token(object["refresh_token"]),
+              let tokenURI = UsageJSON.string(object["token_uri"]),
+              let tokenURL = URL(string: tokenURI),
+              let components = URLComponents(url: tokenURL, resolvingAgainstBaseURL: false),
+              components.scheme == "https", components.host == "oauth2.googleapis.com",
+              components.path == "/token", components.user == nil, components.password == nil,
+              components.port == nil || components.port == 443,
+              let scopes = object["scopes"] as? [String], !scopes.isEmpty,
+              scopes.count <= 32,
+              scopes.allSatisfy({ UsageJSON.token($0, max: 512) != nil }),
+              let project = UsageJSON.plainID(object["project_id"], max: 200) else { return nil }
+        return KeychainRecord(clientID: clientID, clientSecret: clientSecret,
+                              refreshToken: refreshToken, tokenURL: tokenURL, projectID: project)
+    }
+}
+
+public final class AntigravityAccessTokenCache: @unchecked Sendable {
+    struct Value: Sendable {
+        let accessToken: String
+        let validUntil: Date
+        let projectID: String?
+    }
+
+    private let lock = NSLock()
+    private var cached: Value?
+
+    public init() {}
+
+    func value(at now: Date) -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let cached, now < cached.validUntil else { return nil }
+        return cached
+    }
+
+    func store(accessToken: String, validUntil: Date, projectID: String?) {
+        lock.lock()
+        cached = Value(accessToken: accessToken, validUntil: validUntil, projectID: projectID)
+        lock.unlock()
+    }
+
+    public func clear() {
+        lock.lock()
+        cached = nil
+        lock.unlock()
     }
 }

@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "Conexiones de uso",
         .uiConnectUsageTitle: "Conectar uso de %@",
         .uiConnectUsageBody: "UsageSwitch leerá el inicio de sesión de %@ y enviará solicitudes de uso de solo lectura por HTTPS. No ejecuta tareas, actualiza tokens ni inicia sesión.",
-        .uiConnectAntigravityBody: "UsageSwitch lee el token de acceso local de Antigravity y envía solicitudes de uso de solo lectura por HTTPS. No usa el token de actualización, renueva tokens, ejecuta tareas de modelos ni inicia sesión.",
+        .uiConnectAntigravityBody: "UsageSwitch ejecuta agy en un terminal oculto para leer /usage. Si es necesario, puede usar el inicio de sesión de agy en el Llavero gemini para obtener un token temporal, solo en memoria, para una solicitud de cuota de solo lectura. macOS puede pedir permiso para acceder al Llavero. UsageSwitch no guarda nada, no envía avisos de inicio de sesión ni solicitudes de modelos, y no ejecuta tareas de modelos.",
         .uiConnectUsageEnable: "Activar",
         .uiClaudeProfileConnect: "Conectar uso mediante un perfil CLI…",
         .uiClaudeProfileDisconnect: "Desconectar",

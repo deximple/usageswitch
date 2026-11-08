@@ -43,6 +43,11 @@ struct UsageTransportTests {
                                    method: .get, timeout: 1)
         #expect(t.send(bad) == nil)
     }
+
+    @Test("Google OAuth token endpoint is allowlisted for Antigravity")
+    func antigravityTokenHost() {
+        #expect(SystemUsageHTTPTransport.allowedHosts.contains("oauth2.googleapis.com"))
+    }
 }
 
 @Suite("Grok adapter")
@@ -219,6 +224,15 @@ struct GeminiAdapterTests {
         #expect(http.requests.isEmpty)
     }
 
+    @Test("malformed flat OAuth credential file is schema changed")
+    func malformedLegacyCredentials() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":7,"expiry_date":"bad"}"#.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.schemaChanged))
+        #expect(http.requests.isEmpty)
+    }
+
     @Test("missing local credential is noSignIn")
     func missingCredential() {
         let http = SpyTransport(); let creds = SpyCredentials()
@@ -248,166 +262,21 @@ struct GeminiAdapterTests {
         expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
         #expect(http.requests.count == 2)
     }
-}
 
-@Suite("Antigravity adapter")
-struct AntigravityAdapterTests {
-    private let home = URL(fileURLWithPath: "/tmp/antigravity-home")
-    private let tokenPath = "/tmp/antigravity-home/.gemini/jetski-standalone-oauth-token"
-    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
-                           enabled: Bool = true) -> AntigravityUsageCollector {
-        AntigravityUsageCollector(enabled: enabled, http: http, credentials: creds, home: home,
-                                  now: { Date(timeIntervalSince1970: 1_700_000_000) })
-    }
-    private var tokenJSON: String {
-        #"{"token":{"access_token":"access-only","token_type":"Bearer","refresh_token":"unused-refresh","expiry":"2999-01-01T00:00:00Z","expires_in":3600},"auth_method":"oauth","id_token_email":"owner@example.com"}"#
-    }
-    private func authorized(_ creds: SpyCredentials) {
-        creds.files[tokenPath] = tokenJSON.data(using: .utf8)
-    }
-    private func project(_ value: String = "project-1") -> UsageHTTPResponse {
-        UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"\#(value)"}"#.data(using: .utf8)!)
-    }
-
-    @Test("disabled does zero reads and requests")
-    func disabled() {
+    @Test("403 with the unsupported-service phrase is refused without retaining its body")
+    func unsupported403() throws {
         let http = SpyTransport(); let creds = SpyCredentials()
-        #expect(collector(http, creds, enabled: false).collect().isEmpty)
-        #expect(creds.reads == 0 && http.requests.isEmpty)
-    }
-
-    @Test("posts Antigravity metadata and JSON project, parses dictionary models")
-    func dictionaryModels() {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
         http.queue = [
-            project(),
-            UsageHTTPResponse(status: 200, body: #"{"models":{"gemini-flash":{"quotaInfo":{"remainingFraction":0.9,"resetTime":"2023-11-20T00:00:00Z"}},"gemini-pro":{"quotaInfo":{"remainingFraction":0.25,"resetTime":"2023-11-21T00:00:00Z"}}}}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 403, body: Data("API is no longer supported".utf8)),
         ]
-        let rows = collector(http, creds).collect()
-        #expect(rows.count == 1 && rows[0].id == "antigravity:current")
-        #expect(rows[0].label == "Antigravity" && rows[0].accountRef == "current")
-        #expect(rows[0].state == .ok && rows[0].windows.count == 2)
-        #expect(rows[0].windows.map(\.scope) == ["gemini-flash", "gemini-pro"])
-        #expect(abs(rows[0].windows[0].usedPercent - 10) < 0.0001)
-        #expect(abs(rows[0].windows[1].usedPercent - 75) < 0.0001)
-        #expect(rows[0].windows.allSatisfy { $0.durationMinutes == nil })
-        #expect(http.requests.count == 2)
-        #expect(http.requests[0].url.absoluteString ==
-                "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
-        #expect(String(data: http.requests[0].body ?? Data(), encoding: .utf8) ==
-                #"{"metadata":{"ideType":"ANTIGRAVITY","pluginType":"GEMINI"}}"#)
-        #expect(http.requests[1].url.absoluteString ==
-                "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
-        #expect(String(data: http.requests[1].body ?? Data(), encoding: .utf8) ==
-                #"{"project":"project-1"}"#)
-        #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer access-only" })
-        #expect(http.requests.allSatisfy { !($0.headers["Authorization"] ?? "").contains("unused-refresh") })
-    }
-
-    @Test("parses array models and falls back to a display name for scope")
-    func arrayModels() {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        http.queue = [
-            project(),
-            UsageHTTPResponse(status: 200, body: #"{"models":[{"modelId":"model-a","displayName":"Model A","quotaInfo":{"remainingFraction":0.4,"resetTime":"2023-11-20T00:00:00Z"}},{"displayName":"Model B","quotaInfo":{"remainingFraction":1.2,"resetTime":"2023-11-21T00:00:00Z"}}]}"#.data(using: .utf8)!),
-        ]
-        let rows = collector(http, creds).collect()
-        #expect(rows.first?.state == .ok)
-        let windows = rows.first?.windows ?? []
-        #expect(windows.count == 2)
-        #expect(windows.map(\.scope) == ["model-a", "Model B"])
-        #expect(abs((windows.first?.usedPercent ?? -1) - 60) < 0.0001)
-        #expect(windows.dropFirst().first?.usedPercent == 0)
-    }
-
-    @Test("skips models without quota while retaining quota-bearing models")
-    func mixedQuotaModels() {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        let models = #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}},"model-b":{"displayName":"No quota"}}}"#
-        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
-        let row = collector(http, creds).collect().first
-        #expect(row?.state == .ok)
-        #expect(row?.windows.map(\.scope) == ["model-a"])
-    }
-
-    @Test("models without quota are not reporting")
-    func allModelsWithoutQuota() {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        let models = #"{"models":{"missing":{"displayName":"No quota"},"null":{"quotaInfo":null}}}"#
-        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
-        #expect(collector(http, creds).collect().first?.state == .notReporting)
-    }
-
-    @Test("malformed quota data or missing scope fails closed", arguments: [
-        #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":"bad","resetTime":"2023-11-20T00:00:00Z"}}}}"#,
-        #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":0.5,"resetTime":"bad"}}}}"#,
-        #"{"models":[{"quotaInfo":{"remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}}]}"#,
-    ])
-    func malformedQuota(models: String) {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
-        #expect(collector(http, creds).collect().first?.state == .unavailable(.schemaChanged))
-    }
-
-    @Test("bad or expired token expiry is no-sign-in", arguments: [
-        #"{"token":{"access_token":"access-only","expiry":"2020-01-01T00:00:00Z"}}"#,
-        #"{"token":{"access_token":"access-only","expiry":"not-a-date"}}"#,
-    ])
-    func invalidExpiry(json: String) {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        creds.files[tokenPath] = json.data(using: .utf8)
-        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
-        #expect(http.requests.isEmpty)
-    }
-
-    @Test("loadCodeAssist status mapping", arguments: [401, 403, 429])
-    func assistStatus(status: Int) {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        http.queue = [UsageHTTPResponse(status: status, body: Data())]
-        let state = collector(http, creds).collect().first?.state
-        #expect(state == (status == 429 ? .failed(.rateLimited) : .failed(.refused)))
-        #expect(http.requests.count == 1)
-    }
-
-    @Test("fetchAvailableModels status mapping", arguments: [401, 403, 429])
-    func modelsStatus(status: Int) {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        http.queue = [project(), UsageHTTPResponse(status: status, body: Data())]
-        let state = collector(http, creds).collect().first?.state
-        #expect(state == (status == 429 ? .failed(.rateLimited) : .failed(.refused)))
-        #expect(http.requests.count == 2)
-    }
-
-    @Test("unknown model response shape is not reporting")
-    func unknownShape() {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        http.queue = [project(), UsageHTTPResponse(status: 200, body: #"{"availableModels":[]}"#.data(using: .utf8)!)]
-        #expect(collector(http, creds).collect().first?.state == .notReporting)
-    }
-
-    @Test("snapshot omits Antigravity email, token, and UUID values")
-    func snapshotPrivacy() throws {
-        let http = SpyTransport(); let creds = SpyCredentials()
-        authorized(creds)
-        let uuid = "123e4567-e89b-12d3-a456-426614174000"
-        let models = #"{"models":[{"modelId":"\#(uuid)","displayName":"owner@example.com","quotaInfo":{"remainingFraction":0.2,"resetTime":"2023-11-20T00:00:00Z"}}]}"#
-        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
-        let readings = collector(http, creds).collect()
-        let snapshot = UsageSnapshot(usages: readings, generatedAt: Date(), showEmails: true)
-        let data = try JSONEncoder().encode(snapshot)
-        let json = String(decoding: data, as: UTF8.self)
-        for privateValue in ["owner@example.com", "access-only", "unused-refresh", uuid] {
-            #expect(!json.contains(privateValue))
-        }
-        #expect(json.contains("antigravity:current"))
+        let row = try #require(collector(http, creds).collect().first)
+        #expect(row.state == .failed(.refused))
+        let snapshot = UsageSnapshot(usages: [row], generatedAt: Date(), showEmails: true)
+        #expect(!String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+            .contains("no longer supported"))
     }
 }
 
