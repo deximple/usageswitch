@@ -75,6 +75,8 @@ treated as subscription balances.
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
 | OpenCode Go | Go usage endpoint | Opt-in; only the Go plan, not an OpenCode total |
 
+Suggestion model data is bundled as a frozen snapshot; the app does not fetch it at runtime.
+
 The five optional providers are all **off by default**. Enabling one explains that
 UsageSwitch reads that provider's local sign-in and sends read-only usage requests to a
 fixed allowlist over HTTPS — no redirects, bounded responses, one request per refresh

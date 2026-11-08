@@ -18,6 +18,8 @@ Saved Claude Desktop accounts have a separate, default-off **Connect usage via C
 | Devin | Devin CLI credentials and a local CLI version probe | `server.codeium.com` |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` |
 
+Suggestion model data is bundled with the app as a frozen snapshot; it is not fetched at runtime.
+
 Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Gemini can make two HTTPS requests per successful refresh; the others make one. Cursor displays the unscoped total and any valid `Auto`/`API` fields from its current-period usage response as scoped windows, using neutral wire names; it does not request plan details. On the verified account, the unscoped total matched the dashboard's “Cursor Models” pool and did not include “Other Models,” so it may not cover the whole plan. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
 
 These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Live-account compatibility for the newly added adapters has not been verified in this development branch. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.

@@ -54,6 +54,14 @@ struct SuggestionCatalogTests {
         #expect(entry.evidence.first?.checkedAt == date)
     }
 
+    @Test("bundled model data validates at its pinned source commit")
+    func bundledSnapshot() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        #expect(ModelTFSnapshot.commit == "77a387ca5875fe956c01a42f7eadb17902b95f50")
+        #expect(!catalog.models.isEmpty)
+        #expect(!catalog.axes.isEmpty)
+    }
+
     @Test("unsupported versions and mismatched source dates fail closed")
     func versionsAndDates() {
         #expect(throws: SuggestionCatalog.LoadError.unsupportedVersion) {
