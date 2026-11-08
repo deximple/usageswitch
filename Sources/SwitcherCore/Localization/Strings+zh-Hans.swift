@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "用量连接",
         .uiConnectUsageTitle: "连接 %@ 用量",
         .uiConnectUsageBody: "UsageSwitch 将读取 %@ 的本地登录信息并通过 HTTPS 发送只读用量请求。不会执行任务、刷新令牌或登录。",
-        .uiConnectAntigravityBody: "UsageSwitch 会在隐藏终端中运行 agy 读取 /usage。必要时，它可能使用 agy 的 gemini 钥匙串登录信息，在内存中获取用于只读配额请求的临时访问令牌。macOS 可能会请求允许访问钥匙串。UsageSwitch 不会保存任何内容、发送登录提示或模型请求，也不会运行模型任务。",
+        .uiConnectAntigravityBody: "UsageSwitch 从你的主目录在隐藏终端中运行 agy 以读取 /usage，最多每 15 分钟一次。agy 使用其常规配置启动，其中可能包括你配置的 MCP 服务器。UsageSwitch 不会回答 agy 的任何提示，包括文件夹信任提示；如果 agy 询问，应用会改用只读配额 API。必要时，应用可能使用 agy 的 gemini 钥匙串登录信息，在内存中获取临时访问令牌。macOS 可能会请求允许访问钥匙串。令牌不会保存，agy 配置不会被更改，也不会发送模型请求或运行模型任务。",
         .uiConnectUsageEnable: "启用",
         .uiClaudeProfileConnect: "通过 CLI 配置目录连接用量…",
         .uiClaudeProfileDisconnect: "断开连接",

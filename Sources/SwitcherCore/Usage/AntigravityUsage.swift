@@ -16,6 +16,7 @@ public struct AntigravityUsageCollector: Sendable {
     private let runner: any UsageProcessRunner
     private let screen: any AntigravityUsageScreenReading
     private let tokenCache: AntigravityAccessTokenCache
+    private let screenCache: AntigravityUsageScreenCache
     private let home: URL
     private let agy: URL?
     private let environment: [String: String]
@@ -26,6 +27,7 @@ public struct AntigravityUsageCollector: Sendable {
                 runner: any UsageProcessRunner = SystemUsageProcessRunner(),
                 screen: any AntigravityUsageScreenReading = AntigravityUsageScreen(),
                 tokenCache: AntigravityAccessTokenCache = AntigravityAccessTokenCache(),
+                screenCache: AntigravityUsageScreenCache = AntigravityUsageScreenCache(),
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 agy: URL? = nil, environment: [String: String] = ProcessInfo.processInfo.environment,
                 now: @escaping @Sendable () -> Date = { Date() }) {
@@ -35,6 +37,7 @@ public struct AntigravityUsageCollector: Sendable {
         self.runner = runner
         self.screen = screen
         self.tokenCache = tokenCache
+        self.screenCache = screenCache
         self.home = home
         self.agy = agy
         self.environment = environment
@@ -42,13 +45,36 @@ public struct AntigravityUsageCollector: Sendable {
     }
 
     public func collect() -> [AccountUsage] {
-        func finish(_ state: UsageState, _ windows: [UsageWindow] = []) -> AccountUsage {
+        func finish(_ state: UsageState, _ windows: [UsageWindow] = [],
+                    readAt: Date? = nil) -> AccountUsage {
             AccountUsage(id: Self.rowID, provider: .antigravity, accountRef: Self.rowAccountRef,
                          label: "Antigravity", plan: nil, windows: windows, state: state,
-                         readAt: now(), toolVersion: nil)
+                         readAt: readAt ?? now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        let screenResult = screen.read(executable: agy, now: now())
+        let screenResult: AntigravityScreenResult
+        let screenReadAt: Date?
+        switch screenCache.acquire(at: now()) {
+        case .read:
+            let screenResultAt = now()
+            let result = screen.read(executable: agy, now: screenResultAt)
+            if result.state == .ok, !result.windows.isEmpty {
+                let completedAt = now()
+                screenCache.store(result.windows, readAt: completedAt)
+                screenResult = result
+                screenReadAt = completedAt
+            } else {
+                screenCache.recordFailure(at: now())
+                screenResult = result
+                screenReadAt = nil
+            }
+        case .cached(let windows, let readAt):
+            screenResult = .success(windows)
+            screenReadAt = readAt
+        case .throttled:
+            screenResult = .failure(.failed(.timeout))
+            screenReadAt = nil
+        }
         let apiResult = quota()
         switch (screenResult.state, apiResult) {
         case (.ok, .success(let apiWindows)):
@@ -62,9 +88,9 @@ public struct AntigravityUsageCollector: Sendable {
                                    usedPercent: screenWindow.usedPercent,
                                    resetsAt: reset ?? screenWindow.resetsAt)
             }
-            return [finish(.ok, windows)]
+            return [finish(.ok, windows, readAt: screenReadAt)]
         case (.ok, .failure):
-            return [finish(.ok, screenResult.windows)]
+            return [finish(.ok, screenResult.windows, readAt: screenReadAt)]
         case (_, .success(let windows)):
             return [finish(.ok, windows)]
         case (_, .failure(let apiState)):
@@ -319,6 +345,53 @@ public final class AntigravityAccessTokenCache: @unchecked Sendable {
     public func clear() {
         lock.lock()
         cached = nil
+        lock.unlock()
+    }
+}
+
+public final class AntigravityUsageScreenCache: @unchecked Sendable {
+    enum Decision {
+        case read
+        case cached([UsageWindow], Date)
+        case throttled
+    }
+
+    private struct Success: Sendable {
+        let windows: [UsageWindow]
+        let readAt: Date
+    }
+
+    private static let minimumInterval: TimeInterval = 15 * 60
+    private let lock = NSLock()
+    private var lastAttemptAt: Date?
+    private var success: Success?
+
+    public init() {}
+
+    func acquire(at now: Date) -> Decision {
+        lock.lock()
+        defer { lock.unlock() }
+        if let lastAttemptAt,
+           now.timeIntervalSince(lastAttemptAt) < Self.minimumInterval {
+            if let success, now.timeIntervalSince(success.readAt) < Self.minimumInterval {
+                return .cached(success.windows, success.readAt)
+            }
+            return .throttled
+        }
+        lastAttemptAt = now
+        return .read
+    }
+
+    func store(_ windows: [UsageWindow], readAt: Date) {
+        lock.lock()
+        lastAttemptAt = readAt
+        success = Success(windows: windows, readAt: readAt)
+        lock.unlock()
+    }
+
+    func recordFailure(at date: Date) {
+        lock.lock()
+        lastAttemptAt = date
         lock.unlock()
     }
 }

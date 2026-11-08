@@ -82,14 +82,19 @@ fixed allowlist over HTTPS — no redirects, bounded responses. Gemini may make 
 requests; Antigravity may make a token exchange and two quota API requests. Gemini supports
 its CLI Keychain item and legacy `~/.gemini/oauth_creds.json`, using only its access token
 and expiry; forced encrypted-file storage is unsupported and shows no sign-in. Antigravity
-runs `agy` in a hidden terminal to read `/usage`; its API fallback may use the Keychain
-generic-password item with service `gemini` and account `antigravity-acp` to mint a temporary
-access token held only in memory. macOS may ask to allow access to that Keychain item.
-The app never saves the token or a returned refresh token. Those optional-provider tokens are never saved or
-logged by the usage collectors. The newer connectors are **experimental** — private
+runs `agy` from your home folder in a hidden terminal to read `/usage`, at most once every
+15 minutes. `agy` starts with its normal configuration, which may include MCP servers you
+configured. UsageSwitch never answers agy's prompts, including the folder-trust prompt; if
+agy asks, the app sends no response and falls back to the read-only quota API. That fallback
+may use the Keychain generic-password item with service `gemini` and account
+`antigravity-acp` to mint a temporary access token held only in memory; macOS may ask to
+allow access to that item. The token is not saved and UsageSwitch does not write to agy's
+configuration. Those optional-provider tokens are never saved or logged by the usage collectors.
+The newer connectors are **experimental** — private
 endpoints may change and live-account compatibility is not yet verified. UsageSwitch
 never signs in or out, switches accounts, or runs model tasks. Antigravity's refresh-token
-grant is used only to obtain a temporary in-memory access token for the read-only quota call.
+grant is used only to obtain a temporary in-memory access token for the read-only quota call;
+no model requests are sent.
 For an explicitly
 connected Claude profile, the official CLI may refresh its own token or update its
 own config files as described above. Usage collection makes no model requests. There

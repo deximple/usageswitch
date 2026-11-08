@@ -25,7 +25,7 @@ public protocol AntigravityUsageScreenReading: Sendable {
 
 struct AntigravityPTYResult: Sendable {
     enum Outcome: Equatable, Sendable {
-        case completed, timedOut, cancelled, failedToStart
+        case completed, timedOut, cancelled, failedToStart, promptNotReady, trustPrompt
     }
 
     let outcome: Outcome
@@ -48,6 +48,14 @@ struct AntigravityPTYTiming: Sendable {
     var interruptInterval: TimeInterval = 0.5
     var terminateGrace: TimeInterval = 2
     var killGrace: TimeInterval = 2
+}
+
+private enum AntigravityPTYWaitResult {
+    case ready
+    case trustPrompt
+    case promptNotReady
+    case cancelled
+    case timedOut
 }
 
 struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
@@ -114,18 +122,14 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
         var output = Data()
         var pipeClosed = false
         var lastOutputAt: TimeInterval?
-        var titleSeen = false
+        var terminal = AntigravityVTScreenBuffer()
 
         func readAvailable(retainOutput: Bool = true) -> (valid: Bool, received: Bool) {
             var bytes = [UInt8](repeating: 0, count: 16_384)
-            let previousOutputCount = output.count
             var received = false
             var drained = 0
             func finish(_ valid: Bool) -> (valid: Bool, received: Bool) {
                 if received { lastOutputAt = ProcessInfo.processInfo.systemUptime }
-                if retainOutput && output.count > previousOutputCount {
-                    titleSeen = AntigravityUsageScreen.containsQuotaTitle(output)
-                }
                 return (valid, received)
             }
             while master >= 0 && drained < Self.readBudget {
@@ -135,7 +139,8 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
                 if count > 0 {
                     received = true
                     drained += count
-                    if retainOutput && output.count < Self.outputLimit {
+                    terminal.feed(Data(bytes.prefix(count)))
+                    if retainOutput, output.count < Self.outputLimit {
                         output.append(contentsOf: bytes.prefix(min(count, Self.outputLimit - output.count)))
                     }
                     continue
@@ -182,6 +187,30 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             }
         }
 
+        func pollAndDrain(until deadline: TimeInterval) -> Bool {
+            if master < 0 || pipeClosed {
+                usleep(20_000)
+                return true
+            }
+            var descriptor = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            let milliseconds = Int32(max(1, min(100, remaining * 1_000)))
+            let ready = poll(&descriptor, 1, milliseconds)
+            if ready > 0 && descriptor.revents & Int16(POLLIN | POLLHUP | POLLERR) != 0 {
+                return readAvailable().valid
+            }
+            return ready >= 0 || errno == EINTR
+        }
+
+        func updateChildStatus() -> Bool {
+            if childReaped { return true }
+            let result = waitpid(pid, &childStatus, WNOHANG)
+            if result == pid || (result < 0 && errno == ECHILD) {
+                childReaped = true
+            }
+            return childReaped
+        }
+
         func waitForExit(_ duration: TimeInterval) -> Bool {
             if childReaped { return true }
             let deadline = ProcessInfo.processInfo.systemUptime + max(0, duration)
@@ -204,15 +233,29 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             }
         }
 
-        func terminate(cancelled: Bool) -> Bool {
+        func terminate(cancelled: Bool, skipTerminalInput: Bool) -> Bool {
             if childReaped { return true }
-            write([0x1b])
-            write([0x03])
-            if !cancelled {
-                pauseWhileDraining(timing.interruptInterval, retainOutput: false)
+            var skipInput = skipTerminalInput
+            if !skipInput {
+                _ = readAvailable(retainOutput: false)
+                skipInput = terminal.hasTrustPrompt
             }
-            write([0x03])
-            if !cancelled {
+            if !skipInput {
+                write([0x1b])
+                _ = pollAndDrain(until: ProcessInfo.processInfo.systemUptime + 0.05)
+                skipInput = terminal.hasTrustPrompt
+            }
+            if !skipInput { write([0x03]) }
+            if !skipInput && !cancelled {
+                pauseWhileDraining(timing.interruptInterval, retainOutput: false)
+                skipInput = terminal.hasTrustPrompt
+            }
+            if !skipInput { write([0x03]) }
+            if skipInput {
+                _ = kill(-pid, SIGTERM)
+                _ = kill(pid, SIGTERM)
+                if waitForExit(timing.terminateGrace) { return true }
+            } else if !cancelled {
                 if waitForExit(timing.terminateGrace) { return true }
                 _ = kill(-pid, SIGTERM)
                 _ = kill(pid, SIGTERM)
@@ -234,68 +277,124 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             closeMaster()
         }
 
-        func waitForQuiet(_ quiet: TimeInterval, until deadline: TimeInterval,
-                          requiresTitle: Bool) -> Bool {
+        func waitForPrompt(until deadline: TimeInterval) -> AntigravityPTYWaitResult {
             while ProcessInfo.processInfo.systemUptime < deadline {
-                if Task.isCancelled { return false }
-                var descriptor = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
-                let remaining = deadline - ProcessInfo.processInfo.systemUptime
-                let milliseconds = Int32(max(1, min(100, remaining * 1_000)))
-                if pipeClosed {
-                    usleep(20_000)
-                } else {
-                    let ready = poll(&descriptor, 1, milliseconds)
-                    if ready > 0 && descriptor.revents & Int16(POLLIN | POLLHUP | POLLERR) != 0 {
-                        let readResult = readAvailable()
-                        if !readResult.valid { return false }
-                    } else if ready < 0 && errno != EINTR {
-                        return false
-                    }
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                if terminal.hasMainInputPrompt, let lastOutputAt,
+                   ProcessInfo.processInfo.systemUptime - lastOutputAt >= timing.promptQuiet {
+                    return .ready
                 }
-                let hasTitle = !requiresTitle || titleSeen
-                if hasTitle, let lastOutputAt,
-                   ProcessInfo.processInfo.systemUptime - lastOutputAt >= quiet {
-                    return true
-                }
-                if !childReaped {
-                    let result = waitpid(pid, &childStatus, WNOHANG)
-                    if result == pid || (result < 0 && errno == ECHILD) {
-                        childReaped = true
-                    }
-                }
-                if childReaped && (!requiresTitle || !hasTitle || lastOutputAt == nil) {
-                    return false
-                }
-                if pipeClosed && lastOutputAt == nil {
-                    return false
-                }
-                if childReaped, hasTitle, let lastOutputAt,
-                   ProcessInfo.processInfo.systemUptime - lastOutputAt >= quiet {
-                    return true
-                }
+                guard pollAndDrain(until: deadline) else { return .promptNotReady }
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                if updateChildStatus() { return .promptNotReady }
             }
-            return false
+            return terminal.hasTrustPrompt ? .trustPrompt : .promptNotReady
+        }
+
+        func waitForUsageInput() -> AntigravityPTYWaitResult {
+            let deadline = ProcessInfo.processInfo.systemUptime + max(0, timing.commandPause)
+            var usageInputSeen = terminal.hasUsageInput
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                usageInputSeen = usageInputSeen || terminal.hasUsageInput
+                guard pollAndDrain(until: deadline) else { return .promptNotReady }
+                usageInputSeen = usageInputSeen || terminal.hasUsageInput
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                if updateChildStatus() && !usageInputSeen { return .promptNotReady }
+            }
+            if terminal.hasTrustPrompt { return .trustPrompt }
+            return usageInputSeen || terminal.hasUsageInput ? .ready : .promptNotReady
+        }
+
+        func waitForQuotaScreen(until deadline: TimeInterval) -> AntigravityPTYWaitResult {
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                if terminal.hasQuotaTitle, let lastOutputAt,
+                   ProcessInfo.processInfo.systemUptime - lastOutputAt >= timing.screenQuiet {
+                    return .ready
+                }
+                guard pollAndDrain(until: deadline) else { return .timedOut }
+                if terminal.hasTrustPrompt { return .trustPrompt }
+                if Task.isCancelled { return .cancelled }
+                if terminal.hasQuotaTitle, let lastOutputAt,
+                   ProcessInfo.processInfo.systemUptime - lastOutputAt >= timing.screenQuiet {
+                    return .ready
+                }
+                if updateChildStatus() && !terminal.hasQuotaTitle { return .timedOut }
+            }
+            return .timedOut
         }
 
         var outcome: AntigravityPTYResult.Outcome = .timedOut
+        var skipTerminalInput = false
         let promptDeadline = min(startedAt + timing.promptTimeout,
                                  startedAt + timing.totalTimeout)
-        if waitForQuiet(timing.promptQuiet, until: promptDeadline, requiresTitle: false) {
-            write(Array("/usage".utf8))
-            if !Task.isCancelled {
-                pauseWhileDraining(timing.commandPause, retainOutput: true)
-                if !Task.isCancelled { write([0x0d]) }
-                let cleanupReserve = timing.interruptInterval + timing.terminateGrace
-                    + timing.killGrace + 5
-                let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
-                                         startedAt + timing.totalTimeout - cleanupReserve)
-                if waitForQuiet(timing.screenQuiet, until: screenDeadline, requiresTitle: true) {
-                    outcome = .completed
+        switch waitForPrompt(until: promptDeadline) {
+        case .ready:
+            _ = readAvailable(retainOutput: false)
+            if terminal.hasTrustPrompt {
+                outcome = .trustPrompt
+                skipTerminalInput = true
+            } else if Task.isCancelled {
+                outcome = .cancelled
+            } else {
+                write(Array("/usage".utf8))
+                switch waitForUsageInput() {
+                case .ready:
+                    _ = readAvailable(retainOutput: false)
+                    if terminal.hasTrustPrompt {
+                        outcome = .trustPrompt
+                        skipTerminalInput = true
+                    } else if Task.isCancelled {
+                        outcome = .cancelled
+                    } else {
+                        write([0x0d])
+                        let cleanupReserve = timing.interruptInterval + timing.terminateGrace
+                            + timing.killGrace + 5
+                        let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
+                                                 startedAt + timing.totalTimeout - cleanupReserve)
+                        switch waitForQuotaScreen(until: screenDeadline) {
+                        case .ready: outcome = .completed
+                        case .trustPrompt:
+                            outcome = .trustPrompt
+                            skipTerminalInput = true
+                        case .cancelled: outcome = .cancelled
+                        case .timedOut, .promptNotReady: outcome = .timedOut
+                        }
+                    }
+                case .trustPrompt:
+                    outcome = .trustPrompt
+                    skipTerminalInput = true
+                case .cancelled:
+                    outcome = .cancelled
+                case .promptNotReady, .timedOut:
+                    outcome = .promptNotReady
                 }
             }
+        case .trustPrompt:
+            outcome = .trustPrompt
+            skipTerminalInput = true
+        case .cancelled:
+            outcome = .cancelled
+        case .promptNotReady:
+            outcome = .promptNotReady
+        case .timedOut:
+            outcome = .timedOut
         }
-        if Task.isCancelled { outcome = .cancelled }
-        if !terminate(cancelled: Task.isCancelled) { outcome = .timedOut }
+        if terminal.hasTrustPrompt {
+            outcome = .trustPrompt
+            skipTerminalInput = true
+        } else if Task.isCancelled {
+            outcome = .cancelled
+        }
+        if !terminate(cancelled: Task.isCancelled, skipTerminalInput: skipTerminalInput) {
+            if outcome == .completed { outcome = .timedOut }
+        }
         return AntigravityPTYResult(outcome: outcome, output: output, childPID: pid)
     }
 }
@@ -309,23 +408,17 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
 
     public func read(executable: URL?, now: Date) -> AntigravityScreenResult {
         guard let executable else { return .failure(.failed(.network)) }
-        let temporary = FileManager.default.temporaryDirectory
-            .appendingPathComponent("usageswitch-agy-\(UUID().uuidString)", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false,
-                                                    attributes: [.posixPermissions: 0o700])
-        } catch {
-            return .failure(.failed(.network))
-        }
-        defer { try? FileManager.default.removeItem(at: temporary) }
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
-        let result = runner.run(executable: executable, workingDirectory: temporary,
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let result = runner.run(executable: executable, workingDirectory: home,
                                 environment: environment)
-        guard result.outcome == .completed else {
-            if result.outcome == .cancelled { return .failure(.failed(.refused)) }
-            if result.outcome == .timedOut { return .failure(.failed(.timeout)) }
-            return .failure(.failed(.network))
+        switch result.outcome {
+        case .completed: break
+        case .cancelled: return .failure(.failed(.refused))
+        case .timedOut: return .failure(.failed(.timeout))
+        case .promptNotReady, .trustPrompt: return .failure(.unavailable(.schemaChanged))
+        case .failedToStart: return .failure(.failed(.network))
         }
         guard let windows = Self.parse(result.output, now: now), !windows.isEmpty else {
             return .failure(.unavailable(.schemaChanged))
@@ -336,7 +429,7 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
     static func containsQuotaTitle(_ data: Data) -> Bool {
         var screen = AntigravityVTScreenBuffer()
         screen.feed(data)
-        return screen.lines.contains { $0.contains("Models & Quota") }
+        return screen.hasQuotaTitle
     }
 
     static func parse(_ data: Data, now: Date) -> [UsageWindow]? {
@@ -488,6 +581,30 @@ public struct AntigravityVTScreenBuffer: Sendable {
         cells.map { row in
             row.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+
+    var hasMainInputPrompt: Bool {
+        !hasTrustPrompt && lines.contains {
+            $0.localizedCaseInsensitiveContains("? for shortcuts")
+        }
+    }
+
+    var hasTrustPrompt: Bool {
+        let text = lines.joined(separator: "\n").lowercased()
+        return text.contains("do you trust the contents of this project")
+            || text.contains("trust this folder")
+    }
+
+    var hasUsageInput: Bool {
+        guard !hasTrustPrompt else { return false }
+        return lines.contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.hasPrefix("> /usage") || trimmed.hasPrefix("› /usage")
+        }
+    }
+
+    var hasQuotaTitle: Bool {
+        lines.contains { $0.contains("Models & Quota") }
     }
 
     public mutating func feed(_ data: Data) {

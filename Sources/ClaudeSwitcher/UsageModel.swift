@@ -42,6 +42,7 @@ final class UsageModel: ObservableObject {
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
     private var alertedKeys: Set<String> = []
     private let antigravityTokenCache = AntigravityAccessTokenCache()
+    private let antigravityScreenCache = AntigravityUsageScreenCache()
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
@@ -150,6 +151,7 @@ final class UsageModel: ObservableObject {
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
         let antigravityTokenCache = self.antigravityTokenCache
+        let antigravityScreenCache = self.antigravityScreenCache
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
         refreshTask?.cancel()
@@ -206,7 +208,8 @@ final class UsageModel: ObservableObject {
                     case .antigravity:
                         return AntigravityUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner, tokenCache: antigravityTokenCache,
-                            home: env.home, agy: installation.cli, environment: environment).collect()
+                            screenCache: antigravityScreenCache, home: env.home,
+                            agy: installation.cli, environment: environment).collect()
                     case .devin:
                         return DevinUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner,

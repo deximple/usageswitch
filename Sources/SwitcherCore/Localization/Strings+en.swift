@@ -152,7 +152,7 @@ extension Strings {
         .uiUsageConnections: "Usage Connections",
         .uiConnectUsageTitle: "Connect %@ Usage",
         .uiConnectUsageBody: "UsageSwitch reads the %@ sign-in and sends read-only usage requests over HTTPS. No tasks, token refreshes, or sign-ins are performed.",
-        .uiConnectAntigravityBody: "UsageSwitch runs agy in a hidden terminal to read /usage. If needed, it may use agy's gemini Keychain login to obtain a temporary access token held only in memory for a read-only quota request. macOS may ask to allow Keychain access. UsageSwitch saves nothing, sends no sign-in prompts or model requests, and runs no model tasks.",
+        .uiConnectAntigravityBody: "UsageSwitch runs agy from your home folder in a hidden terminal to read /usage, at most once every 15 minutes. agy starts with its normal configuration, which may include MCP servers you configured. UsageSwitch never answers agy's prompts, including the folder-trust prompt; if agy asks, it falls back to the read-only quota API. If needed, it may use agy's gemini Keychain login to obtain a temporary access token held only in memory. macOS may ask to allow Keychain access. The token is not saved, agy's configuration is not changed, and no model requests or tasks are sent.",
         .uiConnectUsageEnable: "Enable",
         .uiClaudeProfileConnect: "Connect usage via CLI profile…",
         .uiClaudeProfileDisconnect: "Disconnect",

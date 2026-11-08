@@ -9,12 +9,53 @@ private struct FixedScreen: AntigravityUsageScreenReading {
     func read(executable: URL?, now: Date) -> AntigravityScreenResult { result }
 }
 
+private final class CountingScreen: AntigravityUsageScreenReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private let results: [AntigravityScreenResult]
+    private var index = 0
+    private var count = 0
+
+    init(_ results: [AntigravityScreenResult]) {
+        self.results = results
+    }
+
+    var readCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func read(executable: URL?, now: Date) -> AntigravityScreenResult {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        guard index < results.count else {
+            return results.last ?? .failure(.failed(.timeout))
+        }
+        defer { index += 1 }
+        return results[index]
+    }
+}
+
 private struct FixedPTY: AntigravityPTYExecuting {
     let data: Data
 
     func run(executable: URL, workingDirectory: URL,
              environment: [String: String]) -> AntigravityPTYResult {
         AntigravityPTYResult(outcome: .completed, output: data, childPID: nil)
+    }
+}
+
+private final class RecordingPTY: AntigravityPTYExecuting, @unchecked Sendable {
+    let data: Data
+    private(set) var workingDirectory: URL?
+
+    init(data: Data) { self.data = data }
+
+    func run(executable: URL, workingDirectory: URL,
+             environment: [String: String]) -> AntigravityPTYResult {
+        self.workingDirectory = workingDirectory
+        return AntigravityPTYResult(outcome: .completed, output: data, childPID: nil)
     }
 }
 
@@ -93,6 +134,31 @@ struct AntigravityScreenTests {
         #expect(terminal.lines[0] == "XY")
     }
 
+    @Test("main input marker gates usage and trust prompt blocks it")
+    func promptGate() {
+        var input = AntigravityVTScreenBuffer()
+        input.feed(Data("Welcome\n? for shortcuts\n> /usage".utf8))
+        #expect(input.hasMainInputPrompt)
+        #expect(input.hasUsageInput)
+        #expect(!input.hasTrustPrompt)
+
+        var trust = AntigravityVTScreenBuffer()
+        trust.feed(Data("Do you trust the contents of this project?\n> Yes, I trust this folder".utf8))
+        #expect(trust.hasTrustPrompt)
+        #expect(!trust.hasMainInputPrompt)
+        #expect(!trust.hasUsageInput)
+    }
+
+    @Test("agy screen reader uses the user's home directory")
+    func homeDirectory() throws {
+        let data = try Data(contentsOf: fixture)
+        let runner = RecordingPTY(data: data)
+        let reader = AntigravityUsageScreen(runner: runner)
+        let result = reader.read(executable: URL(fileURLWithPath: "/bin/agy"), now: Date())
+        #expect(result.state == .ok)
+        #expect(runner.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
+    }
+
     @Test("unambiguous relative screen reset is parsed")
     func relativeReset() throws {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -123,12 +189,14 @@ struct AntigravityUsageTests {
                            runner: FakeUsageRunner = FakeUsageRunner(),
                            screen: (any AntigravityUsageScreenReading)? = nil,
                            cache: AntigravityAccessTokenCache = AntigravityAccessTokenCache(),
-                           clock: MutableUsageClock? = nil) -> AntigravityUsageCollector {
+                           screenCache: AntigravityUsageScreenCache = AntigravityUsageScreenCache(),
+                           clock: MutableUsageClock? = nil,
+                           agy: URL? = URL(fileURLWithPath: "/tmp/agy")) -> AntigravityUsageCollector {
         let fixedNow = self.now
         return AntigravityUsageCollector(
             enabled: true, http: http, credentials: creds, runner: runner,
-            screen: screen ?? self.screen(), tokenCache: cache, home: home,
-            agy: URL(fileURLWithPath: "/tmp/agy"),
+            screen: screen ?? self.screen(), tokenCache: cache, screenCache: screenCache, home: home,
+            agy: agy,
             now: { clock?.now() ?? fixedNow })
     }
 
@@ -279,6 +347,69 @@ struct AntigravityUsageTests {
         #expect(result?.windows[0].resetsAt == UsageJSON.resetDateISO("2026-11-15T03:13:50Z"))
     }
 
+    @Test("successful screen reads are reused for 15 minutes with fresh API enrichment")
+    func screenReadThrottle() {
+        let http = SpyTransport(); let credentials = SpyCredentials()
+        legacyToken(credentials)
+        let secondQuota = Self.summary.replacingOccurrences(
+            of: "2026-11-15T03:13:50Z", with: "2026-11-16T03:13:50Z")
+        let thirdQuota = Self.summary.replacingOccurrences(
+            of: "2026-11-15T03:13:50Z", with: "2026-11-17T03:13:50Z")
+        http.queue = [project(), quota(), project(), quota(secondQuota),
+                      project(), quota(thirdQuota)]
+        let firstWindow = UsageWindow(scope: "Claude And Gpt Models", durationMinutes: 10_080,
+                                      usedPercent: 10, resetsAt: nil)
+        let secondWindow = UsageWindow(scope: "Claude And Gpt Models", durationMinutes: 10_080,
+                                       usedPercent: 20, resetsAt: nil)
+        let screen = CountingScreen([.success([firstWindow]), .success([secondWindow])])
+        let clock = MutableUsageClock(now)
+        let collector = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                                  screenCache: AntigravityUsageScreenCache(), clock: clock)
+
+        let first = collector.collect().first
+        clock.advance(14 * 60)
+        let cached = collector.collect().first
+        #expect(screen.readCount == 1)
+        #expect(cached?.windows.first?.usedPercent == 10)
+        #expect(cached?.readAt == first?.readAt)
+        #expect(cached?.windows.first?.resetsAt == UsageJSON.resetDateISO("2026-11-16T03:13:50Z"))
+
+        clock.advance(2 * 60)
+        let refreshed = collector.collect().first
+        #expect(screen.readCount == 2)
+        #expect(refreshed?.windows.first?.usedPercent == 20)
+        #expect(refreshed?.readAt == now.addingTimeInterval(16 * 60))
+        #expect(refreshed?.windows.first?.resetsAt == UsageJSON.resetDateISO("2026-11-17T03:13:50Z"))
+        #expect(http.requests.count == 6)
+    }
+
+    @Test("a failed screen read is not retried within 15 minutes")
+    func failedScreenReadThrottle() {
+        let http = SpyTransport(); let credentials = SpyCredentials()
+        legacyToken(credentials)
+        http.queue = [project(), quota(), project(), quota(), project(), quota()]
+        let window = UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                 usedPercent: 5, resetsAt: nil)
+        let screen = CountingScreen([
+            .failure(.failed(.timeout)),
+            .success([window]),
+        ])
+        let clock = MutableUsageClock(now)
+        let collector = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                                  screenCache: AntigravityUsageScreenCache(), clock: clock)
+
+        #expect(collector.collect().first?.state == .ok)
+        clock.advance(14 * 60 + 59)
+        let fallback = collector.collect().first
+        #expect(fallback?.state == .ok)
+        #expect(screen.readCount == 1)
+        clock.advance(2)
+        let retried = collector.collect().first
+        #expect(retried?.state == .ok)
+        #expect(screen.readCount == 2)
+        #expect(retried?.windows.first?.usedPercent == 5)
+    }
+
     @Test("missing screen marker falls back to the quota API")
     func screenFallback() {
         let http = SpyTransport(); let credentials = SpyCredentials()
@@ -287,6 +418,59 @@ struct AntigravityUsageTests {
         let screen = AntigravityUsageScreen(runner: FixedPTY(data: Data("startup only".utf8)))
         let result = collector(http, credentials, runner: missingKeychain(), screen: screen).collect().first
         #expect(result?.state == .ok && result?.windows.count == 2)
+    }
+
+    @Test("trust dialog receives no input and falls back to the quota API")
+    func trustPromptFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agy-trust-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        let readyFile = directory.appendingPathComponent("ready")
+        let goFile = directory.appendingPathComponent("go")
+        let executable = directory.appendingPathComponent("agy")
+        let script = """
+        #!/bin/sh
+        stty -echo -icanon -isig
+        : > '\(inputFile.path)'
+        (
+          sleep 0.1
+          : > '\(readyFile.path)'
+          while [ ! -f '\(goFile.path)' ]; do :; done
+          printf 'Do you trust the contents of this project?\\n> Yes, I trust this folder\\n> No, exit\\n'
+        ) &
+        writer=$!
+        dd bs=1 of='\(inputFile.path)' 2>/dev/null
+        wait "$writer"
+        """
+        try Data(script.utf8).write(to: executable)
+        #expect(chmod(executable.path, mode_t(0o700)) == 0)
+
+        let http = SpyTransport(); let credentials = SpyCredentials()
+        legacyToken(credentials)
+        http.queue = [project(), quota()]
+        let ptyTiming = AntigravityPTYTiming(
+            promptQuiet: 0.05, promptTimeout: 5, commandPause: 0.05,
+            screenQuiet: 0.05, screenTimeout: 0.5, totalTimeout: 8,
+            interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
+        let screen = AntigravityUsageScreen(runner: SystemAntigravityPTYRunner(timing: ptyTiming))
+        let collector = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                                  agy: executable)
+        let task = Task.detached { collector.collect().first }
+        let deadline = Date().addingTimeInterval(2)
+        while !FileManager.default.fileExists(atPath: readyFile.path) && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(FileManager.default.fileExists(atPath: readyFile.path))
+        try Data().write(to: goFile)
+
+        let row = try #require(await task.value)
+        #expect(row.state == .ok)
+        #expect(row.windows.count == 2)
+        #expect(http.requests.count == 2)
+        #expect(try Data(contentsOf: inputFile).isEmpty)
     }
 
     @Test("snapshot never contains the fixture email or any token")
@@ -348,18 +532,77 @@ struct AntigravityPTYTests {
                              terminateGrace: 0.1, killGrace: 0.1)
     }
 
-    @Test("ignoring fake agy times out and is reaped without a zombie")
+    @Test("flooding fake agy without a prompt is reaped without a zombie")
     func timeoutAndReap() throws {
         let (directory, executable) = try script(contents:
             "#!/bin/sh\ntrap '' INT TERM\nwhile :; do printf x; done\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let result = SystemAntigravityPTYRunner(timing: timing()).run(
             executable: executable, workingDirectory: directory, environment: [:])
-        #expect(result.outcome == .timedOut)
+        #expect(result.outcome == .promptNotReady)
         let pid = try #require(result.childPID)
         var status: Int32 = 0
         #expect(waitpid(pid, &status, WNOHANG) == -1)
         #expect(errno == ECHILD)
+    }
+
+    @Test("missing input marker never types the usage command")
+    func missingPromptMarker() throws {
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\n: > \"$INPUT_FILE\"\n"
+            + "printf 'loading\\n'\ndd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        var shortTiming = timing(promptQuiet: 0.05, promptTimeout: 0.3)
+        shortTiming.totalTimeout = 3
+        let result = SystemAntigravityPTYRunner(timing: shortTiming).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .promptNotReady)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!String(decoding: received, as: UTF8.self).contains("/usage"))
+    }
+
+    @Test("Enter is withheld when the typed usage command is not rendered")
+    func usageEchoRequired() throws {
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\n: > \"$INPUT_FILE\"\n"
+            + "printf '? for shortcuts\\n> '\ndd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        let ptyTiming = AntigravityPTYTiming(
+            promptQuiet: 0.05, promptTimeout: 1, commandPause: 0.1,
+            screenQuiet: 0.05, screenTimeout: 0.5, totalTimeout: 5,
+            interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
+        let result = SystemAntigravityPTYRunner(timing: ptyTiming).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .promptNotReady)
+        let received = try Data(contentsOf: inputFile)
+        #expect(String(decoding: received, as: UTF8.self).contains("/usage"))
+        #expect(!received.contains(0x0d))
+    }
+
+    @Test("safe main prompt accepts usage only after its input is visible")
+    func safePrompt() throws {
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nprintf '? for shortcuts\\n> '\n"
+            + "IFS= read -r command\n"
+            + "if [ \"$command\" = \"/usage\" ]; then "
+            + "printf '\\r\\nModels & Quota\\nGEMINI MODELS\\nWeekly Limit Remaining\\n[████] 100.00%%\\n'; fi\n"
+            + "while :; do :; done\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ptyTiming = AntigravityPTYTiming(
+            promptQuiet: 0.05, promptTimeout: 1, commandPause: 0.1,
+            screenQuiet: 0.05, screenTimeout: 1, totalTimeout: 8,
+            interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
+        let screen = AntigravityUsageScreen(runner: SystemAntigravityPTYRunner(timing: ptyTiming))
+        let result = screen.read(executable: executable, now: Date())
+        #expect(result.state == .ok)
+        #expect(result.windows.count == 1)
+        #expect(result.windows[0].usedPercent == 0)
     }
 
     @Test("cancellation terminates and reaps fake agy promptly")
