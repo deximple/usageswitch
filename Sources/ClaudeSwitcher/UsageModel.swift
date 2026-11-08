@@ -30,6 +30,7 @@ final class UsageModel: ObservableObject {
     /// The in-flight refresh; a consent change cancels it so superseded work
     /// can't overwrite revoked-provider values.
     private var refreshTask: Task<Void, Never>?
+    private var suggestionStore: SuggestionStateStore?
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
     private var claudeBindings: [ClaudeProfileBinding]
@@ -253,6 +254,7 @@ final class UsageModel: ObservableObject {
         }
         generation += 1
         refreshTask?.cancel()
+        suggestionStore?.invalidateBefore(generation)
         // revoked providers drop their rows now — installed ones leave a neutral
         // placeholder, absent ones disappear entirely
         for provider in UsageProvider.allCases where provider.requiresConsent
@@ -269,6 +271,7 @@ final class UsageModel: ObservableObject {
         guard !isDemo else { return }
         generation += 1
         refreshTask?.cancel()
+        suggestionStore?.invalidateBefore(generation)
         let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
         for old in claudeBindings where next[old.accountId] != old {
             let rowID = "claude:app:\(old.accountId)"
@@ -343,6 +346,13 @@ final class UsageModel: ObservableObject {
             reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
         updatePace()
+        if fresh.contains(where: { $0.state == .ok }) {
+            let store = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
+            suggestionStore = store
+            Task.detached(priority: .utility) {
+                store.record(fresh, now: now, generation: generation)
+            }
+        }
         // The `--cli usage` file: display-safe identity, authentication and window
         // data only — labels always email-masked, never credentials or raw emails.
         if AppModel.shared.status != nil {
