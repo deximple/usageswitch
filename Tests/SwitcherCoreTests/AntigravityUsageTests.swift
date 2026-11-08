@@ -333,7 +333,7 @@ struct AntigravityUsageTests {
         #expect(!quotaRequests.contains { ($0.headers["Authorization"] ?? "").contains("response-refresh") })
     }
 
-    @Test("refresh-token identity changes clear token and screen caches")
+    @Test("account changes clear cached screen data but preserve the recent read throttle")
     func changedKeychainAccountClearsCaches() {
         let http = SpyTransport()
         http.queue = [
@@ -349,7 +349,8 @@ struct AntigravityUsageTests {
         tokenCache.store(accessToken: "old-access", validUntil: now.addingTimeInterval(3600),
                          projectID: "old-project")
         screenCache.store([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
-                                       usedPercent: 5, resetsAt: nil)], readAt: now)
+                                       usedPercent: 5, resetsAt: nil)],
+                          readAt: now.addingTimeInterval(-60))
         let screen = CountingScreen([
             .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
                                  usedPercent: 55, resetsAt: nil)])
@@ -358,8 +359,12 @@ struct AntigravityUsageTests {
         let row = collector(http, credentials, runner: runner, screen: screen,
                             cache: tokenCache, screenCache: screenCache).collect().first
 
-        #expect(row?.windows.first?.usedPercent == 55)
-        #expect(screen.readCount == 1)
+        #expect(abs((row?.windows.first?.usedPercent ?? 0) - 55) < 0.0001)
+        #expect(screen.readCount == 0)
+        guard case .throttled = screenCache.acquire(at: now) else {
+            Issue.record("expected screen data to be cleared while retaining the throttle")
+            return
+        }
         #expect(runner.requests.count == 1)
         let tokenRequest = try? #require(http.requests.first { $0.url.host == "oauth2.googleapis.com" })
         #expect(String(data: tokenRequest?.body ?? Data(), encoding: .utf8)?.contains("new-refresh") == true)

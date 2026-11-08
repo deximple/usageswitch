@@ -438,7 +438,6 @@ public final class AntigravityUsageScreenCache: @unchecked Sendable {
     func clear() {
         lock.lock()
         success = nil
-        lastAttemptAt = nil
         lock.unlock()
     }
 }
