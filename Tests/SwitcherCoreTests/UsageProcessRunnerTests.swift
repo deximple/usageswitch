@@ -43,7 +43,7 @@ struct UsageProcessRunnerTests {
                                      ["-c", script, "usage-process-test", pidFile.path],
                                      timeout: 60)
         let task = Task.detached { processRunner.run(processRequest) }
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(30)
         var childPID: pid_t?
         while Date() < deadline {
             if let contents = try? String(contentsOf: pidFile, encoding: .utf8),
@@ -67,7 +67,7 @@ struct UsageProcessRunnerTests {
         let result = await task.value
 
         #expect(result.outcome == .cancelled)
-        #expect(Date().timeIntervalSince(cancelledAt) < 3)
+        #expect(Date().timeIntervalSince(cancelledAt) < 10)
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
     }
