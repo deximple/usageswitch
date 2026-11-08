@@ -67,30 +67,53 @@ public struct SuggestionLogSummary: Sendable {
         let effort: String?
     }
 
+    private struct EffortKey: Hashable {
+        let accountRef: String
+        let effort: String?
+    }
+
     public static func recent(_ records: [SuggestionLogUsage], now: Date) -> [String: Hint] {
         let today = SuggestionRetention.utcDay(now)
         let firstDay = SuggestionRetention.utcDay(now.addingTimeInterval(-24 * 60 * 60))
-        var counts: [UsageKey: Int] = [:]
+        var effortCounts: [EffortKey: Int] = [:]
+        var modelCounts: [UsageKey: Int] = [:]
         for record in records where record.turns > 0
             && record.day >= firstDay && record.day <= today
             && !record.accountRef.isEmpty && !record.model.isEmpty {
-            let key = UsageKey(accountRef: record.accountRef, model: record.model, effort: record.effort)
-            counts[key, default: 0] += record.turns
+            let effortKey = EffortKey(accountRef: record.accountRef, effort: record.effort)
+            let modelKey = UsageKey(accountRef: record.accountRef, model: record.model, effort: record.effort)
+            effortCounts[effortKey] = saturatingAdd(effortCounts[effortKey, default: 0], record.turns)
+            modelCounts[modelKey] = saturatingAdd(modelCounts[modelKey, default: 0], record.turns)
         }
 
-        var best: [String: (key: UsageKey, turns: Int)] = [:]
-        for (key, turns) in counts {
-            guard let current = best[key.accountRef] else {
-                best[key.accountRef] = (key, turns)
+        var bestEffort: [String: (effort: String?, turns: Int)] = [:]
+        for (key, turns) in effortCounts {
+            guard let current = bestEffort[key.accountRef] else {
+                bestEffort[key.accountRef] = (key.effort, turns)
                 continue
             }
             if turns > current.turns
-                || (turns == current.turns
-                    && (key.model, key.effort ?? "") < (current.key.model, current.key.effort ?? "")) {
-                best[key.accountRef] = (key, turns)
+                || (turns == current.turns && (key.effort ?? "") < (current.effort ?? "")) {
+                bestEffort[key.accountRef] = (key.effort, turns)
             }
         }
-        return best.mapValues { Hint(model: $0.key.model, effort: $0.key.effort) }
+
+        var bestModel: [String: (key: UsageKey, turns: Int)] = [:]
+        for (key, turns) in modelCounts where bestEffort[key.accountRef]?.effort == key.effort {
+            guard let current = bestModel[key.accountRef] else {
+                bestModel[key.accountRef] = (key, turns)
+                continue
+            }
+            if turns > current.turns || (turns == current.turns && key.model < current.key.model) {
+                bestModel[key.accountRef] = (key, turns)
+            }
+        }
+        return bestModel.mapValues { Hint(model: $0.key.model, effort: $0.key.effort) }
+    }
+
+    private static func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
     }
 }
 

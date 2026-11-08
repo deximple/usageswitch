@@ -355,7 +355,7 @@ struct SuggestionLogReaderTests {
                                reasoningTokens: 0, toolVersion: nil),
         ]
         let hints = SuggestionLogSummary.recent(records, now: now)
-        #expect(hints[account] == SuggestionLogSummary.Hint(model: "openai/gpt-5", effort: "low"))
+        #expect(hints[account] == SuggestionLogSummary.Hint(model: "openai/gpt-4", effort: "high"))
         #expect(SuggestionLogSummary.matchingHint(for: "acct-unknown", in: hints) == nil)
         #expect(SuggestionLogSummary.matchingHint(for: nil, in: hints) == nil)
         #expect(SuggestionLogSummary.recentEffort(for: "acct-unknown", in: hints) == nil)
