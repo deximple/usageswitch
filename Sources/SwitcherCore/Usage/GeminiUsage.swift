@@ -308,15 +308,17 @@ public final class GeminiOAuthClientFinder: GeminiOAuthClientFinding, @unchecked
         return found
     }
 
-    /// `name:size:mtime` for every bundle `.js` file — a stat per file, no content read.
+    /// `name:inode:size:mtime` for every bundle `.js` file — a stat per file, no content
+    /// read. The inode catches a replaced file even when npm restores a fixed mtime.
     private static func signature(bundle: URL) -> [String] {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
         let files = (try? FileManager.default.contentsOfDirectory(
-            at: bundle, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
+            at: bundle, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
         return files.filter { $0.pathExtension == "js" }.map { file in
-            let values = try? file.resourceValues(forKeys: Set(keys))
-            let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
-            return "\(file.lastPathComponent):\(values?.fileSize ?? -1):\(modified)"
+            let attributes = (try? FileManager.default.attributesOfItem(atPath: file.path)) ?? [:]
+            let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            return "\(file.lastPathComponent):\(inode):\(size):\(modified)"
         }.sorted()
     }
 

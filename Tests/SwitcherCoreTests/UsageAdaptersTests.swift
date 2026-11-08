@@ -875,6 +875,14 @@ struct GeminiOAuthScanTests {
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)],
                                               ofItemAtPath: file.path)
         #expect(finder.client(for: cli)?.id == other)
+        // a replacement file with the same name, size and mtime (npm's fixed mtime) still rescans
+        let third = FakeGoogleClient.id("789-ghi")
+        let kept = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        try FileManager.default.removeItem(at: file)
+        try #"OAUTH_CLIENT_ID = "\#(third)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+            .write(to: file, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: try #require(kept)], ofItemAtPath: file.path)
+        #expect(finder.client(for: cli)?.id == third)
     }
 
     @Test("two different values or malformed shapes are rejected")
