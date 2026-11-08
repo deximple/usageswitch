@@ -414,7 +414,7 @@ extension Strings {
         .uiSettingShowUsage: "메뉴바에 사용량 표시",
         .uiSettingCursorUsage: "Cursor 사용량…",
         .usageCursorAlertTitle: "Cursor 사용량을 켤까요?",
-        .usageCursorAlertBody: "UsageSwitch 가 키체인 또는 ~/.cursor/auth.json 에서 Cursor 로그인을 읽고(macOS 가 한 번 물어볼 수 있습니다) 갱신할 때마다 Cursor API 에 요청 한 번을 보냅니다. 토큰은 저장되지 않습니다. cursor-agent 로그인이 만료됐으면 cursor-agent가 스스로 로그인을 갱신하도록 UsageSwitch가 최대 10분에 한 번 `cursor-agent status`를 실행합니다.",
+        .usageCursorAlertBody: "UsageSwitch 가 키체인 또는 ~/.cursor/auth.json 에서 Cursor 로그인을 읽고(macOS 가 한 번 물어볼 수 있습니다) 갱신할 때마다 Cursor API 에 요청 한 번을 보냅니다. 토큰은 저장되지 않습니다.",
         .usageCursorAlertOn: "켜기",
         .usageRefreshHelp: "지금 사용량 다시 읽기",
         .usageRunsOut: "이 속도면 %@ 후 소진",

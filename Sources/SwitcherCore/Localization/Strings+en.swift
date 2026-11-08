@@ -414,7 +414,7 @@ extension Strings {
         .uiSettingShowUsage: "Show Usage in Menu Bar",
         .uiSettingCursorUsage: "Cursor Usage…",
         .usageCursorAlertTitle: "Turn on Cursor usage?",
-        .usageCursorAlertBody: "UsageSwitch reads Cursor's sign-in from the Keychain or ~/.cursor/auth.json (macOS may ask once), and sends one request to Cursor's API on each refresh. The token is never saved. If the cursor-agent sign-in has expired, UsageSwitch runs `cursor-agent status` at most every 10 minutes so cursor-agent can renew its own sign-in.",
+        .usageCursorAlertBody: "UsageSwitch reads Cursor's sign-in from the Keychain or ~/.cursor/auth.json (macOS may ask once), and sends one request to Cursor's API on each refresh. The token is never saved.",
         .usageCursorAlertOn: "Turn On",
         .usageRefreshHelp: "Read usage again now",
         .usageRunsOut: "may run out in %@",
