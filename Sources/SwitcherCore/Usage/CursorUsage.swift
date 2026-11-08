@@ -26,10 +26,15 @@ public struct SystemUsageHTTP: UsageHTTP {
 /// Reads windows out of the DashboardService answers. Connect JSON sends int64 fields as strings, so
 /// numbers are accepted either way. Only percentages and the billing cycle are read.
 public enum CursorUsageParser {
+    /// Dashboard pool names mapped from `planUsage.autoPercentUsed`/`apiPercentUsed`.
+    public static let cursorModelsScope = "Cursor Models"
+    public static let otherModelsScope = "Other Models"
+
     /// The windows in `usage` (a GetCurrentPeriodUsage body). `merged` is GetPlanInfo's `isMerged`,
     /// nil when that call didn't happen or didn't answer. Returns nil when no percentage is reported.
-    /// The result includes the reported total and any valid Auto/API percentages. A missing or
-    /// invalid split does not hide the total; a missing or invalid total reports no usage.
+    /// The result includes the reported total and any valid Cursor Models/Other Models pool
+    /// pool percentages. A missing or invalid split does not hide the total; a missing or
+    /// invalid total reports no usage.
     /// `merged` is kept for source compatibility only; no pools are inferred.
     public static func windows(usage: Data, merged _: Bool? = nil) -> [UsageWindow]? {
         guard let object = try? JSONSerialization.jsonObject(with: usage) as? [String: Any] else { return nil }
@@ -45,13 +50,14 @@ public enum CursorUsageParser {
         guard let total = fields[2].value else { return nil }
         var windows = [UsageWindow(scope: nil, durationMinutes: duration,
                                    usedPercent: clamped(total), resetsAt: resets)]
-        // Auto and API are neutral wire names; a bad or absent split only omits that window.
+        // autoPercentUsed/apiPercentUsed are the dashboard's Cursor Models/Other Models pools;
+        // a bad or absent split only omits that window.
         if let auto = fields[0].value {
-            windows.append(UsageWindow(scope: "Auto", durationMinutes: duration,
+            windows.append(UsageWindow(scope: Self.cursorModelsScope, durationMinutes: duration,
                                        usedPercent: clamped(auto), resetsAt: resets))
         }
         if let api = fields[1].value {
-            windows.append(UsageWindow(scope: "API", durationMinutes: duration,
+            windows.append(UsageWindow(scope: Self.otherModelsScope, durationMinutes: duration,
                                        usedPercent: clamped(api), resetsAt: resets))
         }
         return windows

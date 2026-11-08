@@ -58,7 +58,7 @@ public struct GeminiUsageCollector: Sendable {
                     return .unavailable(.schemaChanged)
                 }
                 guard expiry > now().timeIntervalSince1970 * 1000 else {
-                    return .unavailable(.noSignIn)
+                    return .unavailable(.signInExpired)
                 }
                 return .token(access)
             }
@@ -76,7 +76,7 @@ public struct GeminiUsageCollector: Sendable {
             return .unavailable(.schemaChanged)
         }
         guard expiry > now().timeIntervalSince1970 * 1000 else {
-            return .unavailable(.noSignIn)
+            return .unavailable(.signInExpired)
         }
         return .token(access)
     }

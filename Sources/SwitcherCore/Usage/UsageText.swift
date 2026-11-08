@@ -86,7 +86,8 @@ public enum UsageText {
 
     static func problem(_ problem: UsageProblem, provider: UsageProvider) -> String {
         switch problem {
-        case .noSignIn: return L10n.t(.usageReasonNoSignIn)
+        case .noSignIn: return L10n.t(.usageReasonNoSignIn, providerName(provider))
+        case .signInExpired: return L10n.t(.usageReasonSignInExpired, cliCommand(provider))
         case .cliMissing: return L10n.t(.usageReasonCliMissing)
         case .managed: return L10n.t(.usageReasonManaged)
         case .refused: return L10n.t(.usageReasonRefused)
@@ -98,6 +99,20 @@ public enum UsageText {
         case .accountMismatch: return L10n.t(.usageReasonAccountMismatch)
         case .profileInvalid: return L10n.t(.usageReasonProfileInvalid)
         case .unsupportedVersion: return L10n.t(.usageReasonUnsupportedVersion)
+        }
+    }
+
+    /// The vendor CLI the user runs once to refresh a local sign-in — display only.
+    public static func cliCommand(_ provider: UsageProvider) -> String {
+        switch provider {
+        case .claude: return "claude"
+        case .codex: return "codex"
+        case .cursor: return "cursor-agent"
+        case .grok: return "grok"
+        case .gemini: return "gemini"
+        case .antigravity: return "agy"
+        case .devin: return "devin"
+        case .opencode: return "opencode"
         }
     }
 

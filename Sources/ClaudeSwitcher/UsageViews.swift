@@ -718,7 +718,7 @@ struct UsageBarRow: View {
         return fallback
     }
 
-    /// One line: name 60 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
+    /// One line: name 84 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
     /// the main window) · marker + percent 58 · reset 52 (full text in the main window), 8pt
     /// gaps; the compact cells flex so percent and reset sit on the row's right edge.
     var body: some View {
@@ -726,8 +726,8 @@ struct UsageBarRow: View {
             Text(windowLabel)
                 .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
                 .lineLimit(1).truncationMode(.tail)
-                .minimumScaleFactor(usage.provider == .gemini ? 0.8 : 1)
-                .frame(width: compact ? 60 : 96, alignment: .leading)
+                .minimumScaleFactor(usage.provider == .gemini ? 0.8 : (compact ? 0.85 : 1))
+                .frame(width: compact ? 84 : 96, alignment: .leading)
             ZStack(alignment: .leading) {
                 GeometryReader { proxy in
                     Capsule().fill(color.opacity(0.25))

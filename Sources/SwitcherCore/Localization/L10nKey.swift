@@ -321,6 +321,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageLabelCursor = "usage.label.cursor"
     case usageReasonNotReporting = "usage.reason.notReporting"
     case usageReasonNoSignIn = "usage.reason.noSignIn"
+    case usageReasonSignInExpired = "usage.reason.signInExpired"
     case usageReasonCliMissing = "usage.reason.cliMissing"
     case usageReasonManaged = "usage.reason.managed"
     case usageReasonRefused = "usage.reason.refused"

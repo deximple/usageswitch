@@ -28,7 +28,7 @@ struct UsageRemainingSafetyTests {
             home: URL(fileURLWithPath: "/tmp/expiry"),
             now: { Date(timeIntervalSince1970: 1_700_000_000) }).collect()
         #expect(http.requests.isEmpty)
-        #expect(rows.first?.state == .unavailable(.noSignIn))
+        #expect(rows.first?.state == .unavailable(.signInExpired))
     }
 
     @Test("a tokenless authoritative Devin file cannot select a different account")

@@ -18,6 +18,10 @@
   then send bounded read-only HTTPS to a fixed allowlist. Experimental — private
   endpoints may change and live-account compatibility is unverified. Cursor keeps its
   own opt-in flag.
+- Cursor windows use the dashboard's pool names (Cursor Models, Other Models) next to the
+  monthly included total; existing Auto/API pins keep working.
+- An expired local sign-in (Gemini, Grok, Antigravity) names the CLI to run once; a missing
+  sign-in names the provider to sign in to.
 
 **Guide, pace, alerts:**
 - The optional Guide offers at most one conservative next-account candidate.

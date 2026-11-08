@@ -35,9 +35,12 @@ public struct GrokUsageCollector: Sendable {
 
     /// Only `https://auth.x.ai`-origin entries may supply a token; unknown origins
     /// and ambiguous duplicates with no explicit selection fail closed.
-    private func token() -> (key: String, userID: String?)? {
+    enum TokenLookup { case token(key: String, userID: String?), expired, none }
+
+    private func token() -> TokenLookup {
         guard let data = credentials.read(authFile),
-              let object = UsageJSON.object(data) else { return nil }
+              let object = UsageJSON.object(data) else { return .none }
+        var sawExpired = false
         let entries = object.compactMap { (key: String, value: Any) -> (key: String, userID: String?)? in
             // exactly "https://auth.x.ai" or that prefix plus "::" — a lookalike host fails
             guard key == Self.authPrefix || key.hasPrefix(Self.authPrefix + "::"),
@@ -46,12 +49,14 @@ public struct GrokUsageCollector: Sendable {
             if let raw = e["expires_at"] {
                 // Skip near-expiry tokens rather than refreshing credentials.
                 guard let expiry = UsageJSON.expiryDate(raw), expiry > now().addingTimeInterval(300)
-                else { return nil }
+                else { sawExpired = true; return nil }
             }
             return (tokenKey, UsageJSON.plainID(e["user_id"]))
         }
-        guard entries.count == 1, let only = entries.first else { return nil }
-        return only
+        guard entries.count == 1, let only = entries.first else {
+            return sawExpired && entries.isEmpty ? .expired : .none
+        }
+        return .token(key: only.key, userID: only.userID)
     }
 
     public func collect() -> [AccountUsage] {
@@ -61,7 +66,12 @@ public struct GrokUsageCollector: Sendable {
                          state: state, readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        guard let t = token() else { return [finish(.unavailable(.noSignIn))] }
+        let t: (key: String, userID: String?)
+        switch token() {
+        case .token(let key, let userID): t = (key, userID)
+        case .expired: return [finish(.unavailable(.signInExpired))]
+        case .none: return [finish(.unavailable(.noSignIn))]
+        }
 
         var headers = ["Authorization": "Bearer \(t.key)",
                        "X-XAI-Token-Auth": "xai-grok-cli",

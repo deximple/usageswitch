@@ -124,7 +124,21 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var effectiveLanguage: AppLanguage { language ?? AppLanguage.system() }
     public var effectiveMenuBarShowsName: Bool { menuBarShowsName ?? true }
     public var effectiveShowEmails: Bool { showEmails ?? false }
-    public var effectiveUsagePins: [String] { usagePins ?? [] }
+    public var effectiveUsagePins: [String] {
+        var seen = Set<String>()
+        return (usagePins ?? []).compactMap { key in
+            var k = key
+            // Legacy Cursor scope names predate the dashboard pool rename.
+            if k.hasPrefix("\(CursorUsageCollector.rowID)/") {
+                if k.hasSuffix("/Auto") {
+                    k = String(k.dropLast(4)) + CursorUsageParser.cursorModelsScope
+                } else if k.hasSuffix("/API") {
+                    k = String(k.dropLast(3)) + CursorUsageParser.otherModelsScope
+                }
+            }
+            return seen.insert(k).inserted ? k : nil
+        }
+    }
     public var effectiveMenuBarShowsUsage: Bool { menuBarShowsUsage ?? true }
     public var effectiveCursorUsageEnabled: Bool { cursorUsageEnabled ?? false }
     /// Appearance stored as a raw string so unknown values decode to system without a migration.

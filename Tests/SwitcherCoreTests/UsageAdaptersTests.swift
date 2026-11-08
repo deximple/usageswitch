@@ -104,7 +104,7 @@ struct GrokAdapterTests {
     func expired() {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/grok-home/.grok/auth.json"] = #"{"https://auth.x.ai":{"key":"k1","expires_at":"2020-01-01T00:00:00Z"}}"#.data(using: .utf8)
-        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.signInExpired))
         #expect(http.requests.isEmpty)
     }
 
@@ -169,7 +169,7 @@ struct GeminiAdapterTests {
         runner.respond = { _ in UsageProcessResult(lines: [keychain], outcome: .exited(0)) }
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
             #"{"access_token":"file-token","expiry_date":9999999999999}"#.data(using: .utf8)
-        #expect(collector(http, creds, runner: runner).collect().first?.state == .unavailable(.noSignIn))
+        #expect(collector(http, creds, runner: runner).collect().first?.state == .unavailable(.signInExpired))
         #expect(creds.reads == 0 && http.requests.isEmpty)
     }
 
@@ -220,7 +220,7 @@ struct GeminiAdapterTests {
     func expired() {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] = #"{"access_token":"t1","expiry_date":1}"#.data(using: .utf8)
-        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.signInExpired))
         #expect(http.requests.isEmpty)
     }
 
@@ -722,5 +722,30 @@ struct CursorCredentialTests {
             http: http, home: home, credentials: creds)
         expectRefusedWithoutRetainedWindows(c.collect().first)
         #expect(http.calls.count == 1)
+    }
+}
+
+extension GrokAdapterTests {
+    @Test("one expired plus one valid entry still uses the valid token")
+    func expiredPlusValid() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = #"{"https://auth.x.ai":{"key":"old","expires_at":"2020-01-01T00:00:00Z"},"https://auth.x.ai::b":{"key":"k1","expires_at":"2999-01-01T00:00:00Z"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 200, body: #"{"config":{"creditUsagePercent":40,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2023-11-20T00:00:00Z"},"subscriptionTier":"x"}}"#.data(using: .utf8)!)]
+        let row = collector(http, creds).collect().first
+        #expect(row?.state == .ok)
+        #expect(http.requests.count == 1)
+        #expect(http.requests.first?.headers["Authorization"] == "Bearer k1")
+    }
+}
+
+@Suite("Sign-in reason text")
+struct SignInReasonTests {
+    @Test("noSignIn names the provider; signInExpired names the CLI command")
+    func reasons() {
+        L10n.language = .en
+        #expect(UsageText.problem(.noSignIn, provider: .grok).contains("Grok"))
+        #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
+        #expect(UsageText.cliCommand(.cursor) == "cursor-agent")
+        #expect(UsageText.cliCommand(.antigravity) == "agy")
     }
 }

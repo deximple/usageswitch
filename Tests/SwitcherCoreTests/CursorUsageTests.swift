@@ -109,7 +109,7 @@ struct CursorUsageTests {
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .ok)
         let windows = try #require(usage?.windows)
-        #expect(windows.map(\.scope) == [nil, "Auto", "API"])
+        #expect(windows.map(\.scope) == [nil, CursorUsageParser.cursorModelsScope, CursorUsageParser.otherModelsScope])
         #expect(windows.map(\.usedPercent) == [30, 42.5, 7])
         #expect(windows.allSatisfy { $0.kind == .monthly })
         #expect(windows.allSatisfy { $0.durationMinutes == 43200 })
@@ -122,7 +122,7 @@ struct CursorUsageTests {
     func missingSplit() {
         let body = Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{"autoPercentUsed":42,"totalPercentUsed":30}}"#.utf8)
         let windows = CursorUsageParser.windows(usage: body)
-        #expect(windows?.map(\.scope) == [nil, "Auto"])
+        #expect(windows?.map(\.scope) == [nil, CursorUsageParser.cursorModelsScope])
         #expect(windows?.map(\.usedPercent) == [30, 42])
     }
 
@@ -178,7 +178,7 @@ struct CursorUsageTests {
         let snap = UsageSnapshot(presentations: [p], generatedAt: usage.readAt)
         let account = snap.accounts[0]
         #expect(account.id == "cursor:cursor" && account.provider == "cursor")
-        #expect(account.windows.map(\.scope) == [nil, "Auto", "API"])
+        #expect(account.windows.map(\.scope) == [nil, CursorUsageParser.cursorModelsScope, CursorUsageParser.otherModelsScope])
         #expect(account.windows.map(\.usedPercent) == [30, 42.5, 7])
         #expect(account.windows[0].leftPercent == 70)
     }
@@ -252,7 +252,7 @@ struct CursorUsageTests {
                 if field == "totalPercentUsed" {
                     #expect(windows == nil, "\(field)=\(value)")
                 } else {
-                    let expectedScopes: [String?] = field == "autoPercentUsed" ? [nil, "API"] : [nil, "Auto"]
+                    let expectedScopes: [String?] = field == "autoPercentUsed" ? [nil, CursorUsageParser.otherModelsScope] : [nil, CursorUsageParser.cursorModelsScope]
                     let expectedPercentages = field == "autoPercentUsed" ? [30.0, 7.0] : [30.0, 42.0]
                     #expect(windows?.map(\.scope) == expectedScopes, "\(field)=\(value)")
                     #expect(windows?.map(\.usedPercent) == expectedPercentages, "\(field)=\(value)")
@@ -272,7 +272,7 @@ struct CursorUsageTests {
         }
         // A null split behaves like a missing field while the total still reports.
         let nullSplit = body(#""autoPercentUsed":42,"apiPercentUsed":null,"totalPercentUsed":30"#)
-        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.scope) == [nil, "Auto"])
+        #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.scope) == [nil, CursorUsageParser.cursorModelsScope])
         #expect(CursorUsageParser.windows(usage: nullSplit, merged: nil)?.map(\.usedPercent) == [30, 42])
         // Boundaries and numeric strings/fractions pass through unchanged.
         let edges = body(#""autoPercentUsed":0,"apiPercentUsed":"55.5","totalPercentUsed":100"#)
@@ -297,7 +297,7 @@ struct CursorUsageTests {
         let fake = fakeHTTP(usage: badUsage)
         let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .ok)
-        #expect(usage?.windows.map(\.scope) == [nil, "API"])
+        #expect(usage?.windows.map(\.scope) == [nil, CursorUsageParser.otherModelsScope])
         #expect(usage?.windows.map(\.usedPercent) == [30, 7])
     }
 
@@ -311,5 +311,25 @@ struct CursorUsageTests {
         fake = fakeHTTP(usage: nil) // no response at all
         usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .failed(.network))
+    }
+}
+
+@Suite("Cursor pin key migration")
+struct CursorPinMigrationTests {
+    @Test("legacy Auto/API pins map to dashboard pool names; others untouched; dedupes")
+    func mapping() {
+        let settings = SwitcherSettings(usagePins: [
+            "cursor:cursor/monthly/Auto",
+            "cursor:cursor/monthly/API",
+            "codex:standard/monthly/API",
+            "cursor:cursor/monthly/Cursor Models",
+            "cursor:cursor/weekly/Auto",
+        ])
+        #expect(settings.effectiveUsagePins == [
+            "cursor:cursor/monthly/Cursor Models",
+            "cursor:cursor/monthly/Other Models",
+            "codex:standard/monthly/API",
+            "cursor:cursor/weekly/Cursor Models",
+        ])
     }
 }
