@@ -71,17 +71,31 @@ treated as subscription balances.
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
 | Cursor | Current-period usage endpoint (unscoped total plus scoped Auto/API windows) | Opt-in; on the verified account, the total matched dashboard “Cursor Models,” not “Other Models,” so may not cover the whole plan |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
-| Gemini | Code Assist project/quota | Opt-in; model/input/output limits kept separate |
+| Gemini | Code Assist project/quota | Opt-in; Keychain then legacy auth file (encrypted-file storage unsupported); model/input/output limits kept separate |
+| Antigravity | Hidden `agy` `/usage` screen; read-only Code Assist quota API as fallback/enrichment | Opt-in; may use agy's Keychain login for a temporary in-memory API token |
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
 | OpenCode Go | Go usage endpoint | Opt-in; only the Go plan, not an OpenCode total |
 
-The five optional providers are all **off by default**. Enabling one explains that
+The six optional providers are all **off by default**. Enabling one explains that
 UsageSwitch reads that provider's local sign-in and sends read-only usage requests to a
-fixed allowlist over HTTPS — no redirects, bounded responses, one request per refresh
-(Gemini may make two). Those optional-provider tokens are never saved or
-logged by the usage collectors. The newer connectors are **experimental** — private
+fixed allowlist over HTTPS — no redirects, bounded responses. Gemini may make two API
+requests; Antigravity may make a token exchange and two quota API requests. Gemini supports
+its CLI Keychain item and legacy `~/.gemini/oauth_creds.json`, using only its access token
+and expiry; forced encrypted-file storage is unsupported and shows no sign-in. Antigravity
+runs `agy` from your home folder in a hidden terminal to read `/usage`, at most once every
+9 minutes. `agy` starts with its normal configuration, which may include MCP servers you
+configured. UsageSwitch never answers agy's prompts, including the folder-trust prompt; if
+agy asks, the app sends no response and falls back to the read-only quota API. That fallback
+may use the Keychain generic-password item with service `gemini` and account
+`antigravity-acp` to mint a temporary access token held only in memory; macOS may ask to
+allow access to that item. The token is not saved and UsageSwitch does not write to agy's
+configuration. Those optional-provider tokens are never saved or logged by the usage collectors.
+The newer connectors are **experimental** — private
 endpoints may change and live-account compatibility is not yet verified. UsageSwitch
-never signs in or out, switches accounts, or runs model tasks. For an explicitly
+never signs in or out, switches accounts, or runs model tasks. Antigravity's refresh-token
+grant is used only to obtain a temporary in-memory access token for the read-only quota call;
+no model requests are sent.
+For an explicitly
 connected Claude profile, the official CLI may refresh its own token or update its
 own config files as described above. Usage collection makes no model requests. There
 is no analytics, telemetry, or background auto-updater.

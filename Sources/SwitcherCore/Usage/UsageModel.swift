@@ -2,7 +2,7 @@ import Foundation
 
 /// Where a usage reading came from.
 public enum UsageProvider: String, Codable, Sendable, CaseIterable {
-    case claude, codex, cursor, grok, gemini, devin, opencode
+    case claude, codex, cursor, grok, gemini, antigravity, devin, opencode
 
     /// Claude and Codex are read through their own vendor CLIs; every other provider
     /// touches local credentials or network and requires an explicit consent grant.

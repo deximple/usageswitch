@@ -152,6 +152,7 @@ extension Strings {
         .uiUsageConnections: "Conexiones de uso",
         .uiConnectUsageTitle: "Conectar uso de %@",
         .uiConnectUsageBody: "UsageSwitch leerá el inicio de sesión de %@ y enviará solicitudes de uso de solo lectura por HTTPS. No ejecuta tareas, actualiza tokens ni inicia sesión.",
+        .uiConnectAntigravityBody: "UsageSwitch ejecuta agy desde tu carpeta de inicio en un terminal oculto para leer /usage, como máximo una vez cada 9 minutos. agy se inicia con su configuración normal, que puede incluir los servidores MCP que configuraste. UsageSwitch nunca responde a los avisos de agy, incluido el de confianza de carpeta; si agy pregunta, la app recurre a la API de cuotas de solo lectura. Si es necesario, puede usar el inicio de sesión de agy en el Llavero gemini para obtener un token temporal solo en memoria. macOS puede pedir permiso para acceder al Llavero. El token no se guarda, la configuración de agy no se modifica y no se envían solicitudes ni tareas de modelos.",
         .uiConnectUsageEnable: "Activar",
         .uiClaudeProfileConnect: "Conectar uso mediante un perfil CLI…",
         .uiClaudeProfileDisconnect: "Desconectar",

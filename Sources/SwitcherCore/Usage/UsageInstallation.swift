@@ -60,6 +60,17 @@ public enum UsageInstallations {
                 .map { $0.appendingPathComponent(name) }
                 .first(where: isExecutableFile)
         }
+        func googleGeminiCLI() -> URL? {
+            directories(claudeLocal: false)
+                .map { $0.appendingPathComponent("gemini") }
+                .first { candidate in
+                    guard isExecutableFile(candidate) else { return false }
+                    let components = candidate.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+                    return components.indices.dropLast().contains { index in
+                        components[index] == "@google" && components[index + 1] == "gemini-cli"
+                    }
+                }
+        }
         let appRoots = searchRoots?.applicationDirectories
             ?? [URL(fileURLWithPath: "/Applications", isDirectory: true),
                 home.appendingPathComponent("Applications", isDirectory: true)]
@@ -75,11 +86,15 @@ public enum UsageInstallations {
         let grokCLI = firstExecutable(named: "grok")
             ?? (searchRoots == nil && isExecutableFile(home.appendingPathComponent(".grok/bin/grok"))
                 ? home.appendingPathComponent(".grok/bin/grok") : nil)
-        let geminiCLI = firstExecutable(named: "gemini")
+        let geminiCLI = googleGeminiCLI()
+        let localAntigravityCLI = home.appendingPathComponent(".local/bin/agy")
+        let antigravityCLI = firstExecutable(named: "agy")
+            ?? (searchRoots == nil && isExecutableFile(localAntigravityCLI) ? localAntigravityCLI : nil)
         let devinCLI = firstExecutable(named: "devin")
         let opencodeCLI = firstExecutable(named: "opencode")
             ?? (searchRoots == nil && isExecutableFile(home.appendingPathComponent(".opencode/bin/opencode"))
                 ? home.appendingPathComponent(".opencode/bin/opencode") : nil)
+        let antigravityApp = app("Antigravity")
 
         let rows = [
             UsageInstallation(provider: .claude,
@@ -88,6 +103,7 @@ public enum UsageInstallations {
             UsageInstallation(provider: .cursor, cli: cursorCLI, app: app("Cursor")),
             UsageInstallation(provider: .grok, cli: grokCLI, app: nil),
             UsageInstallation(provider: .gemini, cli: geminiCLI, app: nil),
+            UsageInstallation(provider: .antigravity, cli: antigravityCLI, app: antigravityApp),
             UsageInstallation(provider: .devin, cli: devinCLI, app: nil),
             UsageInstallation(provider: .opencode, cli: opencodeCLI, app: nil),
         ]
