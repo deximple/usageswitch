@@ -103,6 +103,19 @@ public final class SuggestionLogReader: @unchecked Sendable {
     public static let maximumLineBytes = 1_048_576
     public static let maximumReadBytes = 8 * 1_048_576
     public static let maximumFileAge: TimeInterval = 14 * 24 * 60 * 60
+    private static let pendingMessageIdleTime: TimeInterval = 10 * 60
+
+    private struct PendingClaudeMessage: Codable {
+        let idHash: String
+        let model: String
+        let effort: String?
+        let toolVersion: String?
+        let timestamp: Date
+        let inputTokens: Int64
+        let outputTokens: Int64
+        let cacheReadInputTokens: Int64
+        let cacheCreationInputTokens: Int64
+    }
 
     private struct Cursor: Codable {
         var inode: UInt64
@@ -111,6 +124,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var codexModel: String?
         var codexEffort: String?
         var codexToolVersion: String?
+        var claudePending: PendingClaudeMessage?
     }
 
     private struct FileCursorState: Codable {
@@ -265,7 +279,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var totalRead = 0
         var totals: [UsageKey: Totals] = [:]
 
-        for file in files where remaining > 0 {
+        for file in files {
             guard !Task.isCancelled,
                   let pathKey = Self.pathKey(file.url.path),
                   let accountRef = accountReferences.key(for: file.root.accountRef),
@@ -275,10 +289,20 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 cursor = Cursor(inode: info.inode, offset: 0)
             }
             guard cursor.offset < info.size else {
+                if file.root.provider == .claude,
+                   now.timeIntervalSince(info.modifiedAt) > Self.pendingMessageIdleTime,
+                   let pending = cursor.claudePending {
+                    accumulate(claudeUsage(from: pending, accountRef: accountRef), into: &totals)
+                    cursor.claudePending = nil
+                }
                 cursors[pathKey] = cursor
                 continue
             }
 
+            guard remaining > 0 else {
+                cursors[pathKey] = cursor
+                continue
+            }
             let requested = Int(min(info.size - cursor.offset, UInt64(remaining)))
             guard requested > 0, let data = Self.read(file.url, offset: cursor.offset, count: requested) else {
                 continue
@@ -290,7 +314,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
             switch file.root.provider {
             case .claude:
                 (nextCursor, parsed) = processClaude(
-                    data, cursor: cursor, accountRef: accountRef)
+                    data, cursor: cursor, accountRef: accountRef,
+                    finalizePending: now.timeIntervalSince(info.modifiedAt) > Self.pendingMessageIdleTime)
             case .codex:
                 (nextCursor, parsed) = processCodex(
                     data, cursor: cursor, accountRef: accountRef,
@@ -301,10 +326,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
             }
             cursors[pathKey] = nextCursor
             for parsedUsage in parsed {
-                let key = UsageKey(day: parsedUsage.day, provider: parsedUsage.provider,
-                                   accountRef: parsedUsage.accountRef, model: parsedUsage.model,
-                                   effort: parsedUsage.effort, toolVersion: parsedUsage.toolVersion)
-                totals[key, default: Totals()].add(parsedUsage)
+                accumulate(parsedUsage, into: &totals)
             }
         }
 
@@ -401,43 +423,75 @@ public final class SuggestionLogReader: @unchecked Sendable {
         files.append(LogFile(url: url, root: root, modifiedAt: info.modifiedAt))
     }
 
-    private func processClaude(_ data: Data, cursor: Cursor,
-                               accountRef: String) -> (Cursor, [ParsedUsage]) {
+    private func processClaude(_ data: Data, cursor: Cursor, accountRef: String,
+                               finalizePending: Bool) -> (Cursor, [ParsedUsage]) {
         let (lines, next) = completeLines(data, cursor: cursor)
         let decoder = JSONDecoder()
-        var keyed: [String: ParsedUsage] = [:]
+        var pending = cursor.claudePending
+        var finalized: [ParsedUsage] = []
         var anonymous: [ParsedUsage] = []
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fallbackFormatter = ISO8601DateFormatter()
 
         for line in lines {
             guard let decoded = try? decoder.decode(ClaudeLine.self, from: line),
                   decoded.type == "assistant",
+                  let message = decoded.message else { continue }
+            let idHash = message.id.flatMap { nonEmpty($0) == nil ? nil : Self.sha256Hex($0) }
+            if let idHash, let existingPending = pending, existingPending.idHash != idHash {
+                finalized.append(claudeUsage(from: existingPending, accountRef: accountRef))
+                pending = nil
+            }
+            guard
                   let timestamp = decoded.timestamp,
-                  let date = formatter.date(from: timestamp) ?? fallbackFormatter.date(from: timestamp),
-                  let message = decoded.message,
+                  let date = parseTimestamp(timestamp),
                   let rawModel = nonEmpty(message.model),
                   let usage = message.usage else { continue }
             let tokens = [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens,
                           usage.cache_creation_input_tokens]
             guard tokens.contains(where: { $0 != nil }),
                   tokens.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { continue }
-            let parsed = ParsedUsage(
-                day: SuggestionRetention.utcDay(date), provider: .claude, accountRef: accountRef,
-                model: safeModel(rawModel), effort: safeEffort(decoded.effort ?? decoded.perTurnEffort),
+            let messageFields = PendingClaudeMessage(
+                idHash: idHash ?? "",
+                model: safeModel(rawModel),
+                effort: safeEffort(decoded.effort ?? decoded.perTurnEffort),
+                toolVersion: safeToolVersion(decoded.version),
+                timestamp: date,
                 inputTokens: usage.input_tokens ?? 0,
-                cachedInputTokens: Self.saturatingAdd(
-                    usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0),
-                outputTokens: usage.output_tokens ?? 0, reasoningTokens: 0,
-                toolVersion: safeToolVersion(decoded.version))
-            if let id = message.id, !id.isEmpty {
-                keyed[id] = parsed
+                outputTokens: usage.output_tokens ?? 0,
+                cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
+                cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0)
+            if idHash != nil {
+                pending = messageFields
             } else {
-                anonymous.append(parsed)
+                anonymous.append(claudeUsage(from: messageFields, accountRef: accountRef))
             }
         }
-        return (next, anonymous + keyed.values)
+        if finalizePending, let pending {
+            finalized.append(claudeUsage(from: pending, accountRef: accountRef))
+            pending = nil
+        }
+        var updated = next
+        updated.claudePending = pending
+        return (updated, anonymous + finalized)
+    }
+
+    private func claudeUsage(from pending: PendingClaudeMessage,
+                             accountRef: String) -> ParsedUsage {
+        ParsedUsage(
+            day: SuggestionRetention.utcDay(pending.timestamp), provider: .claude,
+            accountRef: accountRef, model: pending.model, effort: pending.effort,
+            inputTokens: pending.inputTokens,
+            cachedInputTokens: Self.saturatingAdd(
+                pending.cacheReadInputTokens, pending.cacheCreationInputTokens),
+            outputTokens: pending.outputTokens, reasoningTokens: 0,
+            toolVersion: pending.toolVersion)
+    }
+
+    private func accumulate(_ parsedUsage: ParsedUsage,
+                            into totals: inout [UsageKey: Totals]) {
+        let key = UsageKey(day: parsedUsage.day, provider: parsedUsage.provider,
+                           accountRef: parsedUsage.accountRef, model: parsedUsage.model,
+                           effort: parsedUsage.effort, toolVersion: parsedUsage.toolVersion)
+        totals[key, default: Totals()].add(parsedUsage)
     }
 
     private func processCodex(_ data: Data, cursor: Cursor, accountRef: String,
@@ -581,7 +635,11 @@ public final class SuggestionLogReader: @unchecked Sendable {
     }
 
     private static func pathKey(_ path: String) -> String? {
-        let digest = SHA256.hash(data: Data(path.utf8))
+        sha256Hex(path)
+    }
+
+    private static func sha256Hex(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 

@@ -63,6 +63,7 @@ struct SuggestionLogReaderTests {
         {"type":"user","content":[{"text":"jay.song@example.com sk-ant-FAKE /Users/jay/private"}],"cwd":"/Users/jay/private"}
         \(claudeLine(id: "message-id-private", input: 10))
         \(claudeLine(id: "message-id-private", input: 20))
+        \(claudeLine(id: "message-id-next", input: 30))
         {malformed json
         """
         try write(fixture + "\n", to: file, modifiedAt: now)
@@ -87,6 +88,7 @@ struct SuggestionLogReaderTests {
             #expect(!text.contains("sk-ant-FAKE"))
             #expect(!text.contains("/Users/jay/private"))
             #expect(!text.contains("message-id-private"))
+            #expect(!text.contains("message-id-next"))
             #expect(!text.contains(file.path))
         }
         let cursorText = try String(contentsOf: directory.appendingPathComponent("log-cursors.json"),
@@ -106,12 +108,12 @@ struct SuggestionLogReaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)
         let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
-        let first = claudeLine(id: "first", input: 10)
+        let first = claudeLine(id: "partial", input: 10)
         let partial = #"{"type":"assistant","timestamp":"\#(timestamp())","effort":"medium","version":"1.0","message":{"id":"partial","model":"claude-fable-5-1","usage":{"input_tokens":30"#
         try write(first + "\n" + partial, to: file, modifiedAt: now)
         let logReader = reader(root)
         let initial = logReader.read(roots: [logRoot], now: now)
-        #expect(initial.records.map(\.inputTokens) == [10])
+        #expect(initial.records.isEmpty)
 
         let partialAgain = logReader.read(roots: [logRoot], now: now)
         #expect(partialAgain.records.isEmpty)
@@ -119,6 +121,7 @@ struct SuggestionLogReaderTests {
         try handle.seekToEnd()
         try handle.write(contentsOf: Data(#","output_tokens":4,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#.utf8))
         try handle.write(contentsOf: Data("\n".utf8))
+        try handle.write(contentsOf: Data((claudeLine(id: "end", input: 40) + "\n").utf8))
         try handle.close()
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
         let resumed = logReader.read(roots: [logRoot], now: now)
@@ -129,18 +132,66 @@ struct SuggestionLogReaderTests {
         #expect(noChanges.bytesRead == 0)
     }
 
+    @Test("Claude messages spanning passes retain only the final usage")
+    func claudeMessageAcrossPasses() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
+        try write(claudeLine(id: "message-id-split", input: 10) + "\n",
+                  to: file, modifiedAt: now)
+        let logReader = reader(root)
+        #expect(logReader.read(roots: [logRoot], now: now).records.isEmpty)
+
+        let append = claudeLine(id: "message-id-split", input: 20) + "\n"
+            + claudeLine(id: "message-id-next", input: 30) + "\n"
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(append.utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
+        let pass = logReader.read(roots: [logRoot], now: now)
+        #expect(pass.records.count == 1)
+        #expect(pass.records.first?.turns == 1)
+        #expect(pass.records.first?.inputTokens == 20)
+
+        let cursor = try String(contentsOf: environment(root).storeDir
+            .appendingPathComponent("suggestion/log-cursors.json"), encoding: .utf8)
+        #expect(!cursor.contains("message-id-split"))
+        #expect(!cursor.contains("message-id-next"))
+    }
+
+    @Test("idle Claude messages are finalized after ten minutes")
+    func claudeIdleMessageFinalizes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
+        try write(claudeLine(id: "idle-message", input: 42) + "\n", to: file,
+                  modifiedAt: now.addingTimeInterval(-11 * 60))
+
+        let pass = reader(root).read(roots: [logRoot], now: now)
+        #expect(pass.records.count == 1)
+        #expect(pass.records.first?.turns == 1)
+        #expect(pass.records.first?.inputTokens == 42)
+    }
+
     @Test("inode replacement restarts its cursor at zero")
     func inodeRotation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)
         let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
-        try write(claudeLine(id: "old", input: 1) + "\n", to: file, modifiedAt: now)
+        try write(claudeLine(id: "old", input: 1) + "\n"
+                  + claudeLine(id: "old-next", input: 2) + "\n",
+                  to: file, modifiedAt: now)
         let logReader = reader(root)
         #expect(logReader.read(roots: [logRoot], now: now).records.first?.inputTokens == 1)
 
         let replacement = file.deletingLastPathComponent().appendingPathComponent("replacement.jsonl")
-        try write(claudeLine(id: "new", input: 9) + "\n", to: replacement, modifiedAt: now)
+        try write(claudeLine(id: "new", input: 9) + "\n"
+                  + claudeLine(id: "new-next", input: 10) + "\n",
+                  to: replacement, modifiedAt: now)
         #expect(rename(replacement.path, file.path) == 0)
         #expect(logReader.read(roots: [logRoot], now: now).records.first?.inputTokens == 9)
     }
@@ -281,13 +332,19 @@ struct SuggestionLogReaderTests {
         #expect(usageMode?.intValue == 0o600)
     }
 
-    @Test("recent summary selects the most-used effort and unknown accounts have no hint")
+    @Test("recent summary totals effort across models and unknown accounts have no hint")
     func recentSummary() {
         let account = "acct-0123456789abcdef"
         let day = SuggestionRetention.utcDay(now)
         let records = [
             SuggestionLogUsage(day: day, provider: .codex, accountRef: account, model: "openai/gpt-5",
-                               effort: "high", turns: 2, inputTokens: 0, cachedInputTokens: 0,
+                               effort: "high", turns: 3, inputTokens: 0, cachedInputTokens: 0,
+                               outputTokens: 0, reasoningTokens: 0, toolVersion: nil),
+            SuggestionLogUsage(day: day, provider: .codex, accountRef: account, model: "openai/gpt-5",
+                               effort: "medium", turns: 4, inputTokens: 0, cachedInputTokens: 0,
+                               outputTokens: 0, reasoningTokens: 0, toolVersion: nil),
+            SuggestionLogUsage(day: day, provider: .codex, accountRef: account, model: "openai/gpt-4",
+                               effort: "high", turns: 3, inputTokens: 0, cachedInputTokens: 0,
                                outputTokens: 0, reasoningTokens: 0, toolVersion: nil),
             SuggestionLogUsage(day: day, provider: .codex, accountRef: account, model: "openai/gpt-5",
                                effort: "low", turns: 3, inputTokens: 0, cachedInputTokens: 0,
