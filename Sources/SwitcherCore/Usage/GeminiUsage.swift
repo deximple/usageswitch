@@ -270,11 +270,12 @@ public protocol GeminiOAuthClientFinding: Sendable {
 
 /// Reads `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` from the installed
 /// `@google/gemini-cli` package's `bundle/*.js`. Accepts only a single distinct
-/// value for each, shape-validated; results are cached per package path and
-/// bundle-directory modification time. Values are never logged.
+/// value for each, shape-validated; results are cached per package path and the
+/// name, size and modification time of every bundle file, so an in-place CLI
+/// update is rescanned. Values are never logged.
 public final class GeminiOAuthClientFinder: GeminiOAuthClientFinding, @unchecked Sendable {
     private struct CacheEntry: Sendable {
-        let bundleModified: Date?
+        let signature: [String]
         let client: (id: String, secret: String)?
     }
 
@@ -293,19 +294,30 @@ public final class GeminiOAuthClientFinder: GeminiOAuthClientFinding, @unchecked
         }
         guard dir.lastPathComponent == "gemini-cli" else { return nil }
         let bundle = dir.appendingPathComponent("bundle", isDirectory: true)
-        let modified = (try? FileManager.default
-            .attributesOfItem(atPath: bundle.path)[.modificationDate]) as? Date
+        let signature = Self.signature(bundle: bundle)
         let key = dir.path
         lock.lock()
-        if let hit = cache[key], hit.bundleModified == modified {
+        if let hit = cache[key], hit.signature == signature {
             let client = hit.client; lock.unlock(); return client
         }
         lock.unlock()
         let found = Self.scan(bundle: bundle)
         lock.lock()
-        cache[key] = CacheEntry(bundleModified: modified, client: found)
+        cache[key] = CacheEntry(signature: signature, client: found)
         lock.unlock()
         return found
+    }
+
+    /// `name:size:mtime` for every bundle `.js` file — a stat per file, no content read.
+    private static func signature(bundle: URL) -> [String] {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: bundle, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
+        return files.filter { $0.pathExtension == "js" }.map { file in
+            let values = try? file.resourceValues(forKeys: Set(keys))
+            let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
+            return "\(file.lastPathComponent):\(values?.fileSize ?? -1):\(modified)"
+        }.sorted()
     }
 
     private static func scan(bundle: URL) -> (id: String, secret: String)? {

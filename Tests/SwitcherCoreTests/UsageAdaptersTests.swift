@@ -862,6 +862,21 @@ struct GeminiOAuthScanTests {
         #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
     }
 
+    @Test("an in-place bundle rewrite is rescanned by the same finder")
+    func rescansInPlaceUpdate() throws {
+        let cli = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        let finder = GeminiOAuthClientFinder()
+        #expect(finder.client(for: cli)?.id == id)
+        let file = cli.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("bundle/a.js")
+        let other = FakeGoogleClient.id("456-def")
+        try #"OAUTH_CLIENT_ID = "\#(other)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
+            .write(to: file, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)],
+                                              ofItemAtPath: file.path)
+        #expect(finder.client(for: cli)?.id == other)
+    }
+
     @Test("two different values or malformed shapes are rejected")
     func rejects() throws {
         let a = #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
