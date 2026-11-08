@@ -285,6 +285,41 @@ struct SuggestionLogReaderTests {
         #expect(!pass.records.contains { $0.inputTokens == 999 })
     }
 
+    @Test("Codex sessions with a ChatGPT plan are marked subscription and stay separate from unmarked ones")
+    func codexSubscriptionMarker() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try codexRoot(root, accountRef: "codex-profile")
+        let plan = logRoot.directory.appendingPathComponent("sessions/2027/01/rollout-plan.jsonl")
+        let apiKey = logRoot.directory.appendingPathComponent("sessions/2027/01/rollout-api.jsonl")
+        let context = #"{"type":"turn_context","payload":{"model":"gpt-5","effort":"high"}}"#
+        let planFixture = """
+        \(context)
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10}},"rate_limits":null}}
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20}},"rate_limits":{"plan_type":"plus","primary":{"used_percent":3.5}}}}
+        """
+        let apiFixture = """
+        \(context)
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":40}},"rate_limits":null}}
+        """
+        try write(planFixture + "\n", to: plan, modifiedAt: now)
+        try write(apiFixture + "\n", to: apiKey, modifiedAt: now)
+        let logReader = reader(root)
+        let pass = logReader.read(roots: [logRoot], now: now)
+        #expect(pass.records.count == 2)
+        let marked = try #require(pass.records.first { $0.subscription == true })
+        #expect(marked.inputTokens == 30)
+        #expect(marked.turns == 2)
+        let unmarked = try #require(pass.records.first { $0.subscription == nil })
+        #expect(unmarked.inputTokens == 40)
+
+        let later = #"{"type":"event_msg","timestamp":"\#(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":5}},"rate_limits":null}}"#
+        try write(planFixture + "\n" + later + "\n", to: plan, modifiedAt: now)
+        let second = logReader.read(roots: [logRoot], now: now)
+        let resumed = try #require(second.records.first { $0.inputTokens == 5 })
+        #expect(resumed.subscription == true)
+    }
+
     @Test("Codex turn context is carried across incremental reads without storing a path")
     func codexContextResumesAcrossPasses() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -137,7 +137,7 @@ encrypted for switching. No raw HTTP or credential values appear in the UI. Full
 sources, destinations and write boundaries: [PRIVACY.md](PRIVACY.md).
 
 The API tab estimates spend only from local logs belonging to accounts marked as API-key
-accounts; all figures are estimates, not provider balances. Budgets are stored locally.
+accounts; a Codex session whose log shows a ChatGPT plan is left out even when the account now uses an API key. All figures are estimates, not provider balances. Budgets are stored locally.
 API keys entered in the optional vault are stored in macOS Keychain and are never sent
 anywhere because no verified read-only balance endpoint is available.
 
