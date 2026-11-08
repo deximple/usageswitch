@@ -85,6 +85,7 @@ public protocol APIKeyVault: Sendable {
     func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry
     func list() async throws -> [APIKeyEntry]
     func reveal(id: String) async throws -> String
+    func read(id: String) async throws -> String
     func delete(id: String) async throws
 }
 
@@ -202,12 +203,16 @@ public enum APIUsageEstimator {
         func price(_ code: String) -> Double? {
             model.values.first(where: { $0.code == code })?.number
         }
-        guard (input == 0 || price("inputPricePerMTok") != nil),
-              (cached == 0 || price("cachedReadPricePerMTok") != nil),
-              (output == 0 || price("outputPricePerMTok") != nil) else { return nil }
-        let amount = Double(input) * (price("inputPricePerMTok") ?? 0) / 1_000_000
-            + Double(cached) * (price("cachedReadPricePerMTok") ?? 0) / 1_000_000
-            + Double(output) * (price("outputPricePerMTok") ?? 0) / 1_000_000
+        let inputPrice = price("inputPricePerMTok")
+        let cachedReadPrice = price("cachedReadPricePerMTok")
+        let outputPrice = price("outputPricePerMTok")
+        guard (input == 0 || inputPrice != nil),
+              (cached == 0 || cachedReadPrice != nil),
+              (output == 0 || outputPrice != nil) else { return nil }
+        let inputCost: Double = Double(input) * (inputPrice ?? 0) / 1_000_000
+        let cachedCost: Double = Double(cached) * (cachedReadPrice ?? 0) / 1_000_000
+        let outputCost: Double = Double(output) * (outputPrice ?? 0) / 1_000_000
+        let amount: Double = inputCost + cachedCost + outputCost
         return amount.isFinite && amount >= 0 ? amount : nil
     }
 

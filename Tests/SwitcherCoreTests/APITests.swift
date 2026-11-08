@@ -88,9 +88,10 @@ struct APITests {
         let inputPrice = try price("inputPricePerMTok")
         let cachedReadPrice = try price("cachedReadPricePerMTok")
         let outputPrice = try price("outputPricePerMTok")
-        let expected = 1_200_000 * inputPrice / 1_000_000
-            + 100_000 * cachedReadPrice / 1_000_000
-            + 500_000 * outputPrice / 1_000_000
+        let inputCost: Double = 1_200_000 * inputPrice / 1_000_000
+        let cachedCost: Double = 100_000 * cachedReadPrice / 1_000_000
+        let outputCost: Double = 500_000 * outputPrice / 1_000_000
+        let expected: Double = inputCost + cachedCost + outputCost
         let estimates = APIUsageEstimator.estimate(records: [apiRecord, subscriptionRecord],
             apiKeyAccounts: [key], catalog: catalog, now: now)
         let anthropic = try #require(estimates[.anthropic])
@@ -163,27 +164,52 @@ struct APITests {
                 UsageWindow(durationMinutes: 300, usedPercent: 50, resetsAt: nil)]))
     }
 
-    @Test("fake vault exposes last four characters and gates register, reveal, and delete")
+    @Test("fake vault authenticates policy-specific reads and other key operations")
     func fakeVaultAuthentication() async throws {
-        let authenticator = CountingAuthenticator()
-        let vault = FakeAPIKeyVault(authenticator: authenticator)
-        let entry = try await vault.register(vendor: .anthropic, nickname: "work", key: "sk-test-1234")
-        let listed = try await vault.list()
+        let standardAuthenticator = CountingAuthenticator()
+        let standardVault = FakeAPIKeyVault(policy: .standard, authenticator: standardAuthenticator)
+        let entry = try await standardVault.register(
+            vendor: .anthropic, nickname: "work", key: "sk-test-1234")
+        let listed = try await standardVault.list()
         #expect(listed == [entry])
         #expect(entry.last4 == "1234")
         #expect(!listed.description.contains("sk-test-1234"))
-        #expect(try await vault.reveal(id: entry.id) == "sk-test-1234")
-        try await vault.delete(id: entry.id)
-        #expect(try await vault.list().isEmpty)
-        #expect(await authenticator.callCount == 3)
+        #expect(try await standardVault.read(id: entry.id) == "sk-test-1234")
+        #expect(await standardAuthenticator.callCount == 1)
+        #expect(try await standardVault.reveal(id: entry.id) == "sk-test-1234")
+        try await standardVault.delete(id: entry.id)
+        #expect(try await standardVault.list().isEmpty)
+        #expect(await standardAuthenticator.callCount == 3)
+
+        let strongAuthenticator = CountingAuthenticator()
+        let strongVault = FakeAPIKeyVault(policy: .strong, authenticator: strongAuthenticator)
+        let strongEntry = try await strongVault.register(
+            vendor: .openai, nickname: "strong", key: "sk-strong-5678")
+        #expect(try await strongVault.read(id: strongEntry.id) == "sk-strong-5678")
+        #expect(await strongAuthenticator.callCount == 2)
+        await strongAuthenticator.failAuthentication()
+        var returnedValue: String?
+        do {
+            returnedValue = try await strongVault.read(id: strongEntry.id)
+        } catch {
+            #expect(error as? APIKeyVaultError == .authenticationFailed)
+        }
+        #expect(returnedValue == nil)
+        #expect(await strongAuthenticator.callCount == 3)
     }
 }
 
 private actor CountingAuthenticator: APIKeyVaultAuthenticator {
     private(set) var callCount = 0
+    private var shouldFail = false
 
     func evaluatePolicy() async throws {
         callCount += 1
+        if shouldFail { throw APIKeyVaultError.authenticationFailed }
+    }
+
+    func failAuthentication() {
+        shouldFail = true
     }
 }
 
@@ -194,9 +220,11 @@ private actor FakeAPIKeyVault: APIKeyVault {
     }
 
     private let authenticator: APIKeyVaultAuthenticator
+    private let policy: APIKeyVaultAccessPolicy
     private var items: [String: Item] = [:]
 
-    init(authenticator: APIKeyVaultAuthenticator) {
+    init(policy: APIKeyVaultAccessPolicy, authenticator: APIKeyVaultAuthenticator) {
+        self.policy = policy
         self.authenticator = authenticator
     }
 
@@ -215,6 +243,14 @@ private actor FakeAPIKeyVault: APIKeyVault {
 
     func reveal(id: String) async throws -> String {
         try await authenticator.evaluatePolicy()
+        guard let item = items[id] else { throw APIKeyVaultError.keyUnavailable }
+        return item.key
+    }
+
+    func read(id: String) async throws -> String {
+        if policy == .strong {
+            try await authenticator.evaluatePolicy()
+        }
         guard let item = items[id] else { throw APIKeyVaultError.keyUnavailable }
         return item.key
     }

@@ -199,6 +199,7 @@ final class UsageModel: ObservableObject {
         suggestionLogTask?.cancel()
         await suggestionLogTask?.value
         try stateStore().flush()
+        suggestionLogReader?.reset()
         suggestionStateTask = nil
         suggestionLogTask = nil
         suggestionLogReader = nil
@@ -573,6 +574,7 @@ final class UsageModel: ObservableObject {
         let backgroundTask = Task.detached(priority: .utility) {
             _ = reader.read(roots: roots, now: now)
             for record in reader.recentRecords(now: now) {
+                guard !Task.isCancelled else { break }
                 guard let observedAt = record.lastUsedAt else { continue }
                 let candidate = SuggestionCandidate(provider: record.provider,
                     accountKey: record.accountRef, model: record.model, effort: record.effort)

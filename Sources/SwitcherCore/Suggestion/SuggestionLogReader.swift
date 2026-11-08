@@ -300,6 +300,12 @@ public final class SuggestionLogReader: @unchecked Sendable {
         accountReferences.key(for: rawAccountRef)
     }
 
+    public func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        accountReferences.reset()
+    }
+
     public func read(roots: [SuggestionLogRoot], now: Date = Date()) -> SuggestionLogPass {
         lock.lock()
         defer { lock.unlock() }

@@ -32,6 +32,12 @@ public final class SuggestionAccountReference: @unchecked Sendable {
         cachedSalt = salt
     }
 
+    func reset() {
+        Self.saltLock.lock()
+        defer { Self.saltLock.unlock() }
+        cachedSalt = nil
+    }
+
     private func loadOrCreateSalt() -> Data? {
         Self.saltLock.lock()
         defer { Self.saltLock.unlock() }

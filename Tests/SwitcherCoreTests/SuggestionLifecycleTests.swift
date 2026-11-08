@@ -294,6 +294,9 @@ struct SuggestionLifecycleTests {
         let env = environment(root)
         let fs = SafeFS(env: env)
         let store = SuggestionStateStore(env: env, fs: fs)
+        try fs.createDirectory(env.storeDir)
+        let sibling = env.storeDir.appendingPathComponent("unrelated-state.json")
+        try fs.write(Data("leave-me".utf8), to: sibling)
         let accountRef = "person@example.com"
         let oldKey = try #require(store.accountKey(for: accountRef))
         store.record([usage(25, at: start)], now: start)
@@ -308,6 +311,8 @@ struct SuggestionLifecycleTests {
 
         try store.flush()
         #expect(store.loadLastObservations().isEmpty)
+        #expect(try Data(contentsOf: sibling) == Data("leave-me".utf8))
+        #expect(!store.recordObservedAcceptance(candidate: candidate(oldKey), observedAt: start))
         #expect(try #require(store.accountKey(for: accountRef)) != oldKey)
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("derived.json").path))
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("last-observations.json").path))

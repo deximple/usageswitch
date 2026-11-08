@@ -57,23 +57,14 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
         guard let label = String(data: try encoder.encode(metadata), encoding: .utf8) else {
             throw APIKeyVaultError.invalidEntry
         }
-        var query: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: id,
             kSecAttrLabel as String: label,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: Data(key.utf8),
         ]
-        if policy == .strong {
-            var error: Unmanaged<CFError>?
-            guard let access = SecAccessControlCreateWithFlags(
-                nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &error) else {
-                throw APIKeyVaultError.keychainFailure
-            }
-            query[kSecAttrAccessControl as String] = access
-        } else {
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        }
         guard SecItemAdd(query as CFDictionary, nil) == errSecSuccess else {
             throw APIKeyVaultError.keychainFailure
         }
@@ -107,16 +98,24 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
 
     public func reveal(id: String) async throws -> String {
         try await authenticator.evaluatePolicy()
+        return try password(id: id)
+    }
+
+    public func read(id: String) async throws -> String {
+        if policy == .strong {
+            try await authenticator.evaluatePolicy()
+        }
+        return try password(id: id)
+    }
+
+    private func password(id: String) throws -> String {
         guard Self.parseAccount(id) != nil else { throw APIKeyVaultError.invalidEntry }
-        let context = LAContext()
-        context.localizedReason = L10n.t(.apiKeyAuthReason)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: id,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context,
         ]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
@@ -130,13 +129,10 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
     public func delete(id: String) async throws {
         try await authenticator.evaluatePolicy()
         guard Self.parseAccount(id) != nil else { throw APIKeyVaultError.invalidEntry }
-        let context = LAContext()
-        context.localizedReason = L10n.t(.apiKeyAuthReason)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: id,
-            kSecUseAuthenticationContext as String: context,
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {

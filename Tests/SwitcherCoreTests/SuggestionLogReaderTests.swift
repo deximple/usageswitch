@@ -133,6 +133,36 @@ struct SuggestionLogReaderTests {
         #expect(noChanges.bytesRead == 0)
     }
 
+    @Test("flush resets log-reader state and the next read writes no pre-flush data")
+    func flushResetsLogReader() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
+        try write(claudeLine(id: "pre-flush", input: 10) + "\n", to: file,
+                  modifiedAt: now.addingTimeInterval(-11 * 60))
+
+        let env = environment(root)
+        let fs = SafeFS(env: env)
+        let logReader = SuggestionLogReader(env: env, fs: fs, catalog: nil)
+        #expect(logReader.read(roots: [logRoot], now: now).records.first?.inputTokens == 10)
+        let oldAccountKey = try #require(logReader.accountRefKey(for: "person@example.com"))
+        let store = SuggestionStateStore(env: env, fs: fs)
+        try store.flush()
+
+        logReader.reset()
+        let newAccountKey = try #require(logReader.accountRefKey(for: "person@example.com"))
+        #expect(newAccountKey != oldAccountKey)
+        #expect(logReader.read(roots: [], now: now).records.isEmpty)
+        #expect(logReader.recentRecords(now: now).isEmpty)
+
+        let cursorFile = env.storeDir.appendingPathComponent("suggestion/log-cursors.json")
+        let cursorData = try Data(contentsOf: cursorFile)
+        let cursorState = try #require(JSONSerialization.jsonObject(with: cursorData)
+            as? [String: [String: Any]])
+        #expect(cursorState["cursors"]?.isEmpty == true)
+    }
+
     @Test("Claude messages spanning passes retain only the final usage")
     func claudeMessageAcrossPasses() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
