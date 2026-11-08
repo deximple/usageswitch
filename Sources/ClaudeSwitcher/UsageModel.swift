@@ -93,20 +93,17 @@ final class UsageModel: ObservableObject {
     /// Only ok, fresh windows count — a stale or failed read is never shown as current.
     var menuBarTitle: String? {
         let now = Date()
-        var pinned: UsageWindow?
-        var best: UsageWindow?
-        for usage in usages where usage.state == .ok
-            && (0...600).contains(now.timeIntervalSince(usage.readAt)) {
-            let fresh = usage.windows.filter {
+        let accounts = usages.map { usage -> [(key: String, window: UsageWindow)] in
+            guard usage.state == .ok,
+                  (0...600).contains(now.timeIntervalSince(usage.readAt)) else { return [] }
+            return usage.windows.filter {
                 !($0.isStale(now: now)) && $0.usedPercent.isFinite
-            }
-            for window in MenuBarTitle.preferredUsageWindows(fresh) {
-                if pins.contains(UsagePriority.key(usage, window)),
-                   (pinned?.usedPercent ?? -1) < window.usedPercent { pinned = window }
-                if (best?.usedPercent ?? -1) < window.usedPercent { best = window }
+            }.map { window in
+                (key: UsagePriority.key(usage, window), window: window)
             }
         }
-        guard let window = pinned ?? best, UsageText.percentLeft(window.usedPercent) != nil else { return nil }
+        guard let window = MenuBarTitle.selectWindow(accounts: accounts, pins: pins),
+              UsageText.percentLeft(window.usedPercent) != nil else { return nil }
         return MenuBarTitle.usage(windowName: UsageText.name(of: window, scoped: false),
                                 usedPercent: window.usedPercent)
     }
