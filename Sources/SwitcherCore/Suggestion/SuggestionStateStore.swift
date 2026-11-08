@@ -69,10 +69,17 @@ public final class SuggestionStateStore: @unchecked Sendable {
         let result = SuggestionStateTracker().track(
             previous: last, previousIdentityKeys: identityKeys, fresh: fresh)
         guard !result.observations.isEmpty else { return }
+        let observations = result.observations.map {
+            SuggestionObservation(
+                at: $0.at, accountRef: UsageSnapshot.maskedString($0.accountRef),
+                provider: $0.provider, windowKey: $0.windowKey, usedPercent: $0.usedPercent,
+                resetsAt: $0.resetsAt, source: $0.source,
+                toolVersion: $0.toolVersion.map(UsageSnapshot.maskedString))
+        }
         do {
             try fs.createDirectory(directory)
             let date = Self.dayString(now)
-            try appendLines(result.observations,
+            try appendLines(observations,
                             to: directory.appendingPathComponent("observations-\(date).jsonl"))
             let events = result.deltas.map(SuggestionStateEvent.delta)
                 + result.resets.map(SuggestionStateEvent.reset)
@@ -80,13 +87,14 @@ public final class SuggestionStateStore: @unchecked Sendable {
         } catch {
             return
         }
-        for observation in result.observations {
+        for observation in observations {
             let key = SuggestionStateTracker.key(provider: observation.provider,
                                                  accountRef: observation.accountRef,
                                                  windowKey: observation.windowKey)
             last[key] = observation
             if let identity = fresh.first(where: {
-                $0.accountRef == observation.accountRef && $0.provider == observation.provider
+                UsageSnapshot.maskedString($0.accountRef) == observation.accountRef
+                    && $0.provider == observation.provider
             })?.identityKey {
                 identityKeys[key] = identity
             } else {

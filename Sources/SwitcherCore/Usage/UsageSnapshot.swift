@@ -156,4 +156,8 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
             of: #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#,
             with: "••••", options: [.regularExpression, .caseInsensitive])
     }
+
+    public static func maskedString(_ value: String) -> String {
+        safeString(Privacy.maskEmails(in: value))
+    }
 }

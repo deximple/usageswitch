@@ -9,12 +9,13 @@ struct SuggestionStateTests {
 
     private func usage(_ percent: Double, at: Date, resetsAt: Date? = nil,
                        duration: Int? = 300, identity: String? = "identity",
-                       state: UsageState = .ok) -> AccountUsage {
-        AccountUsage(id: "codex:a", provider: .codex, accountRef: "a", label: "private@example.com",
+                       state: UsageState = .ok, accountRef: String = "a",
+                       toolVersion: String? = "1.2") -> AccountUsage {
+        AccountUsage(id: "codex:a", provider: .codex, accountRef: accountRef, label: "private@example.com",
                      plan: "private-plan", windows: [
                         UsageWindow(scope: nil, durationMinutes: duration,
                                     usedPercent: percent, resetsAt: resetsAt)
-                     ], state: state, readAt: at, toolVersion: "1.2", identityKey: identity)
+                     ], state: state, readAt: at, toolVersion: toolVersion, identityKey: identity)
     }
 
     @Test("window key includes kind, duration, and scope")
@@ -23,6 +24,11 @@ struct SuggestionStateTests {
             scope: "model", durationMinutes: 300, usedPercent: 10, resetsAt: nil)) == "session:300:model")
         #expect(Observation.windowKey(for: UsageWindow(
             durationMinutes: nil, usedPercent: 10, resetsAt: nil)) == "other:?:*")
+        #expect(SuggestionStateTracker.key(provider: .codex, accountRef: "jay.song@example.com",
+                                           windowKey: "session:300:*")
+            == SuggestionStateTracker.key(provider: .codex,
+                accountRef: UsageSnapshot.maskedString("jay.song@example.com"),
+                windowKey: "session:300:*"))
     }
 
     @Test("continuous observations produce a delta; gaps and duration changes start segments")
@@ -80,10 +86,12 @@ struct SuggestionStateTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let env = environment(root)
-        let row = usage(42, at: start, resetsAt: reset)
+        let row = usage(42, at: start, resetsAt: reset, accountRef: "jay.song@example.com",
+                        toolVersion: "cli.user@example.com")
         let store = SuggestionStateStore(env: env, fs: SafeFS(env: env))
         store.record([row], now: start)
-        store.record([usage(47, at: start.addingTimeInterval(120), resetsAt: reset)],
+        store.record([usage(47, at: start.addingTimeInterval(120), resetsAt: reset,
+                           accountRef: "jay.song@example.com", toolVersion: "cli.user@example.com")],
                      now: start.addingTimeInterval(120))
         let directory = env.storeDir.appendingPathComponent("suggestion")
         let file = directory.appendingPathComponent("observations-2023-11-14.jsonl")
@@ -91,12 +99,22 @@ struct SuggestionStateTests {
         let text = String(decoding: data, as: UTF8.self)
         #expect(text.contains("private-plan") == false)
         #expect(text.contains("private@example.com") == false)
+        #expect(text.contains("jay.song@example.com") == false)
+        #expect(text.contains("cli.user@example.com") == false)
+        #expect(text.contains(UsageSnapshot.maskedString("jay.song@example.com")))
+        #expect(text.contains(UsageSnapshot.maskedString("cli.user@example.com")))
         #expect(text.contains("identity") == false)
-        #expect(SuggestionStateStore(env: env, fs: SafeFS(env: env))
-            .loadLastObservations().values.first?.usedPercent == 47)
+        let reloaded = SuggestionStateStore(env: env, fs: SafeFS(env: env)).loadLastObservations()
+        let key = SuggestionStateTracker.key(provider: .codex, accountRef: "jay.song@example.com",
+                                             windowKey: "session:300:*")
+        #expect(reloaded[key]?.accountRef == UsageSnapshot.maskedString("jay.song@example.com"))
+        #expect(reloaded[key]?.usedPercent == 47)
         let eventFile = directory.appendingPathComponent("events-2023-11-14.jsonl")
-        let eventLine = try #require(try String(contentsOf: eventFile, encoding: .utf8)
-            .split(separator: "\n").last)
+        let eventText = try String(contentsOf: eventFile, encoding: .utf8)
+        #expect(eventText.contains("jay.song@example.com") == false)
+        #expect(eventText.contains("cli.user@example.com") == false)
+        #expect(eventText.contains(UsageSnapshot.maskedString("jay.song@example.com")))
+        let eventLine = try #require(eventText.split(separator: "\n").last)
         let decoded = try JSONDecoder().decode(SuggestionStateEvent.self, from: Data(eventLine.utf8))
         if case .delta(let delta) = decoded {
             #expect(delta.usedDelta == 5)

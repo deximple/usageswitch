@@ -95,12 +95,14 @@ public struct SuggestionStateTracker: Sendable {
             for window in usage.windows where window.usedPercent.isFinite
                 && (0...100).contains(window.usedPercent) {
                 let windowKey = SuggestionObservation.windowKey(for: window)
-                let key = Self.key(provider: usage.provider, accountRef: usage.accountRef,
+                let accountRef = UsageSnapshot.maskedString(usage.accountRef)
+                let key = Self.key(provider: usage.provider, accountRef: accountRef,
                                    windowKey: windowKey)
                 let observation = SuggestionObservation(
-                    at: usage.readAt, accountRef: usage.accountRef, provider: usage.provider,
+                    at: usage.readAt, accountRef: accountRef, provider: usage.provider,
                     windowKey: windowKey, usedPercent: window.usedPercent,
-                    resetsAt: window.resetsAt, source: .collector, toolVersion: usage.toolVersion)
+                    resetsAt: window.resetsAt, source: .collector,
+                    toolVersion: usage.toolVersion.map(UsageSnapshot.maskedString))
                 observations.append(observation)
 
                 guard let prior = previous[key] else { continue }
@@ -114,13 +116,13 @@ public struct SuggestionStateTracker: Sendable {
                     let hard = expectedAt <= usage.readAt
                         && window.resetsAt.map { $0 > expectedAt } == true
                     resets.append(SuggestionResetEvent(
-                        windowKey: windowKey, accountRef: usage.accountRef, at: usage.readAt,
+                        windowKey: windowKey, accountRef: accountRef, at: usage.readAt,
                         kind: hard ? .hard : .soft, before: prior.usedPercent,
                         after: window.usedPercent, expectedAt: expectedAt))
                 } else if identityMatches, let oldReset = prior.resetsAt, let newReset = window.resetsAt,
                           oldReset != newReset, !Self.resetShiftIsConsistent(oldReset, newReset, windowKey) {
                     resets.append(SuggestionResetEvent(
-                        windowKey: windowKey, accountRef: usage.accountRef, at: usage.readAt,
+                        windowKey: windowKey, accountRef: accountRef, at: usage.readAt,
                         kind: .soft, before: prior.usedPercent, after: window.usedPercent,
                         expectedAt: oldReset))
                 }
@@ -131,7 +133,7 @@ public struct SuggestionStateTracker: Sendable {
                     && !dropped && prior.provider == usage.provider
                 if continuous {
                     deltas.append(SuggestionDelta(
-                        windowKey: windowKey, accountRef: usage.accountRef,
+                        windowKey: windowKey, accountRef: accountRef,
                         from: prior.usedPercent, to: window.usedPercent,
                         usedDelta: window.usedPercent - prior.usedPercent, seconds: gap))
                 }
@@ -141,7 +143,7 @@ public struct SuggestionStateTracker: Sendable {
     }
 
     public static func key(provider: UsageProvider, accountRef: String, windowKey: String) -> String {
-        "\(provider.rawValue)\u{1f}\(accountRef)\u{1f}\(windowKey)"
+        "\(provider.rawValue)\u{1f}\(UsageSnapshot.maskedString(accountRef))\u{1f}\(windowKey)"
     }
 
     private static func resetShiftIsConsistent(_ old: Date, _ new: Date, _ windowKey: String) -> Bool {
