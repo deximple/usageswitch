@@ -113,6 +113,7 @@ public final class SuggestionStateStore: @unchecked Sendable {
     private static let maxSnapshotBytes = 1_048_576
     private static let maxSnapshotKeys = 512
     private static let appGapThreshold: TimeInterval = 15 * 60
+    private static let observedAcceptanceWindow: TimeInterval = 30 * 60
     private let directory: URL
     private let lastObservationsFile: URL
     private let heartbeatFile: URL
@@ -245,7 +246,12 @@ public final class SuggestionStateStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         loadShown()
-        guard shownState?.candidate.hasSameIdentity(as: candidate) != true else { return false }
+        if let shownState,
+           shownState.candidate.hasSameIdentity(as: candidate),
+           now >= shownState.at,
+           now.timeIntervalSince(shownState.at) < Self.observedAcceptanceWindow {
+            return false
+        }
         do {
             try fs.createDirectory(directory)
             try appendEvent(.suggestionShown(candidate: candidate, at: now), now: now)
@@ -270,7 +276,7 @@ public final class SuggestionStateStore: @unchecked Sendable {
                   effort: candidate.effort),
               candidate.model != nil, !state.accepted,
               observedAt >= state.at,
-              observedAt.timeIntervalSince(state.at) <= 30 * 60 else { return false }
+              observedAt.timeIntervalSince(state.at) <= Self.observedAcceptanceWindow else { return false }
         do {
             try fs.createDirectory(directory)
             try appendEvent(.suggestionAccepted(observed: true, at: observedAt), now: observedAt)

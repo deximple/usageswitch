@@ -123,6 +123,30 @@ struct SuggestionLifecycleTests {
             observedAt: start.addingTimeInterval(30 * 60 + 1)))
     }
 
+    @Test("same candidate can be shown again after the acceptance window")
+    func repeatShownAfterAcceptanceWindow() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let store = SuggestionStateStore(env: env, fs: SafeFS(env: env))
+
+        #expect(store.recordSuggestionShown(candidate(), now: start))
+        #expect(!store.recordSuggestionShown(candidate(), now: start.addingTimeInterval(29 * 60)))
+        #expect(store.recordSuggestionShown(candidate(), now: start.addingTimeInterval(31 * 60)))
+        #expect(store.recordObservedAcceptance(candidate: candidate(),
+            observedAt: start.addingTimeInterval(41 * 60)))
+
+        let file = env.storeDir.appendingPathComponent(
+            "suggestion/events-\(SuggestionRetention.utcDay(start)).jsonl")
+        let events = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
+            .compactMap { try? JSONDecoder.iso8601.decode(SuggestionStateEvent.self, from: Data($0.utf8)) }
+        #expect(events.filter { if case .suggestionShown = $0 { return true }; return false }.count == 2)
+        #expect(events.contains {
+            guard case .suggestionAccepted(observed: true, at: let acceptedAt) = $0 else { return false }
+            return acceptedAt == start.addingTimeInterval(41 * 60)
+        })
+    }
+
     @Test("app gaps are recorded and prevent tracker deltas across the gap")
     func appGapHandling() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
