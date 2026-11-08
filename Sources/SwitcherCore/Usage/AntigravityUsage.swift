@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Antigravity reads the local `/usage` screen first and supplements it with the
@@ -52,6 +53,11 @@ public struct AntigravityUsageCollector: Sendable {
                          readAt: readAt ?? now(), toolVersion: nil)
         }
         guard enabled else { return [] }
+        let keychainRead = readKeychainRecord()
+        if case .record(let record) = keychainRead {
+            let fingerprint = Data(SHA256.hash(data: Data(record.refreshToken.utf8)))
+            tokenCache.updateAccountFingerprint(fingerprint, screenCache: screenCache)
+        }
         let screenResult: AntigravityScreenResult
         let screenReadAt: Date?
         switch screenCache.acquire(at: now()) {
@@ -75,7 +81,7 @@ public struct AntigravityUsageCollector: Sendable {
             screenResult = .failure(.failed(.timeout))
             screenReadAt = nil
         }
-        let apiResult = quota()
+        let apiResult = quota(keychainRead)
         switch (screenResult.state, apiResult) {
         case (.ok, .success(let apiWindows)):
             let windows = screenResult.windows.map { screenWindow in
@@ -131,8 +137,15 @@ public struct AntigravityUsageCollector: Sendable {
         case failure(UsageState)
     }
 
-    private func quota() -> APIResult {
-        switch accessToken() {
+    private enum KeychainRead {
+        case record(KeychainRecord)
+        case schemaChanged
+        case refused
+        case unavailable
+    }
+
+    private func quota(_ keychainRead: KeychainRead) -> APIResult {
+        switch accessToken(keychainRead) {
         case .failure(let state): return .failure(state)
         case .token(let token, let fallbackProject):
             let headers = [
@@ -218,30 +231,43 @@ public struct AntigravityUsageCollector: Sendable {
         }
     }
 
-    private func accessToken() -> TokenResult {
-        let current = now()
-        if let cached = tokenCache.value(at: current) {
-            return .token(cached.accessToken, projectID: cached.projectID)
-        }
-        let keychain = runner.run(UsageProcessRequest(
+    private func readKeychainRecord() -> KeychainRead {
+        let result = runner.run(UsageProcessRequest(
             executable: URL(fileURLWithPath: "/usr/bin/security"),
             arguments: ["find-generic-password", "-s", "gemini", "-a", "antigravity-acp", "-w"],
             environment: SystemClaudeAppControl.cleanEnvironment(from: environment),
             workingDirectory: FileManager.default.temporaryDirectory,
             maxOutputBytes: 64 * 1024, timeout: 3))
-        switch keychain.outcome {
+        switch result.outcome {
         case .exited(0):
-            let raw = keychain.lines.joined(separator: "\n")
+            let raw = result.lines.joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let data = raw.data(using: .utf8), let record = Self.keychainRecord(data) else {
-                return .failure(.unavailable(.schemaChanged))
+                return .schemaChanged
             }
-            return exchange(record)
+            return .record(record)
         case .outputLimit:
-            return .failure(.unavailable(.schemaChanged))
+            return .schemaChanged
         case .cancelled:
-            return .failure(.failed(.refused))
+            return .refused
         default:
+            return .unavailable
+        }
+    }
+
+    private func accessToken(_ keychainRead: KeychainRead) -> TokenResult {
+        let current = now()
+        if let cached = tokenCache.value(at: current) {
+            return .token(cached.accessToken, projectID: cached.projectID)
+        }
+        switch keychainRead {
+        case .record(let record):
+            return exchange(record)
+        case .schemaChanged:
+            return .failure(.unavailable(.schemaChanged))
+        case .refused:
+            return .failure(.failed(.refused))
+        case .unavailable:
             return fileToken(at: current)
         }
     }
@@ -326,6 +352,7 @@ public final class AntigravityAccessTokenCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var cached: Value?
+    private var accountFingerprint: Data?
 
     public init() {}
 
@@ -340,6 +367,19 @@ public final class AntigravityAccessTokenCache: @unchecked Sendable {
         lock.lock()
         cached = Value(accessToken: accessToken, validUntil: validUntil, projectID: projectID)
         lock.unlock()
+    }
+
+    func updateAccountFingerprint(_ fingerprint: Data, screenCache: AntigravityUsageScreenCache) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let accountFingerprint else {
+            self.accountFingerprint = fingerprint
+            return
+        }
+        guard accountFingerprint != fingerprint else { return }
+        cached = nil
+        screenCache.clear()
+        self.accountFingerprint = fingerprint
     }
 
     public func clear() {
@@ -392,6 +432,13 @@ public final class AntigravityUsageScreenCache: @unchecked Sendable {
     func recordFailure(at date: Date) {
         lock.lock()
         lastAttemptAt = date
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        success = nil
+        lastAttemptAt = nil
         lock.unlock()
     }
 }

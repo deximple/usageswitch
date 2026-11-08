@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import Testing
 @testable import SwitcherCore
@@ -322,7 +323,7 @@ struct AntigravityUsageTests {
         #expect(c.collect().first?.state == .ok)
         let tokenRequests = http.requests.filter { $0.url.host == "oauth2.googleapis.com" }
         #expect(tokenRequests.count == 2)
-        #expect(runner.requests.count == 2)
+        #expect(runner.requests.count == 3)
         let quotaRequests = http.requests.filter { $0.url.host == "cloudcode-pa.googleapis.com" }
         #expect(quotaRequests.count == 6)
         #expect(quotaRequests[0].headers["Authorization"] == "Bearer access-one")
@@ -330,6 +331,89 @@ struct AntigravityUsageTests {
         #expect(quotaRequests[4].headers["Authorization"] == "Bearer access-two")
         #expect(quotaRequests.allSatisfy { $0.headers["User-Agent"] == "antigravity" })
         #expect(!quotaRequests.contains { ($0.headers["Authorization"] ?? "").contains("response-refresh") })
+    }
+
+    @Test("refresh-token identity changes clear token and screen caches")
+    func changedKeychainAccountClearsCaches() {
+        let http = SpyTransport()
+        http.queue = [
+            tokenResponse("fresh-access"),
+            project(),
+            quota(#"{"groups":[{"displayName":"Gemini Models","buckets":[{"window":"weekly","remainingFraction":0.45,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+        ]
+        let credentials = SpyCredentials()
+        let runner = keychainRunner(refreshToken: "new-refresh")
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        tokenCache.updateAccountFingerprint(refreshFingerprint("old-refresh"), screenCache: screenCache)
+        tokenCache.store(accessToken: "old-access", validUntil: now.addingTimeInterval(3600),
+                         projectID: "old-project")
+        screenCache.store([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                       usedPercent: 5, resetsAt: nil)], readAt: now)
+        let screen = CountingScreen([
+            .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                 usedPercent: 55, resetsAt: nil)])
+        ])
+
+        let row = collector(http, credentials, runner: runner, screen: screen,
+                            cache: tokenCache, screenCache: screenCache).collect().first
+
+        #expect(row?.windows.first?.usedPercent == 55)
+        #expect(screen.readCount == 1)
+        #expect(runner.requests.count == 1)
+        let tokenRequest = try? #require(http.requests.first { $0.url.host == "oauth2.googleapis.com" })
+        #expect(String(data: tokenRequest?.body ?? Data(), encoding: .utf8)?.contains("new-refresh") == true)
+        let quotaRequest = http.requests.last
+        #expect(quotaRequest?.headers["Authorization"] == "Bearer fresh-access")
+    }
+
+    @Test("unchanged refresh-token identity retains both caches")
+    func unchangedKeychainAccountKeepsCaches() {
+        let http = SpyTransport()
+        http.queue = [project(), quota()]
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        tokenCache.updateAccountFingerprint(refreshFingerprint("old-refresh"), screenCache: screenCache)
+        tokenCache.store(accessToken: "cached-access", validUntil: now.addingTimeInterval(3600),
+                         projectID: "cached-project")
+        screenCache.store([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                       usedPercent: 15, resetsAt: nil)], readAt: now)
+        let screen = CountingScreen([
+            .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                 usedPercent: 65, resetsAt: nil)])
+        ])
+
+        let row = collector(http, SpyCredentials(), runner: keychainRunner(refreshToken: "old-refresh"),
+                            screen: screen, cache: tokenCache, screenCache: screenCache).collect().first
+
+        #expect(row?.windows.first?.usedPercent == 15)
+        #expect(screen.readCount == 0)
+        #expect(http.requests.count == 2)
+        #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
+    }
+
+    @Test("failed Keychain read leaves both caches usable")
+    func failedKeychainReadKeepsCaches() {
+        let http = SpyTransport()
+        http.queue = [project(), quota()]
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        tokenCache.updateAccountFingerprint(refreshFingerprint("old-refresh"), screenCache: screenCache)
+        tokenCache.store(accessToken: "cached-access", validUntil: now.addingTimeInterval(3600),
+                         projectID: "cached-project")
+        screenCache.store([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                       usedPercent: 25, resetsAt: nil)], readAt: now)
+        let screen = CountingScreen([
+            .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                 usedPercent: 75, resetsAt: nil)])
+        ])
+
+        let row = collector(http, SpyCredentials(), runner: missingKeychain(), screen: screen,
+                            cache: tokenCache, screenCache: screenCache).collect().first
+
+        #expect(row?.windows.first?.usedPercent == 25)
+        #expect(screen.readCount == 0)
+        #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
     }
 
     @Test("screen windows remain primary and receive matching API reset times")
@@ -496,10 +580,15 @@ struct AntigravityUsageTests {
         return runner
     }
 
-    private func keychainRunner() -> FakeUsageRunner {
+    private func keychainRunner(refreshToken: String = "old-refresh") -> FakeUsageRunner {
         let runner = FakeUsageRunner()
-        runner.respond = { _ in UsageProcessResult(lines: [Self.keychainJSON], outcome: .exited(0)) }
+        let keychainJSON = Self.keychainJSON.replacingOccurrences(of: "old-refresh", with: refreshToken)
+        runner.respond = { _ in UsageProcessResult(lines: [keychainJSON], outcome: .exited(0)) }
         return runner
+    }
+
+    private func refreshFingerprint(_ refreshToken: String) -> Data {
+        Data(SHA256.hash(data: Data(refreshToken.utf8)))
     }
 
     private func tokenResponse(_ accessToken: String) -> UsageHTTPResponse {
