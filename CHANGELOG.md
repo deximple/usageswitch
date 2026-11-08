@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.4 — clearer sign-in messages
+
+- Rejected sign-ins (Cursor, Gemini, Grok, Antigravity's quota API, Devin, OpenCode Go)
+  now say "Sign-in not accepted — run <command> once in Terminal" instead of
+  "Usage read was refused".
+- Sign-in hints use each tool's own login command: `claude auth login`, `codex login`,
+  `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`,
+  `opencode auth login`.
+- The main window shows full limit names such as "Monthly · Cursor Models".
+- The README is rewritten in five languages with screenshots and a demo.
+
 ## 2.1.3 — Cursor sign-in guidance, corrected
 
 - 2.1.2's `cursor-agent status` renewal is removed. On the owner Mac it never renewed an

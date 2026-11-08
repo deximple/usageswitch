@@ -156,12 +156,13 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 |---|---|---|
 | **Conexión de uso necesaria** | Esta herramienta opcional está apagada. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. |
 | **No se encontró sesión: inicie sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
-| **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude`, `codex`, `cursor-agent login`, `grok`, `gemini`, `agy`, `devin` u `opencode`. |
+| **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
+| **Sesión rechazada: ejecute *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
 | **No vinculada a la cuota CLI** | Una cuenta de Claude Desktop guardada no tiene perfil de Claude Code vinculado. | [Vincule un perfil](#3-dé-a-las-cuentas-de-claude-guardadas-sus-propios-números-opcional) en **Detalles**. |
 | **No informa uso** | Un perfil de clave de API — no tiene límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto. |
 | **Esta cuenta no tiene uso de *X*** | El proveedor dice que el plan de esta cuenta no tiene cuota que mostrar. | Nada que arreglar. |
 | **Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)** | Google movió las cuentas individuales a Antigravity. | Active **Antigravity**; su límite *Gemini Models* muestra la misma cuota. |
-| **La lectura del uso fue rechazada** | El proveedor rechazó el inicio de sesión. | Vuelva a iniciar sesión en esa herramienta. |
+| **La lectura del uso fue rechazada** | El programa de línea de comandos de la herramienta se detuvo sin devolver un informe de uso. | Reintenta en la próxima actualización. Si sigue ocurriendo, abra la herramienta una vez en Terminal para comprobar que tiene sesión iniciada y funciona. |
 | **El uso llegó de otra cuenta, así que no se muestra** | El inicio de sesión cambió durante una lectura. UsageSwitch nunca muestra números de otra cuenta. | Espere a la próxima actualización. |
 | **No se pudo leer el uso — esta versión de *X* puede necesitar una actualización de UsageSwitch** | El formato de respuesta de la herramienta cambió. | Busque un UsageSwitch más nuevo, o [abra un issue](https://github.com/deximple/usageswitch/issues). |
 | **Tiempo de espera agotado al leer el uso** · **No se pudo contactar con el servicio** · **Límite de ritmo — inténtalo más tarde** | Un problema temporal de red o de servicio. | Reintenta en la próxima actualización. |
