@@ -6,7 +6,8 @@ import SwitcherCore
 enum Fixtures {
     static func model(named name: String?) -> SwitcherModel? {
         guard let name else { return nil }
-        let compactUsage = ["usage-local-three", "usage-claude-only", "usage-seven", "usage-connecting"].contains(name)
+        let compactUsage = ["usage-local-three", "usage-claude-only", "usage-seven",
+                            "usage-connecting", "usage-readme", "usage-readme-guide"].contains(name)
         let base = status(active: "work", keys: compactUsage ? ["personal", "work"] : nil)
         let switchSteps: [SwitchStep] = [.preflight, .suspendingRelaunchers, .quittingClaude, .capturingOutgoing, .swapping,
                                          .launching, .verifying]
@@ -80,7 +81,8 @@ enum Fixtures {
 
     static func codexModel(named name: String) -> CodexModel {
         let model: CodexModel
-        let usagePreview = ["usage-local-three", "usage-seven", "usage-connecting", "usage-long"].contains(name)
+        let usagePreview = ["usage-local-three", "usage-seven", "usage-connecting",
+                            "usage-long", "usage-readme", "usage-readme-guide"].contains(name)
         switch name {
         case "codex-signin": model = CodexModel(demo: codexStatus(), demoPhase: .signingIn(id: nil))
         default: model = CodexModel(demo: codexStatus(usagePreview: usagePreview))
@@ -157,7 +159,44 @@ enum Fixtures {
         case "usage-failed":
             return demo(staleUsages(), segment: .guide)
         case "usage-guide":
-            return demo(guideUsages(), segment: .guide)
+            let model = demo(guideUsages(), segment: .guide)
+            model.guideExpanded = true
+            return model
+        case "usage-readme", "usage-readme-guide":
+            let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"
+            settings.seedDemoClaudeBindings([
+                ClaudeProfileBinding(accountId: personalID,
+                                     accountUuid: "a1a1a1a1-0000-4000-8000-000000000001",
+                                     orgUuid: "a1a1a1a1-0000-4000-8000-0000000000f1",
+                                     profilePath: "~/.claude-personal"),
+            ])
+            let model = demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(300, 30, resetsIn: 2 * 3600),
+                    window(10080, 55, resetsIn: 4 * 86400),
+                ]),
+                account(.claude, "app:\(personalID)", "Personal", .ok, windows: [
+                    window(300, 10, resetsIn: 2 * 3600),
+                    window(10080, 20, resetsIn: 4 * 86400),
+                ]),
+                account(.codex, "standard", "Personal", .ok, plan: "prolite",
+                        auth: .subscription, identityKey: "fixture-p", windows: [
+                    window(300, 45, resetsIn: 1 * 3600),
+                    window(10080, 70, resetsIn: 6 * 86400),
+                ]),
+                account(.codex, "m-3c4d5e6f", "Side project", .ok, plan: "plus",
+                        auth: .subscription, identityKey: "fixture-side", windows: [
+                    window(300, 92, resetsIn: 1 * 3600),
+                    window(10080, 41, resetsIn: 6 * 86400),
+                ]),
+                account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
+                    window(43200, 30, resetsIn: 12 * 86400),
+                    window(43200, 28, scope: CursorUsageParser.cursorModelsScope, resetsIn: 12 * 86400),
+                    window(43200, 55, scope: CursorUsageParser.otherModelsScope, resetsIn: 12 * 86400),
+                ]),
+            ], segment: name == "usage-readme-guide" ? .guide : .all)
+            if name == "usage-readme-guide" { model.guideExpanded = true }
+            return model
         case "usage-many-long", "usage-long":
             return demo(manyLongUsages(), segment: .all)
         case "usage-local-three":
