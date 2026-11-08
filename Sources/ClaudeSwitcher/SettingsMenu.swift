@@ -133,13 +133,15 @@ struct SettingsMenu: View {
     }
 
     /// Shared opt-in explanation for any consent-required provider. Antigravity's and
-    /// Gemini's specific copies describe their temporary in-memory token exchanges.
+    /// Gemini's specific copies describe their temporary in-memory token exchanges;
+    /// Cursor's describes the throttled `cursor-agent status` renewal it grants.
     /// Turning off never asks. Returns via `enable` only on the explicit action.
     static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()
         alert.messageText = L10n.t(.uiConnectUsageTitle, UsageText.providerName(provider))
         alert.informativeText = provider == .antigravity ? L10n.t(.uiConnectAntigravityBody)
             : provider == .gemini ? L10n.t(.uiConnectGeminiBody)
+            : provider == .cursor ? L10n.t(.usageCursorAlertBody)
             : L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
         alert.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
         alert.addButton(withTitle: L10n.t(.uiCancel))
