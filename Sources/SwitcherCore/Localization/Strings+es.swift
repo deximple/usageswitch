@@ -328,6 +328,7 @@ extension Strings {
         .apiBudgetAmount: "Importe (USD)",
         .apiBudgetResetDay: "Día de reinicio (1–31)",
         .apiBudgetSave: "Guardar",
+        .apiEstimatesLoading: "Cargando estimaciones de gasto…",
         .apiBudgetClear: "Borrar",
         .apiEstimate: "Gasto estimado (últimos 7 días): %@",
         .apiDailyRate: "Gasto diario medio: %@",

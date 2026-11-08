@@ -328,6 +328,7 @@ extension Strings {
         .apiBudgetAmount: "金额 (USD)",
         .apiBudgetResetDay: "重置日期 (1–31)",
         .apiBudgetSave: "保存",
+        .apiEstimatesLoading: "正在加载支出估算…",
         .apiBudgetClear: "清除",
         .apiEstimate: "估算支出（过去 7 天）：%@",
         .apiDailyRate: "平均每日费率：%@",

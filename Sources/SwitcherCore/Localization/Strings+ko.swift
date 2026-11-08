@@ -328,6 +328,7 @@ extension Strings {
         .apiBudgetAmount: "금액(USD)",
         .apiBudgetResetDay: "재설정일(1–31일)",
         .apiBudgetSave: "저장",
+        .apiEstimatesLoading: "지출 예상액 불러오는 중…",
         .apiBudgetClear: "삭제",
         .apiEstimate: "예상 지출(최근 7일): %@",
         .apiDailyRate: "일평균 사용률: %@",

@@ -387,6 +387,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case apiBudgetAmount = "api.budget.amount"
     case apiBudgetResetDay = "api.budget.reset_day"
     case apiBudgetSave = "api.budget.save"
+    case apiEstimatesLoading = "api.estimates.loading"
     case apiBudgetClear = "api.budget.clear"
     case apiEstimate = "api.estimate"
     case apiDailyRate = "api.daily_rate"

@@ -328,6 +328,7 @@ extension Strings {
         .apiBudgetAmount: "金額 (USD)",
         .apiBudgetResetDay: "リセット日 (1～31)",
         .apiBudgetSave: "保存",
+        .apiEstimatesLoading: "支出見積もりを読み込み中…",
         .apiBudgetClear: "削除",
         .apiEstimate: "推定支出 (過去 7 日間): %@",
         .apiDailyRate: "1 日あたりの平均: %@",

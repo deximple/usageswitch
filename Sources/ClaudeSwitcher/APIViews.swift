@@ -235,25 +235,32 @@ private struct APIBudgetRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Picker(L10n.t(.apiBudgetTitle), selection: $kind) {
-                Text(L10n.t(.apiBudgetBalance)).tag(Kind.balance)
-                Text(L10n.t(.apiBudgetQuota)).tag(Kind.quota)
-            }
-            .pickerStyle(.menu)
-            TextField(L10n.t(.apiBudgetAmount), text: $amount)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 100)
-            if kind == .quota {
-                TextField(L10n.t(.apiBudgetResetDay), text: $resetDay)
+        VStack(alignment: .leading, spacing: Theme.gapTight) {
+            HStack(spacing: 6) {
+                Picker(L10n.t(.apiBudgetTitle), selection: $kind) {
+                    Text(L10n.t(.apiBudgetBalance)).tag(Kind.balance)
+                    Text(L10n.t(.apiBudgetQuota)).tag(Kind.quota)
+                }
+                .pickerStyle(.menu)
+                TextField(L10n.t(.apiBudgetAmount), text: $amount)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 54)
+                    .frame(maxWidth: 100)
+                if kind == .quota {
+                    TextField(L10n.t(.apiBudgetResetDay), text: $resetDay)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 54)
+                }
+                Button(L10n.t(.apiBudgetSave), action: save)
+                    .disabled(settings.isDemo || (kind == .balance && usage.apiUsageEstimates[vendor] == nil))
+                if settings.apiBudget(for: vendor) != nil {
+                    Button(L10n.t(.apiBudgetClear)) { settings.setAPIBudget(nil, for: vendor) }
+                        .disabled(settings.isDemo)
+                }
             }
-            Button(L10n.t(.apiBudgetSave), action: save)
-                .disabled(settings.isDemo)
-            if settings.apiBudget(for: vendor) != nil {
-                Button(L10n.t(.apiBudgetClear)) { settings.setAPIBudget(nil, for: vendor) }
-                    .disabled(settings.isDemo)
+            if kind == .balance, usage.apiUsageEstimates[vendor] == nil {
+                Text(L10n.t(.apiEstimatesLoading))
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.inkMuted)
             }
         }
     }
@@ -262,11 +269,12 @@ private struct APIBudgetRow: View {
         guard let value = Double(amount), value.isFinite, value >= 0 else { return }
         switch kind {
         case .balance:
+            guard let estimate = usage.apiUsageEstimates[vendor] else { return }
             let asOf = Date()
             let asOfDay = APIBudgetMath.utcDay(asOf)
-            let asOfDaySpentUSD = usage.apiUsageEstimates[vendor]?.dailySpend
+            let asOfDaySpentUSD = estimate.dailySpend
                 .filter { $0.day == asOfDay }
-                .reduce(0.0) { $0 + $1.amountUSD } ?? 0
+                .reduce(0.0) { $0 + $1.amountUSD }
             settings.setAPIBudget(.balance(amountUSD: value, asOf: asOf,
                                             asOfDaySpentUSD: asOfDaySpentUSD), for: vendor)
         case .quota:

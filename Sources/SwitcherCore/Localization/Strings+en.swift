@@ -328,6 +328,7 @@ extension Strings {
         .apiBudgetAmount: "Amount (USD)",
         .apiBudgetResetDay: "Reset day (1–31)",
         .apiBudgetSave: "Save",
+        .apiEstimatesLoading: "Loading spend estimates…",
         .apiBudgetClear: "Clear",
         .apiEstimate: "Estimated spend (last 7 days): %@",
         .apiDailyRate: "Average daily rate: %@",
