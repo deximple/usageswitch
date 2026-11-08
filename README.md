@@ -11,7 +11,7 @@ registered accounts, plus the existing Claude sign-in switcher and per-account C
 <sub>Screenshot: development preview, synthetic demo data — no real accounts or quotas shown.</sub>
 
 The app is in English, 한국어, 简体中文, 日本語 and Español (follows the system language;
-change it in ⚙︎ › Language). Version 2.1.1.
+change it in ⚙︎ › Language). Version 2.1.2.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ treated as subscription balances.
 | Claude Code | CLI `/usage` | Current CLI sign-in; refused when managed Claude settings apply |
 | Saved Claude account | Opt-in official CLI profile (`auth status --json`, then `/usage`) | Explicit per-account binding; profile identity/auth checked before and after each read |
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
-| Cursor | Current-period usage endpoint | Opt-in; windows are the monthly included total plus the dashboard pools “Cursor Models” and “Other Models”; Grok Bot and on-demand spending are not read |
+| Cursor | Current-period usage endpoint; may run `cursor-agent status` so cursor-agent renews an expired sign-in | Opt-in; windows are the monthly included total plus the dashboard pools “Cursor Models” and “Other Models”; Grok Bot and on-demand spending are not read |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
 | Gemini | Code Assist project/quota — may exchange the stored refresh token for a memory-only access token | Opt-in; Keychain then legacy auth file (encrypted-file storage unsupported); model/input/output limits kept separate; individual accounts Google moved to Antigravity show that state |
 | Antigravity | Hidden `agy` `/usage` screen; read-only Code Assist quota API as fallback/enrichment | Opt-in; may use agy's Keychain login for a temporary in-memory API token |

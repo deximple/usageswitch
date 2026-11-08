@@ -107,6 +107,11 @@ public struct CursorUsageCollector: Sendable {
     private let home: URL
     private let endpoint: URL
     private let now: @Sendable () -> Date
+    /// Granted only via the Cursor alert text that discloses the status run.
+    private let renewAllowed: Bool
+    /// The installed cursor-agent path; it renews its own sign-in when it runs.
+    private let cli: URL?
+    private let renewal: CursorCLIRenewalThrottle
     /// Bounded read of `.cursor/auth.json` — the Keychain probe stays a bounded
     /// process call; this reader only bounds the file fallback.
     private let credentials: any UsageCredentialReading
@@ -116,9 +121,12 @@ public struct CursorUsageCollector: Sendable {
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 endpoint: URL? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
-                credentials: any UsageCredentialReading = UsageFileCredentialReader()) {
+                credentials: any UsageCredentialReading = UsageFileCredentialReader(),
+                renewAllowed: Bool = false, cli: URL? = nil,
+                renewal: CursorCLIRenewalThrottle = CursorCLIRenewalThrottle()) {
         self.enabled = enabled; self.runner = runner; self.http = http; self.home = home
         self.credentials = credentials
+        self.renewAllowed = renewAllowed; self.cli = cli; self.renewal = renewal
         self.endpoint = endpoint ?? ProcessInfo.processInfo.environment["CURSOR_API_ENDPOINT"]
             .flatMap(URL.init(string:)) ?? URL(string: "https://api2.cursor.sh")!
         self.now = now
@@ -135,15 +143,27 @@ public struct CursorUsageCollector: Sendable {
                          plan: nil, windows: windows, state: state, readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        guard let token = token() else { return [finish(.unavailable(.noSignIn))] }
-        // The stored cursor-agent token is a ~1h JWT cursor-agent does not refresh
-        // without an API key; sending an expired one only earns a 401 — report the
-        // expired sign-in instead, without a request.
-        if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60) {
-            return [finish(.unavailable(.signInExpired))]
+        guard var key = token() else { return [finish(.unavailable(.noSignIn))] }
+        // The stored cursor-agent token is a ~1h JWT. cursor-agent renews its own
+        // sign-in when it runs — with consent, `cursor-agent status` (throttled) can
+        // re-mint it; UsageSwitch never refreshes or stores the token itself.
+        if let expiry = UsageJSON.jwtExpiry(key), expiry <= now().addingTimeInterval(60) {
+            guard renewAllowed, let cli, renewal.claim(now: now()) else {
+                return [finish(.unavailable(.signInExpired))]
+            }
+            _ = runner.run(UsageProcessRequest(
+                executable: cli, arguments: ["status"],
+                environment: SystemClaudeAppControl.cleanEnvironment(
+                    from: ProcessInfo.processInfo.environment),
+                workingDirectory: FileManager.default.temporaryDirectory,
+                maxOutputBytes: 4096, timeout: 20))
+            guard let fresh = token(),
+                  UsageJSON.jwtExpiry(fresh).map({ $0 > now().addingTimeInterval(60) }) ?? true
+            else { return [finish(.unavailable(.signInExpired))] }
+            key = fresh
         }
         let usageURL = endpoint.appendingPathComponent("aiserver.v1.DashboardService/GetCurrentPeriodUsage")
-        guard let response = http.post(url: usageURL, bearer: token, timeout: 10) else {
+        guard let response = http.post(url: usageURL, bearer: key, timeout: 10) else {
             return [finish(.failed(.network))]
         }
         if response.status == 401 || response.status == 403 { return [finish(.failed(.refused))] }
@@ -184,5 +204,19 @@ public struct CursorUsageCollector: Sendable {
               let token = UsageJSON.token(object["accessToken"])
         else { return nil }
         return token
+    }
+}
+
+/// At most one `cursor-agent status` renewal attempt per 10 minutes; the attempt
+/// is claimed before the process runs so a slow run can't double-fire.
+public final class CursorCLIRenewalThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: Date?
+    public init() {}
+    func claim(now: Date) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard last == nil || now.timeIntervalSince(last!) >= 600 else { return false }
+        last = now
+        return true
     }
 }

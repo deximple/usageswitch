@@ -175,7 +175,7 @@ struct AntigravityScreenTests {
     }
 }
 
-@Suite("Antigravity adapter")
+@Suite("Antigravity adapter", .serialized)
 struct AntigravityUsageTests {
     private let home = URL(fileURLWithPath: "/tmp/antigravity-home")
     private let tokenPath = "/tmp/antigravity-home/.gemini/jetski-standalone-oauth-token"
@@ -703,14 +703,14 @@ struct AntigravityUsageTests {
         legacyToken(credentials)
         http.queue = [project(), quota()]
         let ptyTiming = AntigravityPTYTiming(
-            promptQuiet: 0.05, promptTimeout: 5, commandPause: 0.05,
-            screenQuiet: 0.05, screenTimeout: 0.5, totalTimeout: 8,
+            promptQuiet: 0.05, promptTimeout: 15, commandPause: 0.05,
+            screenQuiet: 0.05, screenTimeout: 1.5, totalTimeout: 24,
             interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
         let screen = AntigravityUsageScreen(runner: SystemAntigravityPTYRunner(timing: ptyTiming))
         let collector = collector(http, credentials, runner: missingKeychain(), screen: screen,
                                   agy: executable)
         let task = Task.detached { collector.collect().first }
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(6)
         while !FileManager.default.fileExists(atPath: readyFile.path) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }

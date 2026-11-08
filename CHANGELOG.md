@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.2 — Cursor stays readable
+
+- When the cursor-agent sign-in has expired, UsageSwitch runs `cursor-agent status` at most
+  every 10 minutes so cursor-agent renews its own sign-in, then reads Cursor usage. This
+  happens only after Cursor was turned on with the dialog that says so; UsageSwitch never
+  refreshes or stores the token itself.
+- The expired-sign-in hint for Cursor now says `cursor-agent status`.
+- Antigravity terminal tests run serially with more headroom.
+
 ## 2.1.1 — per-account usage, Suggestion and the API tab
 
 **Usage, per account:**

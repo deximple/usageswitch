@@ -110,7 +110,7 @@ public enum UsageText {
         switch provider {
         case .claude: return "claude"
         case .codex: return "codex"
-        case .cursor: return "cursor-agent login"
+        case .cursor: return "cursor-agent status"
         case .grok: return "grok"
         case .gemini: return "gemini"
         case .antigravity: return "agy"

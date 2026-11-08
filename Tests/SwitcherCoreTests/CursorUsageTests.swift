@@ -14,9 +14,14 @@ struct CursorUsageTests {
         return url
     }
 
-    func collector(enabled: Bool = true, home: URL, runner: FakeUsageRunner, http: FakeUsageHTTP) -> CursorUsageCollector {
-        CursorUsageCollector(enabled: enabled, runner: runner, http: http, home: home,
-                             endpoint: endpoint, now: { Date(timeIntervalSince1970: 1_780_000_000) })
+    func collector(enabled: Bool = true, home: URL, runner: FakeUsageRunner, http: FakeUsageHTTP,
+                   renewAllowed: Bool = false, cli: URL? = nil,
+                   renewal: CursorCLIRenewalThrottle = CursorCLIRenewalThrottle(),
+                   now: Date? = nil) -> CursorUsageCollector {
+        let at = now ?? Date(timeIntervalSince1970: 1_780_000_000)
+        return CursorUsageCollector(enabled: enabled, runner: runner, http: http, home: home,
+                             endpoint: endpoint, now: { at },
+                             renewAllowed: renewAllowed, cli: cli, renewal: renewal)
     }
 
     /// Runner that answers /usr/bin/security with a token (or fails), nothing else.
@@ -380,5 +385,125 @@ extension CursorUsageTests {
             let (_, calls) = try collect(token)
             #expect(calls == 1)
         }
+    }
+}
+
+extension CursorUsageTests {
+    private func jwt2(_ exp: Int) -> String {
+        let payload = #"{"exp":\#(exp)}"#.data(using: .utf8)!
+        let b64 = payload.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "h.\(b64).s"
+    }
+    final class Counter: @unchecked Sendable {
+        var statuses = 0; var keychainCalls = 0
+    }
+    private func renewRunner(old: String, fresh: String?, box: Counter) -> FakeUsageRunner {
+        let runner = FakeUsageRunner()
+        runner.respond = { req in
+            if req.executable.path.hasSuffix("cursor-agent") {
+                box.statuses += 1
+                return UsageProcessResult(lines: [], outcome: .exited(0))
+            }
+            box.keychainCalls += 1
+            let tok = box.keychainCalls <= 1 ? old : fresh
+            return tok.map { UsageProcessResult(lines: [$0], outcome: .exited(0)) }
+                ?? UsageProcessResult(lines: [], outcome: .exited(1))
+        }
+        return runner
+    }
+    private func collect(_ http: FakeUsageHTTP, runner: FakeUsageRunner,
+                         allowed: Bool, cli: Bool,
+                         throttle: CursorCLIRenewalThrottle = CursorCLIRenewalThrottle(),
+                         home: URL, now: Date? = nil) throws -> [AccountUsage] {
+        collector(home: home, runner: runner, http: http,
+                  renewAllowed: allowed,
+                  cli: cli ? URL(fileURLWithPath: "/opt/cursor-agent") : nil,
+                  renewal: throttle, now: now).collect()
+    }
+}
+
+extension CursorUsageTests {
+    @Test("expired + allowed + cli: one status run, fresh JWT sent, state ok")
+    func renewalSucceeds() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let box = Counter()
+        let runner = renewRunner(old: jwt2(1_779_999_000), fresh: jwt2(1_780_003_600), box: box)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let rows = try collect(http, runner: runner, allowed: true, cli: true, home: home)
+        #expect(box.statuses == 1)
+        #expect(rows.first?.state == .ok && http.calls.count == 1)
+    }
+
+    @Test("re-read still expired reports signInExpired with no HTTP; gates block the run")
+    func renewalGates() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let box = Counter()
+        var runner = renewRunner(old: jwt2(1_779_999_000), fresh: jwt2(1_779_999_500), box: box)
+        var http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        #expect(try collect(http, runner: runner, allowed: true, cli: true, home: home)
+            .first?.state == .unavailable(.signInExpired)
+            && box.statuses == 1 && http.calls.isEmpty)
+        box.statuses = 0; box.keychainCalls = 0
+        runner = renewRunner(old: jwt2(1_779_999_000), fresh: jwt2(1_780_003_600), box: box)
+        http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        #expect(try collect(http, runner: runner, allowed: false, cli: true, home: home)
+            .first?.state == .unavailable(.signInExpired)
+            && box.statuses == 0 && http.calls.isEmpty)
+        box.keychainCalls = 0
+        runner = renewRunner(old: jwt2(1_779_999_000), fresh: nil, box: box)
+        #expect(try collect(http, runner: runner, allowed: true, cli: false, home: home)
+            .first?.state == .unavailable(.signInExpired) && box.statuses == 0)
+        box.keychainCalls = 0
+        runner = renewRunner(old: jwt2(1_780_003_600), fresh: nil, box: box)
+        _ = try collect(http, runner: runner, allowed: true, cli: true, home: home)
+        #expect(box.statuses == 0)
+    }
+
+    @Test("throttle: second collect within 10 min does not run status again")
+    func throttle() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let box = Counter()
+        let runner = renewRunner(old: jwt2(1_779_999_000), fresh: jwt2(1_780_003_600), box: box)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let throttle = CursorCLIRenewalThrottle()
+        _ = try collect(http, runner: runner, allowed: true, cli: true,
+                        throttle: throttle, home: home)
+        runner.respond = { req in
+            if req.executable.path.hasSuffix("cursor-agent") { box.statuses += 1 }
+            return UsageProcessResult(lines: [self.jwt2(1_779_999_000)], outcome: .exited(0))
+        }
+        _ = try collect(http, runner: runner, allowed: true, cli: true,
+                        throttle: throttle, home: home)
+        #expect(box.statuses == 1)
+    }
+
+    @Test("throttle re-arms after 10 minutes, not 9m59s")
+    func throttleRearm() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let box = Counter()
+        let runner = renewRunner(old: jwt2(1_779_999_000), fresh: jwt2(1_780_003_600), box: box)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let throttle = CursorCLIRenewalThrottle()
+        _ = try collect(http, runner: runner, allowed: true, cli: true,
+                        throttle: throttle, home: home,
+                        now: Date(timeIntervalSince1970: 1_780_000_000))
+        #expect(box.statuses == 1)
+        box.keychainCalls = 0
+        _ = try collect(http, runner: runner, allowed: true, cli: true,
+                        throttle: throttle, home: home,
+                        now: Date(timeIntervalSince1970: 1_780_000_599))
+        #expect(box.statuses == 1)
+        box.keychainCalls = 0
+        _ = try collect(http, runner: runner, allowed: true, cli: true,
+                        throttle: throttle, home: home,
+                        now: Date(timeIntervalSince1970: 1_780_000_600))
+        #expect(box.statuses == 2)
     }
 }

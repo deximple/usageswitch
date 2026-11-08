@@ -745,7 +745,7 @@ struct SignInReasonTests {
         L10n.language = .en
         #expect(UsageText.problem(.noSignIn, provider: .grok).contains("Grok"))
         #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
-        #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
+        #expect(UsageText.cliCommand(.cursor) == "cursor-agent status")
         #expect(UsageText.cliCommand(.antigravity) == "agy")
     }
 }

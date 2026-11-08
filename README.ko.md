@@ -10,7 +10,7 @@
 <sub>스크린샷: 개발 미리보기, 합성 데모 데이터 — 실제 계정이나 할당량은 나오지 않습니다.</sub>
 
 앱은 English, 한국어, 简体中文, 日本語, Español을 지원합니다 (시스템 언어를 따릅니다;
-⚙︎ › 언어에서 바꿀 수 있습니다). 버전 2.1.1.
+⚙︎ › 언어에서 바꿀 수 있습니다). 버전 2.1.2.
 
 ## 요구 사항
 
@@ -64,7 +64,7 @@ UsageSwitch는 `.claude.json`의 계정 및 조직 ID만 읽습니다. 작업이
 | Claude Code | CLI `/usage` | 현재 CLI 로그인; 관리 설정이 있으면 거부 |
 | 저장된 Claude 계정 | 선택적 공식 CLI 프로필 (`auth status --json` 후 `/usage`) | 계정별 명시적 연결; 매 읽기 전후 프로필 ID와 인증 상태 확인 |
 | Codex | `app-server` → `account/rateLimits/read` | 등록된 ChatGPT 홈; API 키 프로필은 구독 할당량 없음 |
-| Cursor | 현재 기간 사용량 엔드포인트(월간 포함 사용량 총계와 대시보드 풀 “Cursor Models”/“Other Models” 윈도우) | 직접 켜야 사용; 자체 키체인 항목 또는 제한된 인증 파일; Grok Bot·온디맨드 요금은 읽지 않음 |
+| Cursor | 현재 기간 사용량 엔드포인트(월간 포함 사용량 총계와 대시보드 풀 “Cursor Models”/“Other Models” 윈도우); 만료 시 `cursor-agent status`를 실행해 cursor-agent가 로그인을 갱신하게 할 수 있음 | 직접 켜야 사용; 자체 키체인 항목 또는 제한된 인증 파일; Grok Bot·온디맨드 요금은 읽지 않음 |
 | Grok | CLI 사용량 엔드포인트 | 직접 켜야 사용; **실험** |
 | Gemini | Code Assist 프로젝트/할당량; 저장된 갱신 토큰으로 메모리 전용 액세스 토큰을 받을 수 있음 | 직접 켜야 사용; Keychain 후 기존 인증 파일(암호화 파일 저장은 미지원); 모델/입력/출력 한도 분리; Google이 Antigravity로 옮긴 개인 계정은 그 상태를 표시 |
 | Antigravity | 숨겨진 `agy` `/usage` 화면; 읽기 전용 Code Assist 쿼터 API 폴백/보강 | 직접 켜야 사용; agy 키체인 로그인으로 임시 메모리 토큰을 쓸 수 있음 |
