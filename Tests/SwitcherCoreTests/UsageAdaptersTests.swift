@@ -19,8 +19,8 @@ final class SpyCredentials: UsageCredentialReading, @unchecked Sendable {
     func read(_ url: URL) -> Data? { reads += 1; return files[url.path] }
 }
 
-private func expectRefusedWithoutRetainedWindows(_ reading: AccountUsage?) {
-    #expect(reading?.state == .failed(.refused))
+private func expectRejectedWithoutRetainedWindows(_ reading: AccountUsage?) {
+    #expect(reading?.state == .failed(.signInRejected))
     #expect(reading?.windows.isEmpty == true)
     guard let reading else { return }
     let previous = AccountUsage(id: reading.id, provider: reading.provider,
@@ -120,7 +120,7 @@ struct GrokAdapterTests {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/grok-home/.grok/auth.json"] = authJSON.data(using: .utf8)
         http.queue = [UsageHTTPResponse(status: status, body: Data())]
-        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        expectRejectedWithoutRetainedWindows(collector(http, creds).collect().first)
     }
 }
 
@@ -240,17 +240,17 @@ struct GeminiAdapterTests {
         #expect(http.requests.isEmpty)
     }
 
-    @Test("server 401 and 403 at project lookup are refused", arguments: [401, 403])
+    @Test("server 401 and 403 at project lookup are sign-in rejections", arguments: [401, 403])
     func projectLookupRejected(status: Int) {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
             #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
         http.queue = [UsageHTTPResponse(status: status, body: Data())]
-        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        expectRejectedWithoutRetainedWindows(collector(http, creds).collect().first)
         #expect(http.requests.count == 1)
     }
 
-    @Test("server 401 and 403 at quota lookup are refused", arguments: [401, 403])
+    @Test("server 401 and 403 at quota lookup are sign-in rejections", arguments: [401, 403])
     func quotaLookupRejected(status: Int) {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
@@ -259,11 +259,11 @@ struct GeminiAdapterTests {
             UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
             UsageHTTPResponse(status: status, body: Data()),
         ]
-        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        expectRejectedWithoutRetainedWindows(collector(http, creds).collect().first)
         #expect(http.requests.count == 2)
     }
 
-    @Test("403 with the unsupported-service phrase is refused without retaining its body")
+    @Test("403 with the unsupported-service phrase is a sign-in rejection without retaining its body")
     func unsupported403() throws {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
@@ -273,7 +273,7 @@ struct GeminiAdapterTests {
             UsageHTTPResponse(status: 403, body: Data("API is no longer supported".utf8)),
         ]
         let row = try #require(collector(http, creds).collect().first)
-        #expect(row.state == .failed(.refused))
+        #expect(row.state == .failed(.signInRejected))
         let snapshot = UsageSnapshot(usages: [row], generatedAt: Date(), showEmails: true)
         #expect(!String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
             .contains("no longer supported"))
@@ -362,7 +362,7 @@ struct DevinAdapterTests {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = toml.data(using: .utf8)
         http.queue = [UsageHTTPResponse(status: status, body: Data())]
-        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        expectRejectedWithoutRetainedWindows(collector(http, creds).collect().first)
         #expect(http.requests.count == 1)
     }
 }
@@ -400,7 +400,7 @@ struct OpenCodeAdapterTests {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
         http.queue = [UsageHTTPResponse(status: 401, body: Data())]
-        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        expectRejectedWithoutRetainedWindows(collector(http, creds).collect().first)
     }
 
     @Test("403 means no Go plan, not rejected sign-in")
@@ -720,7 +720,7 @@ struct CursorCredentialTests {
         http.respond = { _ in (status: status, body: Data()) }
         let c = CursorUsageCollector(enabled: true, runner: runner,
             http: http, home: home, credentials: creds)
-        expectRefusedWithoutRetainedWindows(c.collect().first)
+        expectRejectedWithoutRetainedWindows(c.collect().first)
         #expect(http.calls.count == 1)
     }
 }
@@ -747,6 +747,31 @@ struct SignInReasonTests {
         #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
         #expect(UsageText.cliCommand(.antigravity) == "agy")
+    }
+
+    @Test("signInRejected names the tool's own login command")
+    func signInRejected() {
+        L10n.language = .en
+        #expect(UsageText.problem(.signInRejected, provider: .devin)
+            == "Sign-in not accepted — run devin auth login once in Terminal")
+        #expect(UsageText.cliCommand(.claude) == "claude auth login")
+        #expect(UsageText.cliCommand(.codex) == "codex login")
+        #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
+        #expect(UsageText.cliCommand(.grok) == "grok login")
+        #expect(UsageText.cliCommand(.gemini) == "gemini")
+        #expect(UsageText.cliCommand(.antigravity) == "agy")
+        #expect(UsageText.cliCommand(.devin) == "devin auth login")
+        #expect(UsageText.cliCommand(.opencode) == "opencode auth login")
+    }
+
+    @Test("snapshot JSON encodes signInRejected")
+    func signInRejectedSnapshot() throws {
+        let row = AccountUsage(id: "devin:current", provider: .devin, accountRef: "current",
+                               label: "Devin", plan: nil, windows: [],
+                               state: .failed(.signInRejected), readAt: Date(), toolVersion: nil)
+        let snapshot = UsageSnapshot(usages: [row], generatedAt: Date(), showEmails: true)
+        #expect(String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+            .contains("\"problem\":\"signInRejected\""))
     }
 }
 

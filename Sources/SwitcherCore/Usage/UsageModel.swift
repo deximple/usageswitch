@@ -71,6 +71,10 @@ public struct UsageWindow: Codable, Hashable, Sendable {
 /// can carry account identity, so their text is never surfaced.
 public enum UsageProblem: String, Codable, Sendable {
     case noSignIn, cliMissing, managed, refused, timeout, network, schemaChanged, rateLimited
+    /// The provider rejected the stored sign-in (HTTP 401/403): it was revoked, replaced by
+    /// another sign-in, or belongs to an account the endpoint won't serve. The vendor CLI's
+    /// own login fixes it.
+    case signInRejected
     case profileInvalid, unsupportedVersion
     /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
     case connectionRequired

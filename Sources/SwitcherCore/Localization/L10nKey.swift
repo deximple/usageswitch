@@ -323,6 +323,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageReasonNotReporting = "usage.reason.notReporting"
     case usageReasonNoSignIn = "usage.reason.noSignIn"
     case usageReasonSignInExpired = "usage.reason.signInExpired"
+    case usageReasonSignInRejected = "usage.reason.signInRejected"
     case usageReasonNotEligible = "usage.reason.notEligible"
     case usageReasonGeminiRetired = "usage.reason.geminiRetired"
     case usageReasonCliMissing = "usage.reason.cliMissing"

@@ -396,6 +396,7 @@ extension Strings {
         .usageReasonNotReporting: "Not reporting usage",
         .usageReasonNoSignIn: "No sign-in found — sign in to %@ first",
         .usageReasonSignInExpired: "Sign-in expired — run %@ once in Terminal",
+        .usageReasonSignInRejected: "Sign-in not accepted — run %@ once in Terminal",
         .usageReasonNotEligible: "This account isn\'t eligible for %@ usage",
         .usageReasonGeminiRetired: "Google no longer offers Gemini CLI quota for individual accounts (moved to Antigravity)",
         .usageReasonCliMissing: "Command-line tool not found",

@@ -91,6 +91,7 @@ public enum UsageText {
         case .cliMissing: return L10n.t(.usageReasonCliMissing)
         case .managed: return L10n.t(.usageReasonManaged)
         case .refused: return L10n.t(.usageReasonRefused)
+        case .signInRejected: return L10n.t(.usageReasonSignInRejected, cliCommand(provider))
         case .timeout: return L10n.t(.usageReasonTimeout)
         case .network: return L10n.t(.usageReasonNetwork)
         case .schemaChanged: return L10n.t(.usageReasonSchemaChanged, providerName(provider))
@@ -108,14 +109,14 @@ public enum UsageText {
     /// The vendor CLI the user runs once to refresh a local sign-in — display only.
     public static func cliCommand(_ provider: UsageProvider) -> String {
         switch provider {
-        case .claude: return "claude"
-        case .codex: return "codex"
+        case .claude: return "claude auth login"
+        case .codex: return "codex login"
         case .cursor: return "cursor-agent login"
-        case .grok: return "grok"
+        case .grok: return "grok login"
         case .gemini: return "gemini"
         case .antigravity: return "agy"
-        case .devin: return "devin"
-        case .opencode: return "opencode"
+        case .devin: return "devin auth login"
+        case .opencode: return "opencode auth login"
         }
     }
 
