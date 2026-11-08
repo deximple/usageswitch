@@ -322,6 +322,38 @@ struct AntigravityAdapterTests {
         #expect(windows.dropFirst().first?.usedPercent == 0)
     }
 
+    @Test("skips models without quota while retaining quota-bearing models")
+    func mixedQuotaModels() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        let models = #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}},"model-b":{"displayName":"No quota"}}}"#
+        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
+        let row = collector(http, creds).collect().first
+        #expect(row?.state == .ok)
+        #expect(row?.windows.map(\.scope) == ["model-a"])
+    }
+
+    @Test("models without quota are not reporting")
+    func allModelsWithoutQuota() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        let models = #"{"models":{"missing":{"displayName":"No quota"},"null":{"quotaInfo":null}}}"#
+        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
+        #expect(collector(http, creds).collect().first?.state == .notReporting)
+    }
+
+    @Test("malformed quota data or missing scope fails closed", arguments: [
+        #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":"bad","resetTime":"2023-11-20T00:00:00Z"}}}}"#,
+        #"{"models":{"model-a":{"quotaInfo":{"remainingFraction":0.5,"resetTime":"bad"}}}}"#,
+        #"{"models":[{"quotaInfo":{"remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}}]}"#,
+    ])
+    func malformedQuota(models: String) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.schemaChanged))
+    }
+
     @Test("bad or expired token expiry is no-sign-in", arguments: [
         #"{"token":{"access_token":"access-only","expiry":"2020-01-01T00:00:00Z"}}"#,
         #"{"token":{"access_token":"access-only","expiry":"not-a-date"}}"#,

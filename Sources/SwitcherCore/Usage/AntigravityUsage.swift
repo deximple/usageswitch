@@ -80,8 +80,9 @@ public struct AntigravityUsageCollector: Sendable {
         var windowsByScope: [String: UsageWindow] = [:]
         var order: [String] = []
         for (dictionaryKey, model) in entries {
+            guard let rawQuota = model["quotaInfo"], !(rawQuota is NSNull) else { continue }
             guard let scope = modelScope(model, dictionaryKey: dictionaryKey),
-                  let quota = model["quotaInfo"] as? [String: Any],
+                  let quota = rawQuota as? [String: Any],
                   let remaining = UsageJSON.double(quota["remainingFraction"]),
                   remaining.isFinite,
                   let reset = UsageJSON.resetDateISO(quota["resetTime"])
