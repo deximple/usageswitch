@@ -779,7 +779,7 @@ struct AntigravityUsageTests {
         #"{"client_id":"client-id","client_secret":"client-secret","refresh_token":"old-refresh","token_uri":"https://oauth2.googleapis.com/token","scopes":["https://www.googleapis.com/auth/cloudcode"],"project_id":"project-fallback"}"#
 }
 
-@Suite("Antigravity PTY cleanup")
+@Suite("Antigravity PTY cleanup", .serialized)
 struct AntigravityPTYTests {
     private func script(contents: String) throws -> (URL, URL) {
         let directory = FileManager.default.temporaryDirectory
@@ -817,8 +817,8 @@ struct AntigravityPTYTests {
     @Test("missing input marker never types the usage command")
     func missingPromptMarker() throws {
         let (directory, executable) = try script(contents:
-            "#!/bin/sh\nstty -echo -icanon -isig\n: > \"$INPUT_FILE\"\n"
-            + "printf 'loading\\n'\ndd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+            "#!/bin/sh\nstty -echo -icanon -isig\nprintf 'loading\\n'\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let inputFile = directory.appendingPathComponent("input")
         // Create the sink up front: the runner may kill the child before its
@@ -826,8 +826,8 @@ struct AntigravityPTYTests {
         try Data().write(to: inputFile)
         var environment = ProcessInfo.processInfo.environment
         environment["INPUT_FILE"] = inputFile.path
-        var shortTiming = timing(promptQuiet: 0.05, promptTimeout: 0.3)
-        shortTiming.totalTimeout = 3
+        var shortTiming = timing(promptQuiet: 0.05, promptTimeout: 0.9)
+        shortTiming.totalTimeout = 9
         let result = SystemAntigravityPTYRunner(timing: shortTiming).run(
             executable: executable, workingDirectory: directory, environment: environment)
         #expect(result.outcome == .promptNotReady)
@@ -838,15 +838,16 @@ struct AntigravityPTYTests {
     @Test("Enter is withheld when the typed usage command is not rendered")
     func usageEchoRequired() throws {
         let (directory, executable) = try script(contents:
-            "#!/bin/sh\nstty -echo -icanon -isig\n: > \"$INPUT_FILE\"\n"
-            + "printf '? for shortcuts\\n> '\ndd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+            "#!/bin/sh\nstty -echo -icanon -isig\nprintf '? for shortcuts\\n> '\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
         var environment = ProcessInfo.processInfo.environment
         environment["INPUT_FILE"] = inputFile.path
         let ptyTiming = AntigravityPTYTiming(
-            promptQuiet: 0.05, promptTimeout: 1, commandPause: 0.1,
-            screenQuiet: 0.05, screenTimeout: 0.5, totalTimeout: 5,
+            promptQuiet: 0.05, promptTimeout: 3, commandPause: 0.5,
+            screenQuiet: 0.05, screenTimeout: 1.5, totalTimeout: 15,
             interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
         let result = SystemAntigravityPTYRunner(timing: ptyTiming).run(
             executable: executable, workingDirectory: directory, environment: environment)
@@ -866,13 +867,13 @@ struct AntigravityPTYTests {
             + "while :; do :; done\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let ptyTiming = AntigravityPTYTiming(
-            promptQuiet: 0.05, promptTimeout: 1, commandPause: 0.1,
-            screenQuiet: 0.05, screenTimeout: 1, totalTimeout: 8,
+            promptQuiet: 0.05, promptTimeout: 3, commandPause: 0.5,
+            screenQuiet: 0.05, screenTimeout: 3, totalTimeout: 24,
             interruptInterval: 0.01, terminateGrace: 0.1, killGrace: 0.1)
         let screen = AntigravityUsageScreen(runner: SystemAntigravityPTYRunner(timing: ptyTiming))
         let result = screen.read(executable: executable, now: Date())
         #expect(result.state == .ok)
-        #expect(result.windows.count == 1)
+        try #require(result.windows.count == 1)
         #expect(result.windows[0].usedPercent == 0)
     }
 

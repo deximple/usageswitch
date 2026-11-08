@@ -124,6 +124,23 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var effectiveLanguage: AppLanguage { language ?? AppLanguage.system() }
     public var effectiveMenuBarShowsName: Bool { menuBarShowsName ?? true }
     public var effectiveShowEmails: Bool { showEmails ?? false }
+    /// Extra opt-in stored alongside `gemini` in `usageConnections` — granted only
+    /// via the Gemini dialog that discloses the in-memory token refresh.
+    public var geminiTokenRefreshAllowed: Bool {
+        (usageConnections ?? []).contains("gemini.tokenRefresh")
+    }
+
+    /// The persisted `usageConnections` value for a consent set. Gemini's refresh
+    /// opt-in rides along as a non-provider extra entry, so unrelated provider
+    /// toggles must round-trip it through here or they silently drop it.
+    public static func usageConnectionsValue(providers: Set<UsageProvider>,
+                                             geminiTokenRefresh: Bool) -> [String]? {
+        var values = providers.map(\.rawValue)
+        if geminiTokenRefresh, providers.contains(.gemini) {
+            values.append("gemini.tokenRefresh")
+        }
+        return values.isEmpty ? nil : values.sorted()
+    }
     public var effectiveUsagePins: [String] {
         var seen = Set<String>()
         return (usagePins ?? []).compactMap { key in

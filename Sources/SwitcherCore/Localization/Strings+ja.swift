@@ -153,6 +153,7 @@ extension Strings {
         .uiConnectUsageTitle: "%@ の使用量を接続",
         .uiConnectUsageBody: "UsageSwitch は %@ のサインイン情報を読み取り、HTTPS で読み取り専用の使用量リクエストを送信します。タスク実行・トークン更新・サインインは行いません。",
         .uiConnectAntigravityBody: "UsageSwitch はホームフォルダから非表示ターミナルで agy を実行して /usage を読み取ります（9分に1回まで）。agy はユーザーが設定した MCP サーバーを含む通常の設定で起動します。UsageSwitch はフォルダー信頼を含む agy のプロンプトには一切応答せず、agy がプロンプトを表示した場合は読み取り専用の割り当て API にフォールバックします。必要に応じて agy の gemini キーチェーンログインを使い、一時アクセストークンをメモリ内だけで取得します。macOS がキーチェーンアクセスの許可を求めることがあります。トークンの保存や agy 設定への書き込みは行わず、モデルリクエストやモデルタスクを実行しません。",
+        .uiConnectGeminiBody: "UsageSwitch は Gemini CLI のローカルサインインを読み取り、HTTPS で読み取り専用のクォータを要求します。保存されたアクセストークンの期限が切れている場合は、インストール済みの Gemini CLI のサインインクライアントと保存済みの更新トークンで一時アクセストークンを取得し、メモリにのみ保持します。サインイン情報は書き戻さず、タスクの実行やサインインは行いません。",
         .uiConnectUsageEnable: "有効にする",
         .uiClaudeProfileConnect: "CLI プロファイルで使用量を接続…",
         .uiClaudeProfileDisconnect: "接続を解除",

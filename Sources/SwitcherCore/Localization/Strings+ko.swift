@@ -153,6 +153,7 @@ extension Strings {
         .uiConnectUsageTitle: "%@ 사용량 연결",
         .uiConnectUsageBody: "UsageSwitch가 %@의 로컬 로그인 정보를 읽고, HTTPS로 읽기 전용 사용량을 요청합니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
         .uiConnectAntigravityBody: "UsageSwitch는 사용자 홈 폴더에서 숨겨진 터미널로 agy를 실행해 /usage를 읽으며, 최대 9분에 한 번만 실행합니다. agy는 사용자가 설정한 MCP 서버를 포함해 평소 설정으로 시작합니다. UsageSwitch는 폴더 신뢰 프롬프트를 포함한 agy의 어떤 프롬프트에도 응답하지 않습니다. agy가 프롬프트를 표시하면 읽기 전용 쿼터 API로 대체합니다. 필요하면 agy의 gemini 키체인 로그인을 사용해 임시 액세스 토큰을 메모리에만 가져옵니다. macOS가 키체인 접근을 허용할지 물을 수 있습니다. 토큰을 저장하거나 agy 설정을 쓰지 않으며 모델 요청이나 모델 작업을 보내지 않습니다.",
+        .uiConnectGeminiBody: "UsageSwitch가 Gemini CLI의 로컬 로그인 정보를 읽고, HTTPS로 읽기 전용 할당량을 요청합니다. 저장된 액세스 토큰이 만료됐으면 설치된 Gemini CLI의 로그인 클라이언트와 저장된 갱신 토큰으로 임시 액세스 토큰을 받아 메모리에만 둡니다. 로그인 정보를 다시 쓰지 않으며, 작업 실행이나 로그인은 수행하지 않습니다.",
         .uiConnectUsageEnable: "활성화",
         .uiClaudeProfileConnect: "CLI 프로필로 사용량 연결…",
         .uiClaudeProfileDisconnect: "연결 해제",
