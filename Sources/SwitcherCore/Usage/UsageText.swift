@@ -96,6 +96,9 @@ public enum UsageText {
         case .schemaChanged: return L10n.t(.usageReasonSchemaChanged, providerName(provider))
         case .rateLimited: return L10n.t(.usageReasonRateLimited)
         case .connectionRequired: return L10n.t(.usageReasonConnectionRequired)
+        case .notEligible:
+            return provider == .gemini ? L10n.t(.usageReasonGeminiRetired)
+                : L10n.t(.usageReasonNotEligible, providerName(provider))
         case .accountMismatch: return L10n.t(.usageReasonAccountMismatch)
         case .profileInvalid: return L10n.t(.usageReasonProfileInvalid)
         case .unsupportedVersion: return L10n.t(.usageReasonUnsupportedVersion)

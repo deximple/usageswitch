@@ -396,6 +396,8 @@ extension Strings {
         .usageReasonNotReporting: "No informa uso",
         .usageReasonNoSignIn: "No se encontró sesión: inicie sesión en %@ primero",
         .usageReasonSignInExpired: "Sesión caducada: ejecute %@ una vez en Terminal",
+        .usageReasonNotEligible: "Esta cuenta no tiene uso de %@",
+        .usageReasonGeminiRetired: "Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)",
         .usageReasonCliMissing: "No se encontró la herramienta de línea de comandos",
         .usageReasonManaged: "Ajustes gestionados — no se puede leer el uso",
         .usageReasonRefused: "La lectura del uso fue rechazada",

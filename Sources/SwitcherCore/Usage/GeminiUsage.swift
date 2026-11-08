@@ -171,9 +171,18 @@ public struct GeminiUsageCollector: Sendable {
         case 429: return [finish(.failed(.rateLimited))]
         default: return [finish(.failed(.network))]
         }
-        guard let assist = UsageJSON.object(a.body),
-              let project = UsageJSON.plainID(assist["cloudaicompanionProject"], max: 200) else {
+        guard let assist = UsageJSON.object(a.body) else {
             return [finish(.unavailable(.schemaChanged))]
+        }
+        guard let project = UsageJSON.plainID(assist["cloudaicompanionProject"], max: 200) else {
+            // A valid 200 with no project: UNSUPPORTED_CLIENT means Google retired
+            // individual Code Assist access — say so, don't call it a changed response.
+            let ineligible = assist["ineligibleTiers"] as? [[String: Any]] ?? []
+            if assist["currentTier"] == nil,
+               ineligible.contains(where: { $0["reasonCode"] as? String == "UNSUPPORTED_CLIENT" }) {
+                return [finish(.unavailable(.notEligible))]
+            }
+            return [finish(.notReporting)]
         }
 
         // Step 2: quota buckets — validate the whole collection; malformed buckets must

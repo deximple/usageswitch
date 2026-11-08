@@ -396,6 +396,8 @@ extension Strings {
         .usageReasonNotReporting: "使用量を報告していません",
         .usageReasonNoSignIn: "サインインが見つかりません · 先に %@ にサインインしてください",
         .usageReasonSignInExpired: "サインインの期限切れ · ターミナルで %@ を一度実行してください",
+        .usageReasonNotEligible: "このアカウントは %@ の使用量の対象外です",
+        .usageReasonGeminiRetired: "Google は個人アカウント向けの Gemini CLI クォータを終了しました（Antigravity に移行）",
         .usageReasonCliMissing: "コマンドラインツールが見つかりません",
         .usageReasonManaged: "管理設定があるため使用量を読み取れません",
         .usageReasonRefused: "使用量の読み取りが拒否されました",
