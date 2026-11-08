@@ -54,9 +54,14 @@ public struct AntigravityUsageCollector: Sendable {
         }
         guard enabled else { return [] }
         let keychainRead = readKeychainRecord()
-        if case .record(let record) = keychainRead {
+        switch keychainRead {
+        case .record(let record):
             let fingerprint = Data(SHA256.hash(data: Data(record.refreshToken.utf8)))
             tokenCache.updateAccountFingerprint(fingerprint, screenCache: screenCache)
+        case .unavailable:
+            tokenCache.updateAccountFingerprint(Data(), screenCache: screenCache)
+        case .refused, .schemaChanged:
+            break
         }
         let screenResult: AntigravityScreenResult
         let screenReadAt: Date?
@@ -257,11 +262,11 @@ public struct AntigravityUsageCollector: Sendable {
 
     private func accessToken(_ keychainRead: KeychainRead) -> TokenResult {
         let current = now()
-        if let cached = tokenCache.value(at: current) {
-            return .token(cached.accessToken, projectID: cached.projectID)
-        }
         switch keychainRead {
         case .record(let record):
+            if let cached = tokenCache.value(at: current) {
+                return .token(cached.accessToken, projectID: cached.projectID)
+            }
             return exchange(record)
         case .schemaChanged:
             return .failure(.unavailable(.schemaChanged))
@@ -318,7 +323,6 @@ public struct AntigravityUsageCollector: Sendable {
             return .failure(.unavailable(.schemaChanged))
         }
         guard expiry > current else { return .failure(.unavailable(.noSignIn)) }
-        tokenCache.store(accessToken: access, validUntil: expiry.addingTimeInterval(-60), projectID: nil)
         return .token(access, projectID: nil)
     }
 

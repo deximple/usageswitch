@@ -397,28 +397,90 @@ struct AntigravityUsageTests {
         #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
     }
 
-    @Test("failed Keychain read leaves both caches usable")
-    func failedKeychainReadKeepsCaches() {
-        let http = SpyTransport()
-        http.queue = [project(), quota()]
+    @Test("sign-out clears the old Keychain token and screen windows")
+    func keychainSignOutClearsCaches() {
         let tokenCache = AntigravityAccessTokenCache()
         let screenCache = AntigravityUsageScreenCache()
+        let screen = CountingScreen([
+            .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                  usedPercent: 35, resetsAt: nil)])
+        ])
+        let firstHTTP = SpyTransport()
+        firstHTTP.queue = [tokenResponse("old-access"), project(), quota()]
+
+        let first = collector(firstHTTP, SpyCredentials(),
+                              runner: keychainRunner(refreshToken: "old-refresh"),
+                              screen: screen, cache: tokenCache, screenCache: screenCache)
+            .collect().first
+
+        #expect(first?.state == .ok)
+        #expect(tokenCache.value(at: now)?.accessToken == "old-access")
+        #expect(first?.windows.first?.usedPercent == 35)
+
+        let secondHTTP = SpyTransport()
+        let second = collector(secondHTTP, SpyCredentials(), runner: missingKeychain(),
+                                screen: screen, cache: tokenCache, screenCache: screenCache)
+            .collect().first
+
+        #expect(second?.state == .unavailable(.noSignIn))
+        #expect(second?.windows.isEmpty == true)
+        #expect(secondHTTP.requests.isEmpty)
+        #expect(tokenCache.value(at: now)?.accessToken == nil)
+        guard case .throttled = screenCache.acquire(at: now) else {
+            Issue.record("expected the old screen windows to be cleared while preserving the throttle")
+            return
+        }
+    }
+
+    @Test("legacy file token changes are read on every collection")
+    func changedLegacyFileTokenIsUsed() {
+        let credentials = SpyCredentials()
+        credentials.files[tokenPath] =
+            #"{"token":{"access_token":"file-access-a","expiry":"2999-01-01T00:00:00Z"}}"#.data(using: .utf8)
+        let http = SpyTransport()
+        http.queue = [project(), quota(), project(), quota()]
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        let screen = CountingScreen([.failure(.failed(.timeout))])
+
+        _ = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                      cache: tokenCache, screenCache: screenCache).collect()
+        credentials.files[tokenPath] =
+            #"{"token":{"access_token":"file-access-b","expiry":"2999-01-01T00:00:00Z"}}"#.data(using: .utf8)
+        _ = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                      cache: tokenCache, screenCache: screenCache).collect()
+
+        #expect(http.requests.map { $0.headers["Authorization"] } == [
+            "Bearer file-access-a", "Bearer file-access-a",
+            "Bearer file-access-b", "Bearer file-access-b",
+        ])
+        #expect(tokenCache.value(at: now)?.accessToken == nil)
+    }
+
+    @Test("Keychain refusal leaves both caches intact")
+    func refusedKeychainReadKeepsCaches() {
+        let http = SpyTransport()
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        let cachedWindows = [UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                         usedPercent: 25, resetsAt: nil)]
         tokenCache.updateAccountFingerprint(refreshFingerprint("old-refresh"), screenCache: screenCache)
         tokenCache.store(accessToken: "cached-access", validUntil: now.addingTimeInterval(3600),
                          projectID: "cached-project")
-        screenCache.store([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
-                                       usedPercent: 25, resetsAt: nil)], readAt: now)
-        let screen = CountingScreen([
-            .success([UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
-                                 usedPercent: 75, resetsAt: nil)])
-        ])
+        screenCache.store(cachedWindows, readAt: now)
 
-        let row = collector(http, SpyCredentials(), runner: missingKeychain(), screen: screen,
-                            cache: tokenCache, screenCache: screenCache).collect().first
+        let row = collector(http, SpyCredentials(), runner: refusedKeychain(),
+                            screen: CountingScreen([]), cache: tokenCache,
+                            screenCache: screenCache).collect().first
 
-        #expect(row?.windows.first?.usedPercent == 25)
-        #expect(screen.readCount == 0)
-        #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
+        #expect(row?.windows == cachedWindows)
+        #expect(http.requests.isEmpty)
+        #expect(tokenCache.value(at: now)?.accessToken == "cached-access")
+        guard case .cached(let windows, _) = screenCache.acquire(at: now) else {
+            Issue.record("expected cached screen windows to remain after Keychain refusal")
+            return
+        }
+        #expect(windows == cachedWindows)
     }
 
     @Test("screen windows remain primary and receive matching API reset times")
@@ -587,6 +649,12 @@ struct AntigravityUsageTests {
     private func missingKeychain() -> FakeUsageRunner {
         let runner = FakeUsageRunner()
         runner.respond = { _ in UsageProcessResult(lines: [], outcome: .exited(44)) }
+        return runner
+    }
+
+    private func refusedKeychain() -> FakeUsageRunner {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .cancelled) }
         return runner
     }
 
