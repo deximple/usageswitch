@@ -20,7 +20,7 @@
   own opt-in flag.
 - Cursor windows use the dashboard's pool names (Cursor Models, Other Models) next to the
   monthly included total; existing Auto/API pins keep working.
-- An expired local sign-in (Gemini, Grok, Antigravity) names the CLI to run once; a missing
+- An expired local sign-in (Gemini, Grok, Antigravity, Cursor) names the CLI command to run; a missing
   sign-in names the provider to sign in to.
 
 **Guide, pace, alerts:**

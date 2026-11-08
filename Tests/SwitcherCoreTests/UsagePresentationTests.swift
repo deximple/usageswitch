@@ -151,3 +151,20 @@ struct UsageNameDraftTests {
         #expect(!d.canSave)
     }
 }
+
+extension UsagePresentationTests {
+    @Test("not-linked note only for unbound saved App rows")
+    func claudeAppUnlinked() {
+        func row(_ id: String, _ ref: String, _ p: UsageProvider) -> AccountUsage {
+            AccountUsage(id: id, provider: p, accountRef: ref, label: "x",
+                         plan: nil, windows: [], state: .ok, readAt: Date(), toolVersion: nil)
+        }
+        let bound = row("claude:app:acc1", "app:acc1", .claude)
+        let cli = row("claude:cli", "cli", .claude)
+        let other = row("cursor:cursor", "app:x", .cursor)
+        #expect(UsagePresentations.claudeAppUnlinked(usage: bound, boundAccountIDs: ["acc1"]) == false)
+        #expect(UsagePresentations.claudeAppUnlinked(usage: bound, boundAccountIDs: []) == true)
+        #expect(UsagePresentations.claudeAppUnlinked(usage: cli, boundAccountIDs: []) == false)
+        #expect(UsagePresentations.claudeAppUnlinked(usage: other, boundAccountIDs: []) == false)
+    }
+}

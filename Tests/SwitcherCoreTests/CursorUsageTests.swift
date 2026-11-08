@@ -333,3 +333,52 @@ struct CursorPinMigrationTests {
         ])
     }
 }
+
+extension CursorUsageTests {
+    private func jwt(_ payload: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let b64 = data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "h.\(b64).s"
+    }
+
+    private func collect(_ token: String) throws -> (state: UsageState?, calls: Int) {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = fakeRunner(keychainToken: token)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let state = collector(home: home, runner: runner, http: http).collect().first?.state
+        return (state, http.calls.count)
+    }
+
+    @Test("expired JWT reports signInExpired and sends no request")
+    func expired() throws {
+        let (state, calls) = try collect(jwt(["exp": 1_779_999_000]))
+        #expect(state == .unavailable(.signInExpired))
+        #expect(calls == 0)
+    }
+
+    @Test("JWT expiring within 60s reports signInExpired, no request")
+    func nearExpiry() throws {
+        let (state, calls) = try collect(jwt(["exp": 1_780_000_030]))
+        #expect(state == .unavailable(.signInExpired))
+        #expect(calls == 0)
+    }
+
+    @Test("JWT expiring in 10 minutes still sends the request")
+    func fresh() throws {
+        let (state, calls) = try collect(jwt(["exp": 1_780_000_600]))
+        #expect(state == .ok)
+        #expect(calls == 1)
+    }
+
+    @Test("non-JWT, garbage payload, and exp-less payload all send the request")
+    func passThrough() throws {
+        for token in ["tok", "a.!!!.b", try jwt(["sub": "x"])] {
+            let (_, calls) = try collect(token)
+            #expect(calls == 1)
+        }
+    }
+}

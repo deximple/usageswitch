@@ -463,6 +463,12 @@ final class SwitcherModel: ObservableObject {
         setStatus(renamedStatus)
     }
 
+    /// Memory-only binding seed for fixtures — never persisted, never a real read.
+    func seedDemoClaudeBindings(_ bindings: [ClaudeProfileBinding]) {
+        guard isDemo else { return }
+        claudeUsageProfiles = bindings
+    }
+
     /// Fixture-only: mark the providers a demo fixture shows as connected, in
     /// memory only — no saveSettings, no real collector. Lets the consent toggles
     /// simulate revocation/restoration against the original fixture rows.

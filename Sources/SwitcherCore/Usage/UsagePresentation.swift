@@ -174,3 +174,13 @@ public enum UsagePresentations {
         return ([first] + common + scoped).prefix(3).map { usage.windows[$0] }
     }
 }
+
+extension UsagePresentations {
+    /// The saved-App "not linked to CLI quota" note applies only while the saved
+    /// account has no CLI profile binding — a bound row's windows are already that
+    /// profile's reading. `usage.id` is `claude:<accountRef>`; `accountRef` is `app:<accountID>`.
+    public static func claudeAppUnlinked(usage: AccountUsage, boundAccountIDs: Set<String>) -> Bool {
+        guard usage.provider == .claude, usage.accountRef.hasPrefix("app:") else { return false }
+        return !boundAccountIDs.contains(String(usage.accountRef.dropFirst("app:".count)))
+    }
+}

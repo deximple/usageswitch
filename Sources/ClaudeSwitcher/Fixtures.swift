@@ -175,6 +175,22 @@ enum Fixtures {
                 UsageWindow(scope: "gemini-pro [output]", durationMinutes: nil, usedPercent: 42,
                             resetsAt: Date().addingTimeInterval(3600)),
             ])], segment: .all)
+        case "usage-bound":
+            let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"
+            settings.seedDemoClaudeBindings([
+                ClaudeProfileBinding(accountId: personalID,
+                                     accountUuid: "a1a1a1a1-0000-4000-8000-000000000001",
+                                     orgUuid: "a1a1a1a1-0000-4000-8000-0000000000f1",
+                                     profilePath: "~/.claude-personal"),
+            ])
+            return demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(10080, 40, resetsIn: 3 * 86400),
+                ]),
+                account(.claude, "app:\(personalID)", "Personal", .ok, windows: [
+                    window(10080, 35, resetsIn: 4 * 86400),
+                ]),
+            ], segment: .all)
         case "usage-expired":
             return demo([account(.gemini, "current", "Gemini", .unavailable(.signInExpired),
                                  readAgo: 40 * 60)], segment: .all)

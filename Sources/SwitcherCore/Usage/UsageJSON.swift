@@ -66,4 +66,19 @@ enum UsageJSON {
     }
     /// Auth expiry may legitimately be much later than the quota bound.
     static func expiryDate(_ v: Any?) -> Date? { isoDate(v) }
+
+    /// A JWT's `exp` claim as a Date — only when the token has three dot-separated
+    /// segments and its middle segment base64url-decodes to a JSON object with a
+    /// numeric `exp`. Any other shape decodes to nil; the token is never logged.
+    static func jwtExpiry(_ token: String) -> Date? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        var b64 = String(parts[1]).replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        b64 += String(repeating: "=", count: (4 - b64.count % 4) % 4)
+        guard let data = Data(base64Encoded: b64),
+              let payload = object(data),
+              let exp = double(payload["exp"]) else { return nil }
+        return Date(timeIntervalSince1970: exp)
+    }
 }

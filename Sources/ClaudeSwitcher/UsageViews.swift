@@ -531,7 +531,9 @@ struct UsageContent: View {
                     .buttonStyle(.plain).fixedSize()
                     .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
-            if p?.environment == .app, usage.provider == .claude {
+            if p?.environment == .app,
+               UsagePresentations.claudeAppUnlinked(
+                   usage: usage, boundAccountIDs: Set(model.claudeBindings.map(\.accountId))) {
                 Text(L10n.t(.usageNotLinked)).font(.system(size: 10))
                     .foregroundStyle(Theme.inkMuted)
             }

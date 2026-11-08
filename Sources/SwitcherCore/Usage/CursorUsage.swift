@@ -136,6 +136,12 @@ public struct CursorUsageCollector: Sendable {
         }
         guard enabled else { return [] }
         guard let token = token() else { return [finish(.unavailable(.noSignIn))] }
+        // The stored cursor-agent token is a ~1h JWT cursor-agent does not refresh
+        // without an API key; sending an expired one only earns a 401 — report the
+        // expired sign-in instead, without a request.
+        if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60) {
+            return [finish(.unavailable(.signInExpired))]
+        }
         let usageURL = endpoint.appendingPathComponent("aiserver.v1.DashboardService/GetCurrentPeriodUsage")
         guard let response = http.post(url: usageURL, bearer: token, timeout: 10) else {
             return [finish(.failed(.network))]
