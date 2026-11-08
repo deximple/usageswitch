@@ -39,7 +39,7 @@ final class UsageModel: ObservableObject {
     private var lastSuggestionLogReadAt: Date?
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
-    private var claudeBindings: [ClaudeProfileBinding]
+    private(set) var claudeBindings: [ClaudeProfileBinding]
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
     private var lastReadStartedAt: Date?
@@ -70,7 +70,7 @@ final class UsageModel: ObservableObject {
          settings: SwitcherModel) {
         self.settings = settings
         self.segment = segment
-        claudeBindings = []
+        claudeBindings = settings.claudeUsageProfiles
         usages = demo
         // Inventory comes from the fixture rows only — a demo never runs live discovery.
         let fixtureRoot = URL(fileURLWithPath: "/usage-switch-fixture")
@@ -125,6 +125,7 @@ final class UsageModel: ObservableObject {
     }
 
     func activeSuggestionCandidateIdentity() -> String? {
+        guard !isDemo else { return nil }
         guard let usage = activeSuggestionUsage(),
               let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
         let hint = suggestionLogReader?.accountRefKey(for: usage.accountRef)

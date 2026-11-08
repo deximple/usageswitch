@@ -123,7 +123,7 @@ struct MenuBarUsageTests {
         let now = Date()
         let total = UsageWindow(durationMinutes: 43_200, usedPercent: 40,
                                 resetsAt: now.addingTimeInterval(3600))
-        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200, usedPercent: 95,
+        let auto = UsageWindow(scope: CursorUsageParser.cursorModelsScope, durationMinutes: 43_200, usedPercent: 95,
                                resetsAt: now.addingTimeInterval(3600))
         let candidates = MenuBarTitle.preferredUsageWindows([total, auto])
         #expect(candidates.map(\.scope) == [nil])
@@ -136,14 +136,14 @@ struct MenuBarUsageTests {
     func pinnedScopedWindow() {
         let reset = Date().addingTimeInterval(3600)
         let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
-        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+        let auto = UsageWindow(scope: CursorUsageParser.cursorModelsScope, durationMinutes: 43_200,
                                usedPercent: 24, resetsAt: reset)
         let usage = cursorUsage([total, auto])
         let selected = MenuBarTitle.selectWindow(
             accounts: [keyedWindows(for: usage)],
             pins: [UsagePriority.key(usage, auto)])
 
-        #expect(selected?.scope == "Auto")
+        #expect(selected?.scope == CursorUsageParser.cursorModelsScope)
         #expect(selected?.usedPercent == 24)
     }
 
@@ -151,7 +151,7 @@ struct MenuBarUsageTests {
     func unpinnedTotalWins() {
         let reset = Date().addingTimeInterval(3600)
         let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
-        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+        let auto = UsageWindow(scope: CursorUsageParser.cursorModelsScope, durationMinutes: 43_200,
                                usedPercent: 24, resetsAt: reset)
         let usage = cursorUsage([total, auto])
 
@@ -166,7 +166,7 @@ struct MenuBarUsageTests {
     func unpinnedScopedPoolDoesNotWin() {
         let reset = Date().addingTimeInterval(3600)
         let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
-        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+        let auto = UsageWindow(scope: CursorUsageParser.cursorModelsScope, durationMinutes: 43_200,
                                usedPercent: 30, resetsAt: reset)
         let usage = cursorUsage([total, auto])
 

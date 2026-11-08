@@ -162,6 +162,38 @@ enum Fixtures {
             return demo(manyLongUsages(), segment: .all)
         case "usage-local-three":
             return demo(localThreeUsages(), segment: .all)
+        case "usage-cursor":
+            return demo([account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
+                window(43200, 30, resetsIn: 12 * 86400),
+                window(43200, 28, scope: CursorUsageParser.cursorModelsScope, resetsIn: 12 * 86400),
+                window(43200, 55, scope: CursorUsageParser.otherModelsScope, resetsIn: 12 * 86400),
+            ])], segment: .all)
+        case "usage-gemini":
+            return demo([account(.gemini, "current", "Gemini", .ok, windows: [
+                UsageWindow(scope: "gemini-pro [input]", durationMinutes: nil, usedPercent: 65,
+                            resetsAt: Date().addingTimeInterval(3600)),
+                UsageWindow(scope: "gemini-pro [output]", durationMinutes: nil, usedPercent: 42,
+                            resetsAt: Date().addingTimeInterval(3600)),
+            ])], segment: .all)
+        case "usage-bound":
+            let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"
+            settings.seedDemoClaudeBindings([
+                ClaudeProfileBinding(accountId: personalID,
+                                     accountUuid: "a1a1a1a1-0000-4000-8000-000000000001",
+                                     orgUuid: "a1a1a1a1-0000-4000-8000-0000000000f1",
+                                     profilePath: "~/.claude-personal"),
+            ])
+            return demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(10080, 40, resetsIn: 3 * 86400),
+                ]),
+                account(.claude, "app:\(personalID)", "Personal", .ok, windows: [
+                    window(10080, 35, resetsIn: 4 * 86400),
+                ]),
+            ], segment: .all)
+        case "usage-expired":
+            return demo([account(.gemini, "current", "Gemini", .unavailable(.signInExpired),
+                                 readAgo: 40 * 60)], segment: .all)
         case "usage-claude-only":
             return demo([
                 account(.claude, "cli", "CLI sign-in", .ok, windows: [
@@ -230,9 +262,11 @@ enum Fixtures {
             ]),
             // An API-key profile: billed separately, no subscription window — stays listed.
             account(.codex, "found:.codex_second", "API profile", .notReporting, auth: .apiKey),
-            // Declared synthetic total — the wire split fields are never summed or relabeled.
+            // Synthetic total + dashboard pools — declared fixture values, never summed.
             account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
                 window(43200, 30, resetsIn: 21 * 86400 + 5 * 3600),
+                window(43200, 28, scope: CursorUsageParser.cursorModelsScope, resetsIn: 21 * 86400 + 5 * 3600),
+                window(43200, 55, scope: CursorUsageParser.otherModelsScope, resetsIn: 21 * 86400 + 5 * 3600),
             ]),
         ]
     }
@@ -251,9 +285,11 @@ enum Fixtures {
                 window(300, 45, resetsIn: 1 * 3600),
                 window(10080, 70, resetsIn: 6 * 86400),
             ]),
-            // Declared synthetic total — the wire split fields are never summed or relabeled.
+            // Synthetic total + dashboard pools — declared fixture values, never summed.
             account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
                 window(43200, 30, resetsIn: 12 * 86400),
+                window(43200, 28, scope: CursorUsageParser.cursorModelsScope, resetsIn: 12 * 86400),
+                window(43200, 55, scope: CursorUsageParser.otherModelsScope, resetsIn: 12 * 86400),
             ]),
         ]
     }
@@ -354,6 +390,8 @@ enum Fixtures {
                 window(300, 92, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 64, resetsIn: 2 * 86400 + 4 * 3600),
             ]),
+            account(.gemini, "current", "Gemini", .unavailable(.signInExpired),
+                    readAgo: 40 * 60),
         ]
     }
 }

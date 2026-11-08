@@ -35,7 +35,7 @@ public struct UsageWindow: Codable, Hashable, Sendable {
 
     /// Classified from `durationMinutes`, never from which slot a channel reported it in.
     public let kind: Kind
-    /// A window inside the plan ("Fable", "Auto", "API"); nil means the whole plan.
+    /// A window inside the plan ("Fable", "Cursor Models", "Other Models"); nil means the whole plan.
     public let scope: String?
     public let durationMinutes: Int?
     /// 0…100.
@@ -74,6 +74,9 @@ public enum UsageProblem: String, Codable, Sendable {
     case profileInvalid, unsupportedVersion
     /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
     case connectionRequired
+    /// A stored credential parsed fine but is expired or too close to expiry. The vendor CLI
+    /// refreshes its own sign-in when run; the app never refreshes it.
+    case signInExpired
     /// The answer named another account than the one this row reads (a login changed mid-read).
     case accountMismatch
 }

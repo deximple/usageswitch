@@ -360,7 +360,7 @@ public struct AntigravityUsageCollector: Sendable {
         guard let expiry = read.expiry else {
             return .failure(read.failure ?? .unavailable(.schemaChanged))
         }
-        guard expiry > current else { return .failure(.unavailable(.noSignIn)) }
+        guard expiry > current else { return .failure(.unavailable(.signInExpired)) }
         return .token(access, projectID: nil)
     }
 

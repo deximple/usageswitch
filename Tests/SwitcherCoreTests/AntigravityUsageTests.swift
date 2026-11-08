@@ -258,7 +258,7 @@ struct AntigravityUsageTests {
         credentials.files[tokenPath] =
             #"{"token":{"access_token":"old-access","expiry":"2020-01-01T00:00:00Z"}}"#.data(using: .utf8)
         let result = collector(http, credentials, runner: missingKeychain()).collect().first
-        #expect(result?.state == .unavailable(.noSignIn))
+        #expect(result?.state == .unavailable(.signInExpired))
         #expect(http.requests.isEmpty)
     }
 
@@ -821,6 +821,9 @@ struct AntigravityPTYTests {
             + "printf 'loading\\n'\ndd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let inputFile = directory.appendingPathComponent("input")
+        // Create the sink up front: the runner may kill the child before its
+        // first `: > "$INPUT_FILE"` executes; the read must not race child startup.
+        try Data().write(to: inputFile)
         var environment = ProcessInfo.processInfo.environment
         environment["INPUT_FILE"] = inputFile.path
         var shortTiming = timing(promptQuiet: 0.05, promptTimeout: 0.3)
