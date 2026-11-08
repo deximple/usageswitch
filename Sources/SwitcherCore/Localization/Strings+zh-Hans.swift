@@ -152,6 +152,7 @@ extension Strings {
         .uiUsageConnections: "用量连接",
         .uiConnectUsageTitle: "连接 %@ 用量",
         .uiConnectUsageBody: "UsageSwitch 将读取 %@ 的本地登录信息并通过 HTTPS 发送只读用量请求。不会执行任务、刷新令牌或登录。",
+        .uiConnectAntigravityBody: "UsageSwitch 会读取 Antigravity 的本地访问令牌，并通过 HTTPS 发送只读用量请求。它不会使用刷新令牌、更新令牌、运行模型任务或登录。",
         .uiConnectUsageEnable: "启用",
         .uiClaudeProfileConnect: "通过 CLI 配置目录连接用量…",
         .uiClaudeProfileDisconnect: "断开连接",

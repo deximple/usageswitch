@@ -87,6 +87,18 @@ struct UsagePresentationTests {
                                               claude: nil, codex: nil, now: now)
         #expect(out.allSatisfy { $0.login == .unknown && !$0.badgeActive })
     }
+
+    @Test("Antigravity app-only rows use the app environment and provider glyph")
+    func antigravityEnvironment() {
+        let installation = UsageInstallation(
+            provider: .antigravity, cli: nil, app: URL(fileURLWithPath: "/Applications/Antigravity.app"))
+        let out = UsagePresentations.accounts(
+            readings: [usage(.antigravity, "current")], installations: [installation],
+            claude: nil, codex: nil, now: Date())
+        #expect(out.first?.environment == .app)
+        #expect(UsageText.providerName(.antigravity) == "Antigravity")
+        #expect(UsageText.providerGlyph(.antigravity) == "sparkles")
+    }
 }
 
 @Suite("Usage name draft")

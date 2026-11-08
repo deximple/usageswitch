@@ -199,8 +199,11 @@ final class UsageModel: ObservableObject {
                             environment: environment).collect()
                     case .gemini:
                         return GeminiUsageCollector(enabled: true, http: transport,
-                            credentials: credentials, home: env.home,
+                            credentials: credentials, runner: runner, home: env.home,
                             environment: environment).collect()
+                    case .antigravity:
+                        return AntigravityUsageCollector(enabled: true, http: transport,
+                            credentials: credentials, home: env.home).collect()
                     case .devin:
                         return DevinUsageCollector(enabled: true, http: transport,
                             credentials: credentials, runner: runner,

@@ -112,7 +112,9 @@ struct SettingsMenu: View {
     static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()
         alert.messageText = L10n.t(.uiConnectUsageTitle, UsageText.providerName(provider))
-        alert.informativeText = L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
+        alert.informativeText = provider == .antigravity
+            ? L10n.t(.uiConnectAntigravityBody)
+            : L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
         alert.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
         alert.addButton(withTitle: L10n.t(.uiCancel))
         if alert.runModal() == .alertFirstButtonReturn { enable() }

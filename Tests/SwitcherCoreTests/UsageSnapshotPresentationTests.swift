@@ -44,12 +44,13 @@ private func codexAccount(_ id: String, _ label: String,
 
 @Suite("Snapshot from presentations")
 struct UsageSnapshotPresentationTests {
-    @Test("ten presentation-only rows serialize in order — synthetic fixture, not ten verified accounts")
+    @Test("eleven presentation-only rows serialize in order — synthetic fixture, not eleven verified accounts")
     func tenRows() throws {
         let readings = [
             reading(.cursor, "cursor", label: "Cursor"),
             reading(.grok, "current", label: "Grok"),
             reading(.gemini, "current", label: "Gemini"),
+            reading(.antigravity, "current", label: "Antigravity"),
             reading(.devin, "current", label: "Devin"),
             reading(.opencode, "current", label: "OpenCode"),
         ]
@@ -70,9 +71,9 @@ struct UsageSnapshotPresentationTests {
             ], hiddenCount: 0)
         let rows = UsagePresentations.accounts(readings: readings, installations: [],
                                                claude: claude, codex: codex, now: fixedNow)
-        #expect(rows.count == 10)
+        #expect(rows.count == 11)
         let snap = UsageSnapshot(presentations: rows, generatedAt: fixedNow)
-        #expect(snap.accounts.count == 10)
+        #expect(snap.accounts.count == 11)
         for (account, p) in zip(snap.accounts, rows) {
             #expect(account.provider == p.usage.provider.rawValue)
             #expect(account.label == Privacy.maskEmails(in: p.name))
@@ -84,12 +85,12 @@ struct UsageSnapshotPresentationTests {
         #expect(snap.accounts.map(\.id) == [
             "claude:app#1", "claude:app#2", "claude:app#3",
             "codex#1", "codex#2",
-            "cursor:cursor", "grok:current", "gemini:current",
+            "cursor:cursor", "grok:current", "gemini:current", "antigravity:current",
             "devin:current", "opencode:current",
         ])
         #expect(snap.accounts.map(\.accountRef) == [
             "app#1", "app#2", "app#3", "codex#1", "codex#2",
-            "cursor", "current", "current", "current", "current",
+            "cursor", "current", "current", "current", "current", "current",
         ])
         #expect(!snap.accounts.map(\.id).joined().contains(".codex-work"))
         let appRows = snap.accounts.filter { $0.id.hasPrefix("claude:app#") }

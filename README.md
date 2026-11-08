@@ -71,14 +71,18 @@ treated as subscription balances.
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
 | Cursor | Current-period usage endpoint (unscoped total plus scoped Auto/API windows) | Opt-in; on the verified account, the total matched dashboard “Cursor Models,” not “Other Models,” so may not cover the whole plan |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
-| Gemini | Code Assist project/quota | Opt-in; model/input/output limits kept separate |
+| Gemini | Code Assist project/quota | Opt-in; Keychain then legacy auth file (encrypted-file storage unsupported); model/input/output limits kept separate |
+| Antigravity | Code Assist model quotas | Opt-in; access token only; inferred endpoint and response shape |
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
 | OpenCode Go | Go usage endpoint | Opt-in; only the Go plan, not an OpenCode total |
 
-The five optional providers are all **off by default**. Enabling one explains that
+The six optional providers are all **off by default**. Enabling one explains that
 UsageSwitch reads that provider's local sign-in and sends read-only usage requests to a
 fixed allowlist over HTTPS — no redirects, bounded responses, one request per refresh
-(Gemini may make two). Those optional-provider tokens are never saved or
+(Gemini and Antigravity may make two). Gemini supports its CLI Keychain item and legacy
+`~/.gemini/oauth_creds.json`; forced encrypted-file storage is unsupported and shows no sign-in.
+Antigravity reads only the access token from its local token file, never its refresh token.
+Those optional-provider tokens are never saved or
 logged by the usage collectors. The newer connectors are **experimental** — private
 endpoints may change and live-account compatibility is not yet verified. UsageSwitch
 never signs in or out, switches accounts, or runs model tasks. For an explicitly

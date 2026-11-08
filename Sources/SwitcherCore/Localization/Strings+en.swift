@@ -152,6 +152,7 @@ extension Strings {
         .uiUsageConnections: "Usage Connections",
         .uiConnectUsageTitle: "Connect %@ Usage",
         .uiConnectUsageBody: "UsageSwitch reads the %@ sign-in and sends read-only usage requests over HTTPS. No tasks, token refreshes, or sign-ins are performed.",
+        .uiConnectAntigravityBody: "UsageSwitch reads Antigravity's local access token and sends read-only usage requests over HTTPS. It never uses the refresh token, refreshes tokens, runs model tasks, or signs in.",
         .uiConnectUsageEnable: "Enable",
         .uiClaudeProfileConnect: "Connect usage via CLI profile…",
         .uiClaudeProfileDisconnect: "Disconnect",

@@ -1,8 +1,7 @@
 import Foundation
 
-/// Gemini CLI usage adapter: bounded read of `~/.gemini/oauth_creds.json`, then the
-/// two-step loadCodeAssist -> retrieveUserQuota flow. Distinct model quotas stay
-/// distinct; only fully identical records for the same model/metric collapse.
+/// Gemini CLI usage adapter: Keychain first, then the legacy bounded auth file,
+/// followed by loadCodeAssist -> retrieveUserQuota.
 public struct GeminiUsageCollector: Sendable {
     public static let rowID = "gemini:current"
     public static let rowAccountRef = "current"
@@ -14,19 +13,48 @@ public struct GeminiUsageCollector: Sendable {
     private let enabled: Bool
     private let http: any UsageHTTPTransport
     private let credentials: any UsageCredentialReading
+    private let runner: any UsageProcessRunner
     private let home: URL
+    private let environment: [String: String]
     private let now: @Sendable () -> Date
 
     public init(enabled: Bool, http: any UsageHTTPTransport,
                 credentials: any UsageCredentialReading,
+                runner: any UsageProcessRunner,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 environment: [String: String] = [:],
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.enabled = enabled; self.http = http; self.credentials = credentials
-        self.home = home; self.now = now
+        self.runner = runner; self.home = home; self.environment = environment; self.now = now
     }
 
     private func token() -> String? {
+        guard environment["GEMINI_FORCE_ENCRYPTED_FILE_STORAGE"] != "true" else { return nil }
+        let keychain = runner.run(UsageProcessRequest(
+            executable: URL(fileURLWithPath: "/usr/bin/security"),
+            arguments: ["find-generic-password", "-a", "main-account",
+                        "-s", "gemini-cli-oauth", "-w"],
+            environment: SystemClaudeAppControl.cleanEnvironment(from: environment),
+            workingDirectory: FileManager.default.temporaryDirectory,
+            maxOutputBytes: 64 * 1024, timeout: 3))
+        switch keychain.outcome {
+        case .exited(0):
+            let raw = keychain.lines.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty {
+                guard let data = raw.data(using: .utf8),
+                      let object = UsageJSON.object(data),
+                      object["serverName"] as? String == "main-account",
+                      let token = object["token"] as? [String: Any],
+                      let expiry = UsageJSON.double(token["expiresAt"]),
+                      expiry > now().timeIntervalSince1970 * 1000 else { return nil }
+                return UsageJSON.token(token["accessToken"])
+            }
+        case .outputLimit:
+            return nil
+        default:
+            break
+        }
         guard let data = credentials.read(home.appendingPathComponent(".gemini/oauth_creds.json")),
               let object = UsageJSON.object(data) else { return nil }
         guard let expiry = UsageJSON.double(object["expiry_date"]), expiry.isFinite,

@@ -123,16 +123,60 @@ struct GrokAdapterTests {
 struct GeminiAdapterTests {
     private let home = URL(fileURLWithPath: "/tmp/gemini-home")
     private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
-                           enabled: Bool = true) -> GeminiUsageCollector {
+                           enabled: Bool = true,
+                           runner: FakeUsageRunner = FakeUsageRunner(),
+                           environment: [String: String] = [:]) -> GeminiUsageCollector {
         GeminiUsageCollector(enabled: enabled, http: http, credentials: creds,
-                             home: home, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+                             runner: runner, home: home, environment: environment,
+                             now: { Date(timeIntervalSince1970: 1_700_000_000) })
     }
 
     @Test("disabled does zero reads and zero requests")
     func disabled() {
         let http = SpyTransport(); let creds = SpyCredentials()
-        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        let runner = FakeUsageRunner()
+        #expect(collector(http, creds, enabled: false, runner: runner).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty && runner.requests.isEmpty)
+    }
+
+    @Test("reads the Gemini CLI 0.58 Keychain JSON shape before the legacy file")
+    func keychainCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        let keychain = #"{"serverName":"main-account","token":{"accessToken":"keychain-access","refreshToken":"unused-refresh","tokenType":"Bearer","scope":"scope","expiresAt":9999999999999},"updatedAt":1700000000000}"#
+        runner.respond = { _ in UsageProcessResult(lines: [keychain], outcome: .exited(0)) }
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"project-1"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"gemini-pro","remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}]}"#.data(using: .utf8)!),
+        ]
+        let row = collector(http, creds, runner: runner).collect().first
+        #expect(row?.state == .ok)
+        #expect(creds.reads == 0)
+        #expect(runner.requests.first?.arguments == [
+            "find-generic-password", "-a", "main-account", "-s", "gemini-cli-oauth", "-w",
+        ])
+        #expect(http.requests.first?.headers["Authorization"] == "Bearer keychain-access")
+    }
+
+    @Test("expired Keychain credential is authoritative over the legacy file")
+    func expiredKeychain() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        let keychain = #"{"serverName":"main-account","token":{"accessToken":"expired","expiresAt":1}}"#
+        runner.respond = { _ in UsageProcessResult(lines: [keychain], outcome: .exited(0)) }
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"file-token","expiry_date":9999999999999}"#.data(using: .utf8)
+        #expect(collector(http, creds, runner: runner).collect().first?.state == .unavailable(.noSignIn))
         #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("encrypted file storage is unsupported and treated as no sign-in")
+    func encryptedStorage() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"file-token","expiry_date":9999999999999}"#.data(using: .utf8)
+        #expect(collector(http, creds, runner: runner,
+                          environment: ["GEMINI_FORCE_ENCRYPTED_FILE_STORAGE": "true"])
+            .collect().first?.state == .unavailable(.noSignIn))
+        #expect(creds.reads == 0 && runner.requests.isEmpty && http.requests.isEmpty)
     }
 
     @Test("two-step flow: project id then buckets, direction inverted once, nil duration")
@@ -203,6 +247,135 @@ struct GeminiAdapterTests {
         ]
         expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
         #expect(http.requests.count == 2)
+    }
+}
+
+@Suite("Antigravity adapter")
+struct AntigravityAdapterTests {
+    private let home = URL(fileURLWithPath: "/tmp/antigravity-home")
+    private let tokenPath = "/tmp/antigravity-home/.gemini/jetski-standalone-oauth-token"
+    private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
+                           enabled: Bool = true) -> AntigravityUsageCollector {
+        AntigravityUsageCollector(enabled: enabled, http: http, credentials: creds, home: home,
+                                  now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+    private var tokenJSON: String {
+        #"{"token":{"access_token":"access-only","token_type":"Bearer","refresh_token":"unused-refresh","expiry":"2999-01-01T00:00:00Z","expires_in":3600},"auth_method":"oauth","id_token_email":"owner@example.com"}"#
+    }
+    private func authorized(_ creds: SpyCredentials) {
+        creds.files[tokenPath] = tokenJSON.data(using: .utf8)
+    }
+    private func project(_ value: String = "project-1") -> UsageHTTPResponse {
+        UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"\#(value)"}"#.data(using: .utf8)!)
+    }
+
+    @Test("disabled does zero reads and requests")
+    func disabled() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("posts Antigravity metadata and JSON project, parses dictionary models")
+    func dictionaryModels() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [
+            project(),
+            UsageHTTPResponse(status: 200, body: #"{"models":{"gemini-flash":{"quotaInfo":{"remainingFraction":0.9,"resetTime":"2023-11-20T00:00:00Z"}},"gemini-pro":{"quotaInfo":{"remainingFraction":0.25,"resetTime":"2023-11-21T00:00:00Z"}}}}"#.data(using: .utf8)!),
+        ]
+        let rows = collector(http, creds).collect()
+        #expect(rows.count == 1 && rows[0].id == "antigravity:current")
+        #expect(rows[0].label == "Antigravity" && rows[0].accountRef == "current")
+        #expect(rows[0].state == .ok && rows[0].windows.count == 2)
+        #expect(rows[0].windows.map(\.scope) == ["gemini-flash", "gemini-pro"])
+        #expect(abs(rows[0].windows[0].usedPercent - 10) < 0.0001)
+        #expect(abs(rows[0].windows[1].usedPercent - 75) < 0.0001)
+        #expect(rows[0].windows.allSatisfy { $0.durationMinutes == nil })
+        #expect(http.requests.count == 2)
+        #expect(http.requests[0].url.absoluteString ==
+                "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+        #expect(String(data: http.requests[0].body ?? Data(), encoding: .utf8) ==
+                #"{"metadata":{"ideType":"ANTIGRAVITY","pluginType":"GEMINI"}}"#)
+        #expect(http.requests[1].url.absoluteString ==
+                "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
+        #expect(String(data: http.requests[1].body ?? Data(), encoding: .utf8) ==
+                #"{"project":"project-1"}"#)
+        #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer access-only" })
+        #expect(http.requests.allSatisfy { !($0.headers["Authorization"] ?? "").contains("unused-refresh") })
+    }
+
+    @Test("parses array models and falls back to a display name for scope")
+    func arrayModels() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [
+            project(),
+            UsageHTTPResponse(status: 200, body: #"{"models":[{"modelId":"model-a","displayName":"Model A","quotaInfo":{"remainingFraction":0.4,"resetTime":"2023-11-20T00:00:00Z"}},{"displayName":"Model B","quotaInfo":{"remainingFraction":1.2,"resetTime":"2023-11-21T00:00:00Z"}}]}"#.data(using: .utf8)!),
+        ]
+        let rows = collector(http, creds).collect()
+        #expect(rows.first?.state == .ok)
+        let windows = rows.first?.windows ?? []
+        #expect(windows.count == 2)
+        #expect(windows.map(\.scope) == ["model-a", "Model B"])
+        #expect(abs((windows.first?.usedPercent ?? -1) - 60) < 0.0001)
+        #expect(windows.dropFirst().first?.usedPercent == 0)
+    }
+
+    @Test("bad or expired token expiry is no-sign-in", arguments: [
+        #"{"token":{"access_token":"access-only","expiry":"2020-01-01T00:00:00Z"}}"#,
+        #"{"token":{"access_token":"access-only","expiry":"not-a-date"}}"#,
+    ])
+    func invalidExpiry(json: String) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files[tokenPath] = json.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("loadCodeAssist status mapping", arguments: [401, 403, 429])
+    func assistStatus(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        let state = collector(http, creds).collect().first?.state
+        #expect(state == (status == 429 ? .failed(.rateLimited) : .failed(.refused)))
+        #expect(http.requests.count == 1)
+    }
+
+    @Test("fetchAvailableModels status mapping", arguments: [401, 403, 429])
+    func modelsStatus(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [project(), UsageHTTPResponse(status: status, body: Data())]
+        let state = collector(http, creds).collect().first?.state
+        #expect(state == (status == 429 ? .failed(.rateLimited) : .failed(.refused)))
+        #expect(http.requests.count == 2)
+    }
+
+    @Test("unknown model response shape is not reporting")
+    func unknownShape() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        http.queue = [project(), UsageHTTPResponse(status: 200, body: #"{"availableModels":[]}"#.data(using: .utf8)!)]
+        #expect(collector(http, creds).collect().first?.state == .notReporting)
+    }
+
+    @Test("snapshot omits Antigravity email, token, and UUID values")
+    func snapshotPrivacy() throws {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        authorized(creds)
+        let uuid = "123e4567-e89b-12d3-a456-426614174000"
+        let models = #"{"models":[{"modelId":"\#(uuid)","displayName":"owner@example.com","quotaInfo":{"remainingFraction":0.2,"resetTime":"2023-11-20T00:00:00Z"}}]}"#
+        http.queue = [project(), UsageHTTPResponse(status: 200, body: models.data(using: .utf8)!)]
+        let readings = collector(http, creds).collect()
+        let snapshot = UsageSnapshot(usages: readings, generatedAt: Date(), showEmails: true)
+        let data = try JSONEncoder().encode(snapshot)
+        let json = String(decoding: data, as: UTF8.self)
+        for privateValue in ["owner@example.com", "access-only", "unused-refresh", uuid] {
+            #expect(!json.contains(privateValue))
+        }
+        #expect(json.contains("antigravity:current"))
     }
 }
 
@@ -501,7 +674,8 @@ struct ProviderEdgeTests {
             UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
             UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"output","remainingFraction":0.7,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
         ]
-        let rows = GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home).collect()
+        let rows = GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                                        runner: FakeUsageRunner(), home: home).collect()
         #expect(rows.first?.windows.count == 2)
         #expect(rows.first?.windows.first?.scope == "g [input]")
         // contradictory duplicate for the same scope fails the whole read
@@ -509,7 +683,8 @@ struct ProviderEdgeTests {
             UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
             UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"input","remainingFraction":0.9,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
         ]
-        #expect(GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home)
+        #expect(GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                                     runner: FakeUsageRunner(), home: home)
             .collect().first?.state == .unavailable(.schemaChanged))
     }
 

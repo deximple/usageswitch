@@ -152,6 +152,7 @@ extension Strings {
         .uiUsageConnections: "Conexiones de uso",
         .uiConnectUsageTitle: "Conectar uso de %@",
         .uiConnectUsageBody: "UsageSwitch leerá el inicio de sesión de %@ y enviará solicitudes de uso de solo lectura por HTTPS. No ejecuta tareas, actualiza tokens ni inicia sesión.",
+        .uiConnectAntigravityBody: "UsageSwitch lee el token de acceso local de Antigravity y envía solicitudes de uso de solo lectura por HTTPS. No usa el token de actualización, renueva tokens, ejecuta tareas de modelos ni inicia sesión.",
         .uiConnectUsageEnable: "Activar",
         .uiClaudeProfileConnect: "Conectar uso mediante un perfil CLI…",
         .uiClaudeProfileDisconnect: "Desconectar",

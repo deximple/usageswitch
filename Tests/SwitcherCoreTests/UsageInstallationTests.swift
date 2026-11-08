@@ -28,6 +28,19 @@ struct UsageInstallationTests {
         try Data("x".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
     }
+    private func touchExecutable(at file: URL) throws {
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+    }
+    private func touchGeminiCLI(at candidate: URL) throws {
+        let target = home.appendingPathComponent("node_modules/@google/gemini-cli/bundle/gemini.js")
+        try touchExecutable(at: target)
+        try FileManager.default.createDirectory(
+            at: candidate.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: candidate, withDestinationURL: target)
+    }
     private func touchNonExec(_ rel: String) throws {
         let file = bins.appendingPathComponent(rel)
         try FileManager.default.createDirectory(
@@ -67,6 +80,36 @@ struct UsageInstallationTests {
             withDestinationURL: bins.appendingPathComponent("claude"))
         let inv = discover()
         #expect(inv.filter { $0.provider == .claude }.count == 1)
+    }
+
+    @Test("Gemini detection skips a plain executable and follows a package symlink")
+    func geminiPackageSymlink() throws { defer { cleanup() }
+        let earlier = home.appendingPathComponent("first-bin", isDirectory: true)
+        let later = home.appendingPathComponent("second-bin", isDirectory: true)
+        let plain = earlier.appendingPathComponent("gemini")
+        let googleCLI = later.appendingPathComponent("gemini")
+        try touchExecutable(at: plain)
+        try touchGeminiCLI(at: googleCLI)
+        let roots = UsageSearchRoots(executableDirectories: [earlier, later],
+                                     applicationDirectories: [apps])
+        let inv = UsageInstallations.discover(home: home, path: "",
+                                              bundledCodexCLI: nil, searchRoots: roots)
+        #expect(inv.first { $0.provider == .gemini }?.cli == googleCLI)
+    }
+
+    @Test("a plain gemini executable alone is not the Google Gemini CLI")
+    func plainGeminiIgnored() throws { defer { cleanup() }
+        try touchExec("gemini")
+        #expect(!discover().contains { $0.provider == .gemini })
+    }
+
+    @Test("Antigravity is detected from agy and its app")
+    func antigravity() throws { defer { cleanup() }
+        try touchExec("agy")
+        try touchApp("Antigravity.app")
+        let row = discover().first { $0.provider == .antigravity }
+        #expect(row?.cli == bins.appendingPathComponent("agy"))
+        #expect(row?.app == apps.appendingPathComponent("Antigravity.app"))
     }
 
     @Test("duplicate PATH entries for the same dir keep one row")
@@ -151,6 +194,18 @@ struct InventoryPathOrderTests {
             [.posixPermissions: exec ? 0o755 : 0o644], ofItemAtPath: file.path)
         return file
     }
+    private func touchGeminiCLI(_ rel: String) throws -> URL {
+        let candidate = home.appendingPathComponent(rel)
+        let target = home.appendingPathComponent("node_modules/@google/gemini-cli/bundle/gemini.js")
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+        try FileManager.default.createDirectory(
+            at: candidate.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: candidate, withDestinationURL: target)
+        return candidate
+    }
     private func discover(path: String, bundledCodexCLI: URL? = nil) -> [UsageInstallation] {
         UsageInstallations.discover(home: home, path: path,
                                     bundledCodexCLI: bundledCodexCLI, searchRoots: nil)
@@ -163,7 +218,9 @@ struct InventoryPathOrderTests {
     func pathFirst(_ name: String) throws {
         defer { cleanup() }
         _ = try touch(".local/bin/\(name)")
-        let selected = try touch("selected/bin/\(name)")
+        let selected = name == "gemini"
+            ? try touchGeminiCLI("selected/bin/\(name)")
+            : try touch("selected/bin/\(name)")
         let rows = discover(path: "\(home.path)/selected/bin:/usr/bin:/bin")
         let provider: UsageProvider = switch name {
         case "cursor-agent": .cursor
@@ -177,9 +234,17 @@ struct InventoryPathOrderTests {
           arguments: [".npm-global/bin", ".bun/bin", ".volta/bin"])
     func packageManager(_ dir: String) throws {
         defer { cleanup() }
-        let gemini = try touch("\(dir)/gemini")
+        let gemini = try touchGeminiCLI("\(dir)/gemini")
         let rows = discover(path: "/usr/bin:/bin:/usr/sbin:/sbin")
         #expect(rows.first { $0.provider == .gemini }?.cli == gemini)
+    }
+
+    @Test("Antigravity CLI falls back to ~/.local/bin/agy")
+    func antigravityFallback() throws {
+        defer { cleanup() }
+        let agy = try touch(".local/bin/agy")
+        let rows = discover(path: "/usr/bin:/bin:/usr/sbin:/sbin")
+        #expect(rows.first { $0.provider == .antigravity }?.cli == agy)
     }
 
     /// Non-executable and directory entries don't shadow a real binary elsewhere.
@@ -190,7 +255,7 @@ struct InventoryPathOrderTests {
         try FileManager.default.createDirectory(
             at: home.appendingPathComponent(".npm-global/bin/gemini"),
             withIntermediateDirectories: true)
-        let bun = try touch(".bun/bin/gemini")
+        let bun = try touchGeminiCLI(".bun/bin/gemini")
         let rows = discover(path: "/usr/bin:/bin")
         #expect(rows.first { $0.provider == .gemini }?.cli == bun)
     }
@@ -199,7 +264,7 @@ struct InventoryPathOrderTests {
     @Test("explicit searchRoots produces empty inventory regardless of fallbacks")
     func seamStrict() throws {
         defer { cleanup() }
-        _ = try touch(".npm-global/bin/gemini")
+        _ = try touchGeminiCLI(".npm-global/bin/gemini")
         _ = try touch("selected/bin/devin")
         let roots = UsageSearchRoots(
             executableDirectories: [home.appendingPathComponent("empty-bin", isDirectory: true)],
@@ -215,7 +280,7 @@ struct InventoryPathOrderTests {
     func pathSanitization() throws {
         defer { cleanup() }
         _ = try touch(".local/bin/gemini")
-        let selected = try touch("selected/bin/gemini")
+        let selected = try touchGeminiCLI("selected/bin/gemini")
         let rows = discover(path: ":.:relative/bin:../bin:\(home.path)/selected/bin::")
         #expect(rows.first { $0.provider == .gemini }?.cli == selected)
     }
@@ -224,12 +289,11 @@ struct InventoryPathOrderTests {
     @Test("a runnable script is detected but never executed")
     func neverExecuted() throws {
         defer { cleanup() }
-        let script = home.appendingPathComponent("selected/bin/gemini")
-        try FileManager.default.createDirectory(
-            at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let script = try touchGeminiCLI("selected/bin/gemini")
+        let target = script.resolvingSymlinksInPath()
         try "#!/bin/sh\nprintf x > \"$(dirname \"$0\")/invoked\"\n"
-            .write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            .write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
         let rows = discover(path: "\(home.path)/selected/bin")
         #expect(rows.first { $0.provider == .gemini }?.cli == script)
         #expect(!FileManager.default.fileExists(

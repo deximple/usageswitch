@@ -6,7 +6,7 @@ UsageSwitch stores its account-switching data on your Mac. Optional usage connec
 
 UsageSwitch has no analytics, telemetry, crash reporting, or background update checks.
 
-**Settings > Usage Connections** offers only detected or previously connected providers. Cursor, Grok, Gemini, Devin and OpenCode usage connections are off by default. Enabling one explains the local sign-in read and read-only HTTPS requests. Disabling it cancels further collection and removes its displayed quota; an already-authorized request may finish, but its obsolete result is discarded.
+**Settings > Usage Connections** offers only detected or previously connected providers. Cursor, Grok, Gemini, Antigravity, Devin and OpenCode usage connections are off by default. Enabling one explains the local sign-in read and read-only HTTPS requests. Disabling it cancels further collection and removes its displayed quota; an already-authorized request may finish, but its obsolete result is discarded.
 
 Saved Claude Desktop accounts have a separate, default-off **Connect usage via CLI profile…** action in that account's details. The user chooses a profile directory they signed in to themselves, and an explicit Enable confirmation creates that account's binding. This does not use or grant the default `claude` CLI row or another provider's consent. Disconnect removes the binding and its displayed reading; it does not delete, sign out of, or modify the profile. A read runs the official Claude CLI's `claude auth status --json` and `/usage` with `CLAUDE_CONFIG_DIR` set to the selected profile. The CLI reads its own saved sign-in for that profile, which may involve the macOS Keychain, and may refresh its own token or update its own config files. UsageSwitch never runs a task or model request, signs in or out, or switches accounts. The same account and organization must be confirmed from both profile identity and CLI auth status before and after `/usage`; otherwise no quota is shown.
 
@@ -14,13 +14,14 @@ Saved Claude Desktop accounts have a separate, default-off **Connect usage via C
 |---|---|---|
 | Cursor | Cursor's Keychain entry, then its bounded `auth.json` fallback | `api2.cursor.sh` |
 | Grok | The Grok CLI sign-in file | `cli-chat-proxy.grok.com` |
-| Gemini | Gemini CLI OAuth sign-in | `cloudcode-pa.googleapis.com` |
+| Gemini | Gemini CLI Keychain item (`gemini-cli-oauth` / `main-account`), then bounded `~/.gemini/oauth_creds.json` fallback | `cloudcode-pa.googleapis.com` |
+| Antigravity | Bounded `~/.gemini/jetski-standalone-oauth-token`; access token only, no refresh token or email | `cloudcode-pa.googleapis.com` |
 | Devin | Devin CLI credentials and a local CLI version probe | `server.codeium.com` |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` |
 
-Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Gemini can make two HTTPS requests per successful refresh; the others make one. Cursor displays the unscoped total and any valid `Auto`/`API` fields from its current-period usage response as scoped windows, using neutral wire names; it does not request plan details. On the verified account, the unscoped total matched the dashboard's “Cursor Models” pool and did not include “Other Models,” so it may not cover the whole plan. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
+Credentials stay in memory for the request and are not logged or saved by the collectors. Requests use an ephemeral session, reject redirects, and bound response bodies to 1 MiB. Gemini and Antigravity can each make two HTTPS requests per successful refresh; the others make one. Gemini's forced encrypted-file storage mode is unsupported and is treated as no sign-in. Its legacy OAuth file is used when the Keychain lookup fails or returns no item; an invalid or expired Keychain record produces no sign-in. Antigravity reads and sends only its access token, never its refresh token or email. Cursor displays the unscoped total and any valid `Auto`/`API` fields from its current-period usage response as scoped windows, using neutral wire names; it does not request plan details. On the verified account, the unscoped total matched the dashboard's “Cursor Models” pool and did not include “Other Models,” so it may not cover the whole plan. The collectors do not refresh tokens, sign in or out, switch accounts, or submit model-generation tasks.
 
-These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Live-account compatibility for the newly added adapters has not been verified in this development branch. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.
+These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Antigravity's endpoint and response shape are inferred from strings in the agy binary. Live-account compatibility for the newly added adapters has not been verified in this development branch. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.
 
 Your browser goes online in two cases, and only when you ask:
 - **⚙︎ › Check for Updates…** opens the GitHub releases page in your browser.
@@ -72,7 +73,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
 
 ## What UsageSwitch never does
 
-- Decrypt cookies, or read or write the Keychain — except the one Cursor entry when Cursor usage is on.
+- Decrypt cookies or write the Keychain. Usage reads only Cursor's entry and Gemini CLI's OAuth entry when those connections are enabled.
 - Print or log usage credentials, or forward them to unrelated services. An enabled usage connection sends its credential only to the corresponding allowlisted provider host.
 - Write to `~/.claude`, to Claude CLI profiles, to other apps' data, or to Codex homes it didn't create. Those Codex homes change only when you sign in or out, and Codex's CLI makes the change. For an explicitly connected Claude profile, the official Claude CLI itself may refresh its token or update its own config files as described above.
 - Sign you out on the server.

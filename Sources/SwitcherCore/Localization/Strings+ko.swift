@@ -152,6 +152,7 @@ extension Strings {
         .uiUsageConnections: "사용량 연결",
         .uiConnectUsageTitle: "%@ 사용량 연결",
         .uiConnectUsageBody: "UsageSwitch가 %@의 로컬 로그인 정보를 읽고, HTTPS로 읽기 전용 사용량을 요청합니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
+        .uiConnectAntigravityBody: "UsageSwitch는 Antigravity의 로컬 액세스 토큰을 읽고 HTTPS로 읽기 전용 사용량 요청을 보냅니다. 리프레시 토큰을 사용하거나 갱신하지 않으며, 모델 작업을 실행하거나 로그인하지 않습니다.",
         .uiConnectUsageEnable: "활성화",
         .uiClaudeProfileConnect: "CLI 프로필로 사용량 연결…",
         .uiClaudeProfileDisconnect: "연결 해제",
