@@ -14,7 +14,11 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # Render a snapshot; the `switching` fixture never terminates, so cap every run.
-render() { ( "$APP" "$@" & p=$!; sleep 10; kill -9 "$p" 2>/dev/null || :; wait "$p" 2>/dev/null || : ); }
+render() {
+    ( "$APP" "$@" & p=$!
+      for _ in $(seq 40); do kill -0 "$p" 2>/dev/null || break; sleep 0.25; done
+      kill -9 "$p" 2>/dev/null || :; wait "$p" 2>/dev/null || : )
+}
 frame() { swift scripts/frame-screenshot.swift "$1" "$2" "${3:-}"; }
 # frame args with an optional --dark
 frameDark() { frame "$1" "$2" --dark; }
