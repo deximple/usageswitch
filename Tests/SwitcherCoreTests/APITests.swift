@@ -111,7 +111,12 @@ struct APITests {
         let cachedCost: Double = 100_000 * cachedReadPrice / 1_000_000
         let outputCost: Double = 500_000 * outputPrice / 1_000_000
         let expected: Double = inputCost + cachedCost + outputCost
-        let estimates = APIUsageEstimator.estimate(records: [apiRecord, subscriptionRecord],
+        let markedSubscription = SuggestionLogUsage(day: day, provider: .claude,
+            accountRef: key.accountKey, model: model.model, effort: "high", turns: 3,
+            inputTokens: 5_000_000, cachedInputTokens: 0, outputTokens: 5_000_000,
+            reasoningTokens: 0, toolVersion: nil, subscription: true)
+        let estimates = APIUsageEstimator.estimate(
+            records: [apiRecord, subscriptionRecord, markedSubscription],
             apiKeyAccounts: [key], catalog: catalog, now: now)
         let anthropic = try #require(estimates[.anthropic])
         #expect(anthropic.hasAPIKeyAccounts)

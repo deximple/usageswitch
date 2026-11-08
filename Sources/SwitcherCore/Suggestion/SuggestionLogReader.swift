@@ -28,12 +28,15 @@ public struct SuggestionLogUsage: Codable, Equatable, Sendable {
     public let reasoningTokens: Int64
     public let toolVersion: String?
     public let lastUsedAt: Date?
+    /// True when the session log itself shows a subscription sign-in (a Codex `plan_type`);
+    /// nil when the log carries no sign-in marker.
+    public let subscription: Bool?
 
     public init(day: String, provider: UsageProvider, accountRef: String, model: String,
                 effort: String?, turns: Int, inputTokens: Int64, cachedInputTokens: Int64,
                 cachedCreationTokens: Int64 = 0,
                 outputTokens: Int64, reasoningTokens: Int64, toolVersion: String?,
-                lastUsedAt: Date? = nil) {
+                lastUsedAt: Date? = nil, subscription: Bool? = nil) {
         self.day = day
         self.provider = provider
         self.accountRef = accountRef
@@ -47,6 +50,7 @@ public struct SuggestionLogUsage: Codable, Equatable, Sendable {
         self.reasoningTokens = reasoningTokens
         self.toolVersion = toolVersion
         self.lastUsedAt = lastUsedAt
+        self.subscription = subscription
     }
 }
 
@@ -153,6 +157,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var codexModel: String?
         var codexEffort: String?
         var codexToolVersion: String?
+        var codexSubscription: Bool?
         var claudePending: PendingClaudeMessage?
     }
 
@@ -179,6 +184,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         let model: String
         let effort: String?
         let toolVersion: String?
+        let subscription: Bool?
     }
 
     private struct Totals {
@@ -219,6 +225,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         let outputTokens: Int64
         let reasoningTokens: Int64
         let toolVersion: String?
+        var subscription: Bool? = nil
     }
 
     private struct ClaudeLine: Decodable {
@@ -263,12 +270,17 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 let last_token_usage: TokenUsage?
             }
 
+            struct RateLimits: Decodable {
+                let plan_type: String?
+            }
+
             let type: String?
             let model: String?
             let effort: String?
             let collaboration_mode: CollaborationMode?
             let info: Info?
             let cli_version: String?
+            let rate_limits: RateLimits?
         }
 
         let type: String?
@@ -377,7 +389,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
                                inputTokens: value.inputTokens, cachedInputTokens: value.cachedInputTokens,
                                cachedCreationTokens: value.cachedCreationTokens,
                                outputTokens: value.outputTokens, reasoningTokens: value.reasoningTokens,
-                               toolVersion: key.toolVersion, lastUsedAt: value.lastUsedAt)
+                               toolVersion: key.toolVersion, lastUsedAt: value.lastUsedAt,
+                               subscription: key.subscription)
         }.sorted {
             ($0.day, $0.provider.rawValue, $0.accountRef, $0.model, $0.effort ?? "", $0.toolVersion ?? "")
                 < ($1.day, $1.provider.rawValue, $1.accountRef, $1.model, $1.effort ?? "", $1.toolVersion ?? "")
@@ -536,7 +549,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
                             into totals: inout [UsageKey: Totals]) {
         let key = UsageKey(day: parsedUsage.day, provider: parsedUsage.provider,
                            accountRef: parsedUsage.accountRef, model: parsedUsage.model,
-                           effort: parsedUsage.effort, toolVersion: parsedUsage.toolVersion)
+                           effort: parsedUsage.effort, toolVersion: parsedUsage.toolVersion,
+                           subscription: parsedUsage.subscription)
         totals[key, default: Totals()].add(parsedUsage)
     }
 
@@ -547,6 +561,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var model = cursor.codexModel
         var effort = cursor.codexEffort
         var version = cursor.codexToolVersion
+        var subscription = cursor.codexSubscription
         var usages: [ParsedUsage] = []
 
         for line in lines {
@@ -563,6 +578,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
             case "session_meta":
                 version = safeToolVersion(payload.cli_version)
             case "event_msg" where payload.type == "token_count":
+                // Codex writes the ChatGPT plan into every rate-limit block; an API-key session has none.
+                if nonEmpty(payload.rate_limits?.plan_type) != nil { subscription = true }
                 guard let timestamp = decoded.timestamp,
                       let date = parseTimestamp(timestamp),
                       (0...Self.maximumFileAge).contains(now.timeIntervalSince(date)),
@@ -589,6 +606,10 @@ public final class SuggestionLogReader: @unchecked Sendable {
         updated.codexModel = model
         updated.codexEffort = effort
         updated.codexToolVersion = version
+        updated.codexSubscription = subscription
+        if subscription == true {
+            for index in usages.indices { usages[index].subscription = true }
+        }
         return (updated, usages)
     }
 

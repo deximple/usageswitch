@@ -159,6 +159,7 @@ public enum APIUsageEstimator {
                 calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? now)
             for record in records where record.day >= firstBudgetDay && record.day <= today
                 && (record.provider == .claude || record.provider == .codex)
+                && record.subscription != true
                 && accounts.contains(APIKeyAccountKey(provider: record.provider, accountKey: record.accountRef)) {
                 guard let cost = cost(of: record, catalog: catalog) else {
                     unknownBudgetPrice = true
