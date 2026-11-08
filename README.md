@@ -83,7 +83,7 @@ requests; Antigravity may make a token exchange and two quota API requests. Gemi
 its CLI Keychain item and legacy `~/.gemini/oauth_creds.json`, using only its access token
 and expiry; forced encrypted-file storage is unsupported and shows no sign-in. Antigravity
 runs `agy` from your home folder in a hidden terminal to read `/usage`, at most once every
-15 minutes. `agy` starts with its normal configuration, which may include MCP servers you
+9 minutes. `agy` starts with its normal configuration, which may include MCP servers you
 configured. UsageSwitch never answers agy's prompts, including the folder-trust prompt; if
 agy asks, the app sends no response and falls back to the read-only quota API. That fallback
 may use the Keychain generic-password item with service `gemini` and account

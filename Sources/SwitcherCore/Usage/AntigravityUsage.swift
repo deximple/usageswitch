@@ -401,7 +401,7 @@ public final class AntigravityUsageScreenCache: @unchecked Sendable {
         let readAt: Date
     }
 
-    private static let minimumInterval: TimeInterval = 15 * 60
+    static let minimumInterval: TimeInterval = 9 * 60
     private let lock = NSLock()
     private var lastAttemptAt: Date?
     private var success: Success?

@@ -431,7 +431,12 @@ struct AntigravityUsageTests {
         #expect(result?.windows[0].resetsAt == UsageJSON.resetDateISO("2026-11-15T03:13:50Z"))
     }
 
-    @Test("successful screen reads are reused for 15 minutes with fresh API enrichment")
+    @Test("screen cache interval is below the verified age limit")
+    func screenCacheIntervalBelowVerifiedAge() {
+        #expect(AntigravityUsageScreenCache.minimumInterval < UsagePresentations.verifiedAgeLimit)
+    }
+
+    @Test("successful screen reads are reused for nine minutes with fresh API enrichment")
     func screenReadThrottle() {
         let http = SpyTransport(); let credentials = SpyCredentials()
         legacyToken(credentials)
@@ -451,23 +456,23 @@ struct AntigravityUsageTests {
                                   screenCache: AntigravityUsageScreenCache(), clock: clock)
 
         let first = collector.collect().first
-        clock.advance(14 * 60)
+        clock.advance(8 * 60)
         let cached = collector.collect().first
         #expect(screen.readCount == 1)
         #expect(cached?.windows.first?.usedPercent == 10)
         #expect(cached?.readAt == first?.readAt)
         #expect(cached?.windows.first?.resetsAt == UsageJSON.resetDateISO("2026-11-16T03:13:50Z"))
 
-        clock.advance(2 * 60)
+        clock.advance(1 * 60)
         let refreshed = collector.collect().first
         #expect(screen.readCount == 2)
         #expect(refreshed?.windows.first?.usedPercent == 20)
-        #expect(refreshed?.readAt == now.addingTimeInterval(16 * 60))
+        #expect(refreshed?.readAt == now.addingTimeInterval(9 * 60))
         #expect(refreshed?.windows.first?.resetsAt == UsageJSON.resetDateISO("2026-11-17T03:13:50Z"))
         #expect(http.requests.count == 6)
     }
 
-    @Test("a failed screen read is not retried within 15 minutes")
+    @Test("a failed screen read is not retried within nine minutes")
     func failedScreenReadThrottle() {
         let http = SpyTransport(); let credentials = SpyCredentials()
         legacyToken(credentials)
@@ -483,7 +488,7 @@ struct AntigravityUsageTests {
                                   screenCache: AntigravityUsageScreenCache(), clock: clock)
 
         #expect(collector.collect().first?.state == .ok)
-        clock.advance(14 * 60 + 59)
+        clock.advance(8 * 60 + 59)
         let fallback = collector.collect().first
         #expect(fallback?.state == .ok)
         #expect(screen.readCount == 1)
