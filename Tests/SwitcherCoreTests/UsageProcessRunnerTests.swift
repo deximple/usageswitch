@@ -32,6 +32,46 @@ struct UsageProcessRunnerTests {
         #expect(Date().timeIntervalSince(started) < 4)
     }
 
+    @Test("cancellation terminates and reaps the child promptly")
+    func cancelled() async throws {
+        let processRunner = SystemUsageProcessRunner()
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("usage-process-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let script = #"printf '%s\n' "$$" > "$1"; exec /bin/sleep 30"#
+        let processRequest = request(executable: "/bin/sh",
+                                     ["-c", script, "usage-process-test", pidFile.path],
+                                     timeout: 60)
+        let task = Task.detached { processRunner.run(processRequest) }
+        let deadline = Date().addingTimeInterval(30)
+        var childPID: pid_t?
+        while Date() < deadline {
+            if let contents = try? String(contentsOf: pidFile, encoding: .utf8),
+               let value = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                childPID = pid_t(value)
+            }
+            if childPID != nil { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard let pid = childPID else {
+            task.cancel()
+            let result = await task.value
+            #expect(result.outcome == .cancelled)
+            #expect(childPID != nil)
+            return
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(kill(pid, 0) == 0)
+        let cancelledAt = Date()
+        task.cancel()
+        let result = await task.value
+
+        #expect(result.outcome == .cancelled)
+        #expect(Date().timeIntervalSince(cancelledAt) < 10)
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     @Test("a run without a predicate ends when the process exits")
     func runToExit() {
         let result = runner.run(request(executable: "/bin/echo", ["hello"]))

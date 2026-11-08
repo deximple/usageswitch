@@ -95,6 +95,9 @@ public enum UsageText {
         case .schemaChanged: return L10n.t(.usageReasonSchemaChanged, providerName(provider))
         case .rateLimited: return L10n.t(.usageReasonRateLimited)
         case .connectionRequired: return L10n.t(.usageReasonConnectionRequired)
+        case .accountMismatch: return L10n.t(.usageReasonAccountMismatch)
+        case .profileInvalid: return L10n.t(.usageReasonProfileInvalid)
+        case .unsupportedVersion: return L10n.t(.usageReasonUnsupportedVersion)
         }
     }
 
@@ -105,6 +108,7 @@ public enum UsageText {
         case .cursor: return "Cursor"
         case .grok: return "Grok"
         case .gemini: return "Gemini"
+        case .antigravity: return "Antigravity"
         case .devin: return "Devin"
         case .opencode: return "OpenCode"
         }
@@ -118,6 +122,7 @@ public enum UsageText {
         case .cursor: return "cube"
         case .grok: return "star"
         case .gemini: return "sparkle"
+        case .antigravity: return "sparkles"
         case .devin: return "diamond"
         case .opencode: return "circle"
         }

@@ -2,7 +2,7 @@ import Foundation
 
 /// Where a usage reading came from.
 public enum UsageProvider: String, Codable, Sendable, CaseIterable {
-    case claude, codex, cursor, grok, gemini, devin, opencode
+    case claude, codex, cursor, grok, gemini, antigravity, devin, opencode
 
     /// Claude and Codex are read through their own vendor CLIs; every other provider
     /// touches local credentials or network and requires an explicit consent grant.
@@ -71,8 +71,11 @@ public struct UsageWindow: Codable, Hashable, Sendable {
 /// can carry account identity, so their text is never surfaced.
 public enum UsageProblem: String, Codable, Sendable {
     case noSignIn, cliMissing, managed, refused, timeout, network, schemaChanged, rateLimited
+    case profileInvalid, unsupportedVersion
     /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
     case connectionRequired
+    /// The answer named another account than the one this row reads (a login changed mid-read).
+    case accountMismatch
 }
 
 public enum UsageState: Equatable, Sendable {

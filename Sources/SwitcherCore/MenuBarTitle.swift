@@ -2,6 +2,28 @@
 public enum MenuBarTitle {
     public static let limit = 14
 
+    public static func preferredUsageWindows(_ windows: [UsageWindow]) -> [UsageWindow] {
+        let unscoped = windows.filter { $0.scope == nil }
+        return unscoped.isEmpty ? windows : unscoped
+    }
+
+    public static func selectWindow(
+        accounts: [[(key: String, window: UsageWindow)]],
+        pins: Set<String>
+    ) -> UsageWindow? {
+        var pinned: UsageWindow?
+        var best: UsageWindow?
+        for account in accounts {
+            for (key, window) in account where pins.contains(key) {
+                if (pinned?.usedPercent ?? -1) < window.usedPercent { pinned = window }
+            }
+            for window in preferredUsageWindows(account.map(\.window)) {
+                if (best?.usedPercent ?? -1) < window.usedPercent { best = window }
+            }
+        }
+        return pinned ?? best
+    }
+
     /// nil when the name is turned off. Emails are masked (the bar is visible when sharing screens) unless the user
     /// chose to always show them; long names end in "…".
     public static func make(label: String?, showsName: Bool, showEmails: Bool) -> String? {

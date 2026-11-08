@@ -33,6 +33,7 @@ public struct UsageProcessResult: Sendable {
         case timedOut
         case failedToStart
         case outputLimit
+        case cancelled
     }
     /// The stdout lines read before the run ended. Stderr is never captured (it may carry identity).
     public var lines: [String]
@@ -81,9 +82,11 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
     public init() {}
 
     public func run(_ request: UsageProcessRequest) -> UsageProcessResult {
-        guard request.maxOutputBytes > 0, request.timeout.isFinite, request.timeout > 0,
-              !Task.isCancelled else {
+        guard request.maxOutputBytes > 0, request.timeout.isFinite, request.timeout > 0 else {
             return UsageProcessResult(lines: [], outcome: .failedToStart)
+        }
+        guard !Task.isCancelled else {
+            return UsageProcessResult(lines: [], outcome: .cancelled)
         }
         let process = Process()
         process.executableURL = request.executable
@@ -126,7 +129,8 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
         }
         let deadline = Date().addingTimeInterval(request.timeout)
         while process.isRunning {
-            if box.matched || Date() >= deadline {
+            if Task.isCancelled || box.matched || Date() >= deadline {
+                let cancelled = Task.isCancelled
                 process.terminate()
                 let grace = Date().addingTimeInterval(2)
                 while process.isRunning && Date() < grace { Thread.sleep(forTimeInterval: 0.05) }
@@ -135,8 +139,8 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
                     process.waitUntilExit()
                 }
                 drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
-                let outcome: UsageProcessResult.Outcome = box.overflowed ? .outputLimit
-                    : box.matched ? .stopped : .timedOut
+                let outcome: UsageProcessResult.Outcome = cancelled ? .cancelled
+                    : box.overflowed ? .outputLimit : box.matched ? .stopped : .timedOut
                 return UsageProcessResult(lines: box.lines, outcome: outcome)
             }
             Thread.sleep(forTimeInterval: 0.05)

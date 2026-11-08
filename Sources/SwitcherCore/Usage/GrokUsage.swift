@@ -73,7 +73,7 @@ public struct GrokUsageCollector: Sendable {
         guard let r = http.send(request) else { return [finish(.failed(.network))] }
         switch r.status {
         case 200: break
-        case 401, 403: return [finish(.unavailable(.noSignIn))]
+        case 401, 403: return [finish(.failed(.refused))]
         case 429: return [finish(.failed(.rateLimited))]
         default: return [finish(.failed(.network))]
         }

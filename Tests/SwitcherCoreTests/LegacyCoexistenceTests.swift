@@ -214,13 +214,33 @@ struct LegacyCoexistenceTests {
         let masked = Privacy.maskEmails(in: raw)
         #expect(masked == "Switched to \(Privacy.maskEmail("alex.kim.2026@example.com")) (24 s); ••••@example.com kept.")
         #expect(Privacy.maskEmails(in: masked) == masked)
-        #expect(Privacy.maskEmails(in: "账户abc@x.com已保存") == "账户•••@x.com已保存")
+        #expect(Privacy.maskEmails(in: "账户abc@x.com已保存") == "•••••@x.com已保存")
         #expect(Privacy.maskEmails(in: "no address here") == "no address here")
+        let internationalEmails = [
+            "김철수이메일@example.한국",
+            "山田太郎花子@example.jp",
+            "александра@example.ru",
+            "παραδειγμα@example.gr",
+        ]
+        for email in internationalEmails {
+            let maskedEmail = Privacy.maskEmails(in: email)
+            #expect(maskedEmail == Privacy.maskEmail(email))
+            #expect(maskedEmail != email)
+            #expect(Privacy.maskEmails(in: maskedEmail) == maskedEmail)
+        }
         // Labels mixing text and an address, several addresses, accented addresses, and a bare "@".
         #expect(Privacy.maskEmails(in: "Work (jay@corp.com)") == "Work (•••@corp.com)")
         #expect(Privacy.maskEmails(in: "a@x.com / bob@y.com") == "•@x.com / •••@y.com")
         #expect(Privacy.maskEmails(in: "josé.garcía@münchen.de") == Privacy.maskEmail("josé.garcía@münchen.de"))
-        #expect(Privacy.maskEmails(in: "계정sam.lee@corp.com으로") == "계정\(Privacy.maskEmail("sam.lee@corp.com"))으로")
+        #expect(Privacy.maskEmails(in: "계정sam.lee@corp.com으로") == Privacy.maskEmail("계정sam.lee@corp.com으로"))
         #expect(Privacy.maskEmails(in: "Work @ Acme") == "Work @ Acme")
+        // A bullet next to an address is not a mask: the address is still masked, always into a mask shape.
+        #expect(Privacy.maskEmails(in: "Team•alex@example.com") == "Te••••lex@example.com")
+        #expect(Privacy.maskEmails(in: "•alexkim@example.com") == String(repeating: "•", count: 8) + "@example.com")
+        #expect(Privacy.maskEmails(in: "x •alex@corp.com") == "x •••••@corp.com")
+        // Decomposed accents are normalized before matching and masking.
+        let decomposed = Privacy.maskEmails(in: "e\u{301}xample.user@corp.com")
+        #expect(!decomposed.contains("xample") && !decomposed.contains("\u{301}"))
+        #expect(Privacy.maskEmails(in: decomposed) == decomposed)
     }
 }

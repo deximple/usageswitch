@@ -52,6 +52,7 @@ public enum UsagePresentations {
                 && (0...verifiedAgeLimit).contains(now.timeIntervalSince(usage.readAt))
             switch usage.provider {
             case .claude:
+                guard !usage.id.hasPrefix("claude:app:") else { continue }
                 // The CLI reading is separate from saved App logins — never linked by email.
                 out.append(UsageAccountPresentation(
                     usage: usage, name: UsageText.accountLabel(usage, showEmails: true), email: nil,
@@ -80,11 +81,15 @@ public enum UsagePresentations {
                     login: login,
                     badgeActive: running || (fresh && currentCLI && account?.state != .signedOut),
                     owner: account.map { .codex($0.id) }))
-            case .cursor, .grok, .gemini, .devin, .opencode:
+            case .cursor, .grok, .gemini, .antigravity, .devin, .opencode:
                 let hasCLI = installations.contains { $0.provider == usage.provider && $0.cli != nil }
+                let hasAntigravityApp = usage.provider == .antigravity
+                    && installations.contains { $0.provider == usage.provider && $0.app != nil }
+                let environment: UsageAccountPresentation.Environment? = hasCLI ? .cli
+                    : hasAntigravityApp ? .app : nil
                 out.append(UsageAccountPresentation(
                     usage: usage, name: UsageText.accountLabel(usage, showEmails: true), email: nil,
-                    environment: hasCLI ? .cli : nil, login: fresh ? .verified : .unknown,
+                    environment: environment, login: fresh ? .verified : .unknown,
                     badgeActive: fresh && hasCLI, owner: nil))
             }
         }
@@ -106,7 +111,7 @@ public enum UsagePresentations {
                     && claude?.claude.activeAccountUuid == account.accountUuid
                     && claude?.claude.activeOrgUuid == account.orgUuid
                     && account.snapshot == .ready && !expired
-                let row = AccountUsage(
+                let row = readings.first(where: { $0.id == "claude:app:\(account.id)" }) ?? AccountUsage(
                     id: "claude:app:\(account.id)", provider: .claude,
                     accountRef: "app:\(account.id)", label: account.label,
                     plan: nil, windows: [], state: .notReporting,

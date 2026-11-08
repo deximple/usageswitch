@@ -102,10 +102,79 @@ struct UsageModelTests {
 struct MenuBarUsageTests {
     init() { L10n.language = .en }
 
+    private func cursorUsage(_ windows: [UsageWindow]) -> AccountUsage {
+        AccountUsage(id: "cursor:current", provider: .cursor, accountRef: "current",
+                     label: "Cursor", plan: nil, windows: windows, state: .ok,
+                     readAt: Date(), toolVersion: nil)
+    }
+
+    private func keyedWindows(for usage: AccountUsage) -> [(key: String, window: UsageWindow)] {
+        usage.windows.map { (key: UsagePriority.key(usage, $0), window: $0) }
+    }
+
     @Test("usage title shows the REMAINING share, localized")
     func usageTitle() {
         #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4) == "Weekly 25% left")
         #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6) == "Session 0% left")
+    }
+
+    @Test("unscoped totals outrank scoped pools on the menu bar")
+    func unscopedTotalWins() {
+        let now = Date()
+        let total = UsageWindow(durationMinutes: 43_200, usedPercent: 40,
+                                resetsAt: now.addingTimeInterval(3600))
+        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200, usedPercent: 95,
+                               resetsAt: now.addingTimeInterval(3600))
+        let candidates = MenuBarTitle.preferredUsageWindows([total, auto])
+        #expect(candidates.map(\.scope) == [nil])
+        #expect(MenuBarTitle.usage(
+            windowName: UsageText.name(of: candidates[0], scoped: false),
+            usedPercent: candidates[0].usedPercent) == "Monthly 60% left")
+    }
+
+    @Test("a pin selects a scoped Cursor pool ahead of its total")
+    func pinnedScopedWindow() {
+        let reset = Date().addingTimeInterval(3600)
+        let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
+        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+                               usedPercent: 24, resetsAt: reset)
+        let usage = cursorUsage([total, auto])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: usage)],
+            pins: [UsagePriority.key(usage, auto)])
+
+        #expect(selected?.scope == "Auto")
+        #expect(selected?.usedPercent == 24)
+    }
+
+    @Test("without a pin the unscoped Cursor total wins")
+    func unpinnedTotalWins() {
+        let reset = Date().addingTimeInterval(3600)
+        let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
+        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+                               usedPercent: 24, resetsAt: reset)
+        let usage = cursorUsage([total, auto])
+
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: usage)], pins: Set())
+
+        #expect(selected?.scope == nil)
+        #expect(selected?.usedPercent == 25)
+    }
+
+    @Test("an unpinned scoped Cursor pool cannot outrank the total")
+    func unpinnedScopedPoolDoesNotWin() {
+        let reset = Date().addingTimeInterval(3600)
+        let total = UsageWindow(durationMinutes: 43_200, usedPercent: 25, resetsAt: reset)
+        let auto = UsageWindow(scope: "Auto", durationMinutes: 43_200,
+                               usedPercent: 30, resetsAt: reset)
+        let usage = cursorUsage([total, auto])
+
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: usage)], pins: Set())
+
+        #expect(selected?.scope == nil)
+        #expect(selected?.usedPercent == 25)
     }
 }
 
@@ -153,6 +222,51 @@ struct UsageTextTests {
 @Suite("Usage refresh policy")
 struct UsageRefreshPolicyTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test("status arriving after a refresh without Claude status requests a reread")
+    func statusLoadedAfterRefresh() {
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: true))
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: false))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: true))
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: false))
+    }
+
+    @Test("unchanged account ids do not refresh; added or removed ids always do")
+    func registeredAccountIdsChanged() {
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a"]), newAccountIds: Set(["a"]),
+            refreshedWithoutClaudeStatus: true))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a"]), newAccountIds: Set(["a", "b"]),
+            refreshedWithoutClaudeStatus: false))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a", "b"]), newAccountIds: Set(["a"]),
+            refreshedWithoutClaudeStatus: false))
+    }
+
+    @Test("a refresh is stalled at the watchdog limit")
+    func refreshStallThreshold() {
+        #expect(!UsageRefreshPolicy.isRefreshStalled(startedAt: nil, now: now.addingTimeInterval(601)))
+        #expect(!UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(599)))
+        #expect(UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(600)))
+        #expect(UsageRefreshPolicy.isRefreshStalled(startedAt: now, now: now.addingTimeInterval(601)))
+    }
+
+    @Test("watchdog restarts stop at the abandoned refresh cap")
+    func stalledRefreshRestartCap() {
+        #expect(UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 0))
+        #expect(UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 1))
+        #expect(!UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(600), abandoned: 2))
+        #expect(!UsageRefreshPolicy.shouldRestartStalledRefresh(
+            startedAt: now, now: now.addingTimeInterval(599), abandoned: 0))
+    }
 
     func usage(resetsAt: Date?) -> AccountUsage {
         AccountUsage(id: "codex:a", provider: .codex, accountRef: "a", label: "A", plan: nil,

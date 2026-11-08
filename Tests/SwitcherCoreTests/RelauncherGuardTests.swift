@@ -64,6 +64,41 @@ struct RelauncherGuardTests {
         #expect(RelauncherGuard(env: sb.env, fs: sb.fs, runner: FakeWorld(env: sb.env)).discover().isEmpty)
     }
 
+    @Test func timedOutScriptReadStopsSuspendBeforeBootout() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let label = "com.user.claude-stalled"
+        let scriptsDir = sb.root.appendingPathComponent("scripts")
+        try FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
+        let script = scriptsDir.appendingPathComponent("\(label).sh")
+        try Data("open -a Claude\n".utf8).write(to: script)
+        let plist = try AgentFixture.writePlist(env: sb.env, label: label, plist: [
+            "Label": label, "ProgramArguments": ["/bin/sh", script.path],
+        ])
+        let world = FakeWorld(env: sb.env)
+        world.addAgent(label: label, plist: plist, loaded: true)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let reader = BoundedReader(timeout: 0.2) { path in
+            if path == script.path {
+                release.wait()
+                return Data("open -a Claude\n".utf8)
+            }
+            return BoundedReader.readSmallText(path)
+        }
+        let guardian = RelauncherGuard(env: sb.env, fs: sb.fs, runner: world, reader: reader)
+
+        let error = switcherError { _ = try guardian.suspendAll() }
+        guard case let .io(message)? = error else {
+            Issue.record("expected an unverified relauncher error")
+            return
+        }
+        #expect(message == L10n.t(.reasonRelauncherUnverified, "\(label).plist"))
+        #expect(world.read { state in
+            state.commands.filter { $0.count > 1 && $0[1] == "bootout" }.isEmpty
+        })
+        #expect(guardian.discover().isEmpty)
+    }
+
     @Test(arguments: [
         ("pgrep -x Claude || open -g -a Claude", true),
         ("open -g -a \"Claude\"", true),

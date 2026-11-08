@@ -126,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 UsageDetailView(model: AppModel.shared, usage: AppModel.usage,
                                 codex: AppModel.codex, id: id,
                                 onClose: { [weak self] in self?.detailWindow?.close() })
+                // The tree is rebuilt on a language change, so the AppKit title follows it here.
+                .onAppear { [weak window] in window?.title = L10n.t(.uiDetails) }
             })
         window.makeKeyAndOrderFront(nil)
         NSApp.setActivationPolicy(.regular)

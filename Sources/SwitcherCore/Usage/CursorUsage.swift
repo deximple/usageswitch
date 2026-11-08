@@ -28,30 +28,33 @@ public struct SystemUsageHTTP: UsageHTTP {
 public enum CursorUsageParser {
     /// The windows in `usage` (a GetCurrentPeriodUsage body). `merged` is GetPlanInfo's `isMerged`,
     /// nil when that call didn't happen or didn't answer. Returns nil when no percentage is reported.
-    public static func windows(usage: Data, merged: Bool?) -> [UsageWindow]? {
+    /// The result includes the reported total and any valid Auto/API percentages. A missing or
+    /// invalid split does not hide the total; a missing or invalid total reports no usage.
+    /// `merged` is kept for source compatibility only; no pools are inferred.
+    public static func windows(usage: Data, merged _: Bool? = nil) -> [UsageWindow]? {
         guard let object = try? JSONSerialization.jsonObject(with: usage) as? [String: Any] else { return nil }
-        let duration = int64(object["billingCycleStart"]).flatMap { start in
-            int64(object["billingCycleEnd"]).flatMap { end in
-                end > start ? Int((end - start) / 60_000) : nil
-            }
-        }
-        let resets = int64(object["billingCycleEnd"])
-            .map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+        let start = int64(object["billingCycleStart"])
+        let end = int64(object["billingCycleEnd"])
+        let delta = start.flatMap { first in end.map { $0.subtractingReportingOverflow(first) } }
+        guard delta?.overflow != true else { return nil }
+        let duration = delta.flatMap { $0.partialValue > 0 ? Int(exactly: $0.partialValue / 60_000) : nil }
+        let resets = end.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
         let plan = object["planUsage"] as? [String: Any] ?? [:]
-        let auto = percent(plan["autoPercentUsed"]).map { clamped($0) }
-        let api = percent(plan["apiPercentUsed"]).map { clamped($0) }
-        let total = percent(plan["totalPercentUsed"]).map { clamped($0) }
-        func window(_ value: Double, scope: String?) -> UsageWindow {
-            UsageWindow(scope: scope, durationMinutes: duration, usedPercent: value, resetsAt: resets)
+        let fields = [percent(plan["autoPercentUsed"]), percent(plan["apiPercentUsed"]),
+                      percent(plan["totalPercentUsed"])]
+        guard let total = fields[2].value else { return nil }
+        var windows = [UsageWindow(scope: nil, durationMinutes: duration,
+                                   usedPercent: clamped(total), resetsAt: resets)]
+        // Auto and API are neutral wire names; a bad or absent split only omits that window.
+        if let auto = fields[0].value {
+            windows.append(UsageWindow(scope: "Auto", durationMinutes: duration,
+                                       usedPercent: clamped(auto), resetsAt: resets))
         }
-        // A merged plan reports one pool; so does a response with no split values.
-        if merged == true || (auto == nil && api == nil) {
-            return total.map { [window($0, scope: nil)] }
+        if let api = fields[1].value {
+            windows.append(UsageWindow(scope: "API", durationMinutes: duration,
+                                       usedPercent: clamped(api), resetsAt: resets))
         }
-        var windows: [UsageWindow] = []
-        if let auto { windows.append(window(auto, scope: "Auto")) }
-        if let api { windows.append(window(api, scope: "API")) }
-        return windows.isEmpty ? nil : windows
+        return windows
     }
 
     /// An int64 field, sent as a number or a string.
@@ -62,18 +65,33 @@ public enum CursorUsageParser {
         return (value as? String).flatMap(Int64.init)
     }
 
-    /// A percentage field, sent as a number or a string.
-    static func percent(_ value: Any?) -> Double? {
-        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
-            return number.doubleValue
+    /// A percentage field: absent/null means not reported; a provided value must be a
+    /// finite JSON number (bool excluded) or a finite Double-parsable numeric string.
+    /// Anything else — bool, object, array, or a nonfinite value — is `.invalid`.
+    enum PercentField: Equatable { case absent, value(Double), invalid
+
+        var value: Double? {
+            if case .value(let number) = self { return number }
+            return nil
         }
-        return (value as? String).flatMap(Double.init)
+    }
+
+    static func percent(_ value: Any?) -> PercentField {
+        guard let value, !(value is NSNull) else { return .absent }
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            let double = number.doubleValue
+            return double.isFinite ? .value(double) : .invalid
+        }
+        if let string = value as? String, let double = Double(string), double.isFinite {
+            return .value(double)
+        }
+        return .invalid
     }
 
     static func clamped(_ value: Double) -> Double { min(100, max(0, value)) }
 }
 
-/// Reads Cursor usage through Cursor's dashboard API — the only network request UsageSwitch makes.
+/// Reads Cursor usage through Cursor's dashboard API.
 /// Off by default (`cursorUsageEnabled`): disabled means no Keychain read and no request at all.
 /// The token is read per refresh, kept in memory for the request, and never stored or logged.
 public struct CursorUsageCollector: Sendable {
@@ -116,16 +134,9 @@ public struct CursorUsageCollector: Sendable {
         guard let response = http.post(url: usageURL, bearer: token, timeout: 10) else {
             return [finish(.failed(.network))]
         }
-        if response.status == 401 || response.status == 403 { return [finish(.unavailable(.noSignIn))] }
+        if response.status == 401 || response.status == 403 { return [finish(.failed(.refused))] }
         guard response.status == 200 else { return [finish(.failed(.network))] }
-        // GetPlanInfo is optional: a failed or absent answer just means "not known merged".
-        var merged: Bool?
-        let planURL = endpoint.appendingPathComponent("aiserver.v1.DashboardService/GetPlanInfo")
-        if let info = http.post(url: planURL, bearer: token, timeout: 10), info.status == 200,
-           let object = try? JSONSerialization.jsonObject(with: info.body) as? [String: Any] {
-            merged = object["isMerged"] as? Bool
-        }
-        guard let windows = CursorUsageParser.windows(usage: response.body, merged: merged) else {
+        guard let windows = CursorUsageParser.windows(usage: response.body) else {
             return [finish(.notReporting)]
         }
         return [finish(.ok, windows)]

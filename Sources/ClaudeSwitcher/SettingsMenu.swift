@@ -8,6 +8,7 @@ struct SettingsMenu: View {
     @ObservedObject var model: SwitcherModel
     @ObservedObject var codex: CodexModel
     @ObservedObject var usage: UsageModel
+    @State private var confirmingLearningFlush = false
 
     var body: some View {
         Menu {
@@ -39,6 +40,9 @@ struct SettingsMenu: View {
                                                             set: { model.setMenuBarShowsUsage($0) }))
             Toggle(L10n.t(.uiSettingUsageAlerts), isOn: Binding(get: { model.usageAlertsEnabled },
                                                               set: { model.setUsageAlertsEnabled($0) }))
+            Toggle(L10n.t(.suggestionQuietSignalSetting),
+                   isOn: Binding(get: { model.suggestionQuietSignal },
+                                 set: { model.setSuggestionQuietSignal($0) }))
             Picker(L10n.t(.uiSettingWarnLevel), selection: Binding(
                 get: { model.usageWarnPercent }, set: { model.setUsageWarnPercent($0) })) {
                 Text(L10n.t(.usageUsedPercent, 70)).tag(70)
@@ -59,10 +63,7 @@ struct SettingsMenu: View {
                             get: { model.enabledUsageProviders.contains(provider) },
                             set: { on in
                                 if on {
-                                    Self.confirmUsageConnection(provider) {
-                                        model.setUsageConnection(provider, on: true)
-                                        usage.applyConsent(model.enabledUsageProviders)
-                                    }
+                                    Self.enableUsageConnection(provider, model: model, usage: usage)
                                 } else {
                                     model.setUsageConnection(provider, on: false)
                                     usage.applyConsent(model.enabledUsageProviders)
@@ -77,6 +78,10 @@ struct SettingsMenu: View {
                     .disabled(codex.isBusy)
             }
             Divider()
+            Button(L10n.t(.suggestionFlushTitle), role: .destructive) {
+                confirmingLearningFlush = true
+            }
+            .disabled(model.isDemo)
             Button(L10n.t(.uiOpenDataFolder)) {
                 NSWorkspace.shared.activateFileViewerSelecting([model.dataFolder])
             }
@@ -95,15 +100,47 @@ struct SettingsMenu: View {
         .fixedSize()
         .help(L10n.t(.uiSettings))
         .accessibilityLabel(L10n.t(.uiSettings))
+        .alert(L10n.t(.suggestionFlushTitle), isPresented: $confirmingLearningFlush) {
+            Button(L10n.t(.uiCancel), role: .cancel) {}
+            Button(L10n.t(.suggestionFlushConfirm), role: .destructive) {
+                Task {
+                    do {
+                        try await usage.flushSuggestionLearningData()
+                    } catch {
+                        let alert = NSAlert()
+                        alert.alertStyle = .warning
+                        alert.messageText = L10n.t(.suggestionFlushTitle)
+                        alert.informativeText = L10n.t(.suggestionFlushFailure)
+                        alert.runModal()
+                    }
+                }
+            }
+        } message: {
+            Text(L10n.t(.suggestionFlushMessage))
+        }
     }
 
-    /// Shared opt-in explanation for any consent-required provider: local sign-in
-    /// read + read-only provider HTTPS usage requests, no task/token refresh/login.
+    /// The single opt-in path used by the Settings toggle AND the inline Connect-usage
+    /// buttons: confirm, then apply the effective saved consent set. Cancel is a no-op.
+    static func enableUsageConnection(_ provider: UsageProvider, model: SwitcherModel,
+                                      usage: UsageModel) {
+        guard provider.requiresConsent, !model.enabledUsageProviders.contains(provider)
+        else { return }
+        confirmUsageConnection(provider) {
+            model.setUsageConnection(provider, on: true)
+            usage.applyConsent(model.enabledUsageProviders)
+        }
+    }
+
+    /// Shared opt-in explanation for any consent-required provider. Antigravity's
+    /// specific copy describes its temporary in-memory token exchange.
     /// Turning off never asks. Returns via `enable` only on the explicit action.
     static func confirmUsageConnection(_ provider: UsageProvider, enable: () -> Void) {
         let alert = NSAlert()
         alert.messageText = L10n.t(.uiConnectUsageTitle, UsageText.providerName(provider))
-        alert.informativeText = L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
+        alert.informativeText = provider == .antigravity
+            ? L10n.t(.uiConnectAntigravityBody)
+            : L10n.t(.uiConnectUsageBody, UsageText.providerName(provider))
         alert.addButton(withTitle: L10n.t(.uiConnectUsageEnable))
         alert.addButton(withTitle: L10n.t(.uiCancel))
         if alert.runModal() == .alertFirstButtonReturn { enable() }

@@ -19,6 +19,18 @@ final class SpyCredentials: UsageCredentialReading, @unchecked Sendable {
     func read(_ url: URL) -> Data? { reads += 1; return files[url.path] }
 }
 
+private func expectRefusedWithoutRetainedWindows(_ reading: AccountUsage?) {
+    #expect(reading?.state == .failed(.refused))
+    #expect(reading?.windows.isEmpty == true)
+    guard let reading else { return }
+    let previous = AccountUsage(id: reading.id, provider: reading.provider,
+        accountRef: reading.accountRef, label: reading.label, plan: reading.plan,
+        windows: [UsageWindow(scope: nil, durationMinutes: 300, usedPercent: 50, resetsAt: nil)],
+        state: .ok, readAt: Date(timeIntervalSince1970: 0), toolVersion: reading.toolVersion,
+        authentication: reading.authentication, identityKey: reading.identityKey)
+    #expect(reading.retainingWindows(from: previous).windows.isEmpty)
+}
+
 @Suite("HTTP transport")
 struct UsageTransportTests {
     @Test("non-https and disallowed hosts never reach the network")
@@ -30,6 +42,11 @@ struct UsageTransportTests {
         let bad = UsageHTTPRequest(url: URL(string: "https://api.test/x")!,
                                    method: .get, timeout: 1)
         #expect(t.send(bad) == nil)
+    }
+
+    @Test("Google OAuth token endpoint is allowlisted for Antigravity")
+    func antigravityTokenHost() {
+        #expect(SystemUsageHTTPTransport.allowedHosts.contains("oauth2.googleapis.com"))
     }
 }
 
@@ -90,22 +107,81 @@ struct GrokAdapterTests {
         #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
         #expect(http.requests.isEmpty)
     }
+
+    @Test("missing local credential is noSignIn")
+    func missingCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("server 401 and 403 reject a present credential", arguments: [401, 403])
+    func rejectedCredential(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/grok-home/.grok/auth.json"] = authJSON.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+    }
 }
 
 @Suite("Gemini adapter")
 struct GeminiAdapterTests {
     private let home = URL(fileURLWithPath: "/tmp/gemini-home")
     private func collector(_ http: SpyTransport, _ creds: SpyCredentials,
-                           enabled: Bool = true) -> GeminiUsageCollector {
+                           enabled: Bool = true,
+                           runner: FakeUsageRunner = FakeUsageRunner(),
+                           environment: [String: String] = [:]) -> GeminiUsageCollector {
         GeminiUsageCollector(enabled: enabled, http: http, credentials: creds,
-                             home: home, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+                             runner: runner, home: home, environment: environment,
+                             now: { Date(timeIntervalSince1970: 1_700_000_000) })
     }
 
     @Test("disabled does zero reads and zero requests")
     func disabled() {
         let http = SpyTransport(); let creds = SpyCredentials()
-        #expect(collector(http, creds, enabled: false).collect().isEmpty)
+        let runner = FakeUsageRunner()
+        #expect(collector(http, creds, enabled: false, runner: runner).collect().isEmpty)
+        #expect(creds.reads == 0 && http.requests.isEmpty && runner.requests.isEmpty)
+    }
+
+    @Test("reads the Gemini CLI 0.58 Keychain JSON shape before the legacy file")
+    func keychainCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        let keychain = #"{"serverName":"main-account","token":{"accessToken":"keychain-access","refreshToken":"unused-refresh","tokenType":"Bearer","scope":"scope","expiresAt":9999999999999},"updatedAt":1700000000000}"#
+        runner.respond = { _ in UsageProcessResult(lines: [keychain], outcome: .exited(0)) }
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"project-1"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"gemini-pro","remainingFraction":0.5,"resetTime":"2023-11-20T00:00:00Z"}]}"#.data(using: .utf8)!),
+        ]
+        let row = collector(http, creds, runner: runner).collect().first
+        #expect(row?.state == .ok)
+        #expect(creds.reads == 0)
+        #expect(runner.requests.first?.arguments == [
+            "find-generic-password", "-a", "main-account", "-s", "gemini-cli-oauth", "-w",
+        ])
+        #expect(http.requests.first?.headers["Authorization"] == "Bearer keychain-access")
+    }
+
+    @Test("expired Keychain credential is authoritative over the legacy file")
+    func expiredKeychain() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        let keychain = #"{"serverName":"main-account","token":{"accessToken":"expired","expiresAt":1}}"#
+        runner.respond = { _ in UsageProcessResult(lines: [keychain], outcome: .exited(0)) }
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"file-token","expiry_date":9999999999999}"#.data(using: .utf8)
+        #expect(collector(http, creds, runner: runner).collect().first?.state == .unavailable(.noSignIn))
         #expect(creds.reads == 0 && http.requests.isEmpty)
+    }
+
+    @Test("encrypted file storage is unsupported and treated as no sign-in")
+    func encryptedStorage() {
+        let http = SpyTransport(); let creds = SpyCredentials(); let runner = FakeUsageRunner()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"file-token","expiry_date":9999999999999}"#.data(using: .utf8)
+        #expect(collector(http, creds, runner: runner,
+                          environment: ["GEMINI_FORCE_ENCRYPTED_FILE_STORAGE": "true"])
+            .collect().first?.state == .unavailable(.noSignIn))
+        #expect(creds.reads == 0 && runner.requests.isEmpty && http.requests.isEmpty)
     }
 
     @Test("two-step flow: project id then buckets, direction inverted once, nil duration")
@@ -146,6 +222,61 @@ struct GeminiAdapterTests {
         creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] = #"{"access_token":"t1","expiry_date":1}"#.data(using: .utf8)
         #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
         #expect(http.requests.isEmpty)
+    }
+
+    @Test("malformed flat OAuth credential file is schema changed")
+    func malformedLegacyCredentials() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":7,"expiry_date":"bad"}"#.data(using: .utf8)
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.schemaChanged))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("missing local credential is noSignIn")
+    func missingCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("server 401 and 403 at project lookup are refused", arguments: [401, 403])
+    func projectLookupRejected(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        #expect(http.requests.count == 1)
+    }
+
+    @Test("server 401 and 403 at quota lookup are refused", arguments: [401, 403])
+    func quotaLookupRejected(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: status, body: Data()),
+        ]
+        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        #expect(http.requests.count == 2)
+    }
+
+    @Test("403 with the unsupported-service phrase is refused without retaining its body")
+    func unsupported403() throws {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/gemini-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        http.queue = [
+            UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
+            UsageHTTPResponse(status: 403, body: Data("API is no longer supported".utf8)),
+        ]
+        let row = try #require(collector(http, creds).collect().first)
+        #expect(row.state == .failed(.refused))
+        let snapshot = UsageSnapshot(usages: [row], generatedAt: Date(), showEmails: true)
+        #expect(!String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+            .contains("no longer supported"))
     }
 }
 
@@ -218,6 +349,22 @@ struct DevinAdapterTests {
         #expect(rows.first?.state == .unavailable(.noSignIn))
         #expect(http.requests.isEmpty)
     }
+
+    @Test("missing local credential is noSignIn")
+    func missingCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
+    }
+
+    @Test("server 401 and 403 reject a present credential", arguments: [401, 403])
+    func rejectedCredential(status: Int) {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/devin-home/.local/share/devin/credentials.toml"] = toml.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: status, body: Data())]
+        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+        #expect(http.requests.count == 1)
+    }
 }
 
 @Suite("OpenCode adapter")
@@ -248,12 +395,29 @@ struct OpenCodeAdapterTests {
         #expect(http.requests.first?.headers["Authorization"] == "Bearer g1")
     }
 
-    @Test("403 is notReporting, not logout")
-    func forbidden() {
+    @Test("server 401 rejects a present credential")
+    func rejectedCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
+        http.queue = [UsageHTTPResponse(status: 401, body: Data())]
+        expectRefusedWithoutRetainedWindows(collector(http, creds).collect().first)
+    }
+
+    @Test("403 means no Go plan, not rejected sign-in")
+    func noGoPlan() {
         let http = SpyTransport(); let creds = SpyCredentials()
         creds.files["/tmp/oc-home/.local/share/opencode/auth.json"] = #"{"opencode-go":{"type":"api","key":"g1"}}"#.data(using: .utf8)
         http.queue = [UsageHTTPResponse(status: 403, body: Data())]
-        #expect(collector(http, creds).collect().first?.state == .notReporting)
+        let row = collector(http, creds).collect().first
+        #expect(row?.state == .notReporting)
+        #expect(row?.windows.isEmpty == true)
+    }
+
+    @Test("missing local credential is noSignIn")
+    func missingCredential() {
+        let http = SpyTransport(); let creds = SpyCredentials()
+        #expect(collector(http, creds).collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.requests.isEmpty)
     }
 
     @Test("other-provider key is ignored")
@@ -411,7 +575,8 @@ struct ProviderEdgeTests {
             UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
             UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"output","remainingFraction":0.7,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
         ]
-        let rows = GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home).collect()
+        let rows = GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                                        runner: FakeUsageRunner(), home: home).collect()
         #expect(rows.first?.windows.count == 2)
         #expect(rows.first?.windows.first?.scope == "g [input]")
         // contradictory duplicate for the same scope fails the whole read
@@ -419,7 +584,8 @@ struct ProviderEdgeTests {
             UsageHTTPResponse(status: 200, body: #"{"cloudaicompanionProject":"p"}"#.data(using: .utf8)!),
             UsageHTTPResponse(status: 200, body: #"{"buckets":[{"modelId":"g","tokenType":"input","remainingFraction":0.5,"resetTime":"2025-01-01T00:00:00Z"},{"modelId":"g","tokenType":"input","remainingFraction":0.9,"resetTime":"2025-01-01T00:00:00Z"}]}"#.data(using: .utf8)!),
         ]
-        #expect(GeminiUsageCollector(enabled: true, http: http, credentials: creds, home: home)
+        #expect(GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                                     runner: FakeUsageRunner(), home: home)
             .collect().first?.state == .unavailable(.schemaChanged))
     }
 
@@ -530,5 +696,31 @@ struct CursorCredentialTests {
                                    http: FakeUsageHTTP(), home: home, credentials: creds)
         _ = c.collect()
         #expect(creds.reads == 1)
+    }
+
+    @Test("missing local credential is noSignIn")
+    func missingCredential() {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .failedToStart) }
+        let creds = SpyCredentials()
+        let http = FakeUsageHTTP()
+        let c = CursorUsageCollector(enabled: true, runner: runner,
+            http: http, home: home, credentials: creds)
+        #expect(c.collect().first?.state == .unavailable(.noSignIn))
+        #expect(http.calls.isEmpty)
+    }
+
+    @Test("server 401 and 403 reject a present credential", arguments: [401, 403])
+    func rejectedCredential(status: Int) {
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .failedToStart) }
+        let creds = SpyCredentials()
+        creds.files["/tmp/cx/.cursor/auth.json"] = #"{"accessToken":"filetoken"}"#.data(using: .utf8)
+        let http = FakeUsageHTTP()
+        http.respond = { _ in (status: status, body: Data()) }
+        let c = CursorUsageCollector(enabled: true, runner: runner,
+            http: http, home: home, credentials: creds)
+        expectRefusedWithoutRetainedWindows(c.collect().first)
+        #expect(http.calls.count == 1)
     }
 }

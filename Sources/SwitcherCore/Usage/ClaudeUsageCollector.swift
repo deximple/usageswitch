@@ -27,13 +27,17 @@ public struct ClaudeUsageCollector: Sendable {
         self.runner = runner
         self.home = home
         self.managed = managed
-        self.binaryPaths = binaryPaths ?? [
+        self.binaryPaths = binaryPaths ?? Self.defaultBinaryPaths(home: home)
+        self.now = now
+    }
+
+    static func defaultBinaryPaths(home: URL) -> [URL] {
+        [
             home.appendingPathComponent(".local/bin/claude"),
             home.appendingPathComponent(".claude/local/claude"),
             URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
             URL(fileURLWithPath: "/usr/local/bin/claude"),
         ]
-        self.now = now
     }
 
     public func collect() -> AccountUsage {
@@ -46,34 +50,40 @@ public struct ClaudeUsageCollector: Sendable {
         let toolVersion = Self.toolVersion(of: binary)
         guard !managed.shuts(claudeFolder: home.appendingPathComponent(".claude", isDirectory: true))
         else { return finish(.unavailable(.managed), toolVersion: toolVersion) }
+        let read = Self.readUsage(runner: runner, binary: binary, environment: Self.environment(),
+                                  timeout: 60, now: now)
+        return finish(read.state, read.windows, toolVersion: toolVersion)
+    }
+
+    static func readUsage(runner: any UsageProcessRunner, binary: URL,
+                          environment: [String: String], timeout: TimeInterval,
+                          now: @Sendable () -> Date) -> (state: UsageState, windows: [UsageWindow]) {
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("usageswitch-claude-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
-        let request = UsageProcessRequest(
-            executable: binary,
-            arguments: Self.arguments,
-            environment: Self.environment(),
-            workingDirectory: workDir,
+        let request = UsageProcessRequest(executable: binary, arguments: Self.arguments,
+            environment: environment, workingDirectory: workDir,
             stopWhen: { ClaudeUsageOutput.stops($0) || ClaudeUsageOutput.answers($0) },
-            timeout: 60)
+            timeout: timeout)
         let result = runner.run(request)
         switch result.outcome {
-        case .timedOut: return finish(.failed(.timeout), toolVersion: toolVersion)
-        case .failedToStart: return finish(.unavailable(.cliMissing), toolVersion: toolVersion)
-        case .outputLimit: return finish(.unavailable(.refused), toolVersion: toolVersion)
+        case .timedOut: return (.failed(.timeout), [])
+        case .failedToStart: return (.unavailable(.cliMissing), [])
+        case .outputLimit: return (.unavailable(.refused), [])
+        case .cancelled: return (.unavailable(.refused), [])
         case .stopped, .exited:
             switch ClaudeUsageOutput.text(in: result.lines) {
             case .failure:
-                return finish(.unavailable(.refused), toolVersion: toolVersion)
+                return (.unavailable(.refused), [])
             case .success(let text):
                 switch ClaudeUsageText.windows(text, readAt: now()) {
-                case .success(let windows): return finish(.ok, windows, toolVersion: toolVersion)
-                case .failure(.notReporting): return finish(.notReporting, toolVersion: toolVersion)
-                case .failure(.unreadable): return finish(.unavailable(.schemaChanged), toolVersion: toolVersion)
-                }
+                case .success(let windows): return (.ok, windows)
+                case .failure(.notReporting): return (.notReporting, [])
+                case .failure(.unreadable): return (.unavailable(.schemaChanged), [])
             }
         }
+    }
     }
 
     /// The version in the binary's resolved path (`…/versions/<v>`), else nil.

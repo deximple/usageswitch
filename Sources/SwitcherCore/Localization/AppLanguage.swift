@@ -60,11 +60,31 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     /// provider rawValues. Missing/unknown entries never grant anything; Cursor's
     /// consent stays solely in `cursorUsageEnabled`.
     public var usageConnections: [String]?
+    /// Explicit per-saved-account grants for reading usage from official Claude CLI profiles.
+    public var claudeUsageProfiles: [ClaudeProfileBinding]?
+    /// Suggestion mode, absent in older settings files and defaulting to balanced.
+    public var suggestionMode: SuggestionMode?
+    /// Task preference from simple coding (0) to reasoning (1).
+    public var suggestionTask: Double?
+    /// Show the Guide-title dot when a candidate is available (default on).
+    public var suggestionQuietSignal: Bool?
+    /// Expiry for a confirmed urgent mode selection.
+    public var suggestionUrgentUntil: Date?
+    public var apiBudgetAnthropic: APIBudget?
+    public var apiBudgetOpenAI: APIBudget?
+    public var apiBudgetGoogle: APIBudget?
+    public var apiBudgetXAI: APIBudget?
+    public var apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy?
 
     public init(language: AppLanguage? = nil, menuBarShowsName: Bool? = nil, showEmails: Bool? = nil,
                 usagePins: [String]? = nil, menuBarShowsUsage: Bool? = nil, cursorUsageEnabled: Bool? = nil, appearance: String? = nil,
                 usageWarnPercent: Int? = nil, usageAlertsEnabled: Bool? = nil,
-                usageConnections: [String]? = nil) {
+                usageConnections: [String]? = nil, claudeUsageProfiles: [ClaudeProfileBinding]? = nil,
+                suggestionMode: SuggestionMode? = nil, suggestionTask: Double? = nil,
+                suggestionQuietSignal: Bool? = nil, suggestionUrgentUntil: Date? = nil,
+                apiBudgetAnthropic: APIBudget? = nil, apiBudgetOpenAI: APIBudget? = nil,
+                apiBudgetGoogle: APIBudget? = nil, apiBudgetXAI: APIBudget? = nil,
+                apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
@@ -75,6 +95,16 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         self.usageWarnPercent = usageWarnPercent
         self.usageAlertsEnabled = usageAlertsEnabled
         self.usageConnections = usageConnections
+        self.claudeUsageProfiles = claudeUsageProfiles
+        self.suggestionMode = suggestionMode
+        self.suggestionTask = suggestionTask
+        self.suggestionQuietSignal = suggestionQuietSignal
+        self.suggestionUrgentUntil = suggestionUrgentUntil
+        self.apiBudgetAnthropic = apiBudgetAnthropic
+        self.apiBudgetOpenAI = apiBudgetOpenAI
+        self.apiBudgetGoogle = apiBudgetGoogle
+        self.apiBudgetXAI = apiBudgetXAI
+        self.apiKeyVaultAccessPolicy = apiKeyVaultAccessPolicy
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
@@ -105,4 +135,52 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         return usageWarnPercent
     }
     public var effectiveUsageAlertsEnabled: Bool { usageAlertsEnabled ?? true }
+    public var effectiveSuggestionMode: SuggestionMode { suggestionMode ?? .balanced }
+    public var effectiveSuggestionTask: Double {
+        guard let suggestionTask, suggestionTask.isFinite, (0...1).contains(suggestionTask) else {
+            return 0.5
+        }
+        return suggestionTask
+    }
+    public var effectiveSuggestionQuietSignal: Bool { suggestionQuietSignal ?? true }
+    public var effectiveAPIKeyVaultAccessPolicy: APIKeyVaultAccessPolicy {
+        apiKeyVaultAccessPolicy ?? .standard
+    }
+
+    public func apiBudget(for vendor: APIVendor) -> APIBudget? {
+        switch vendor {
+        case .anthropic: apiBudgetAnthropic
+        case .openai: apiBudgetOpenAI
+        case .google: apiBudgetGoogle
+        case .xai: apiBudgetXAI
+        }
+    }
+
+    /// Invalid duplicate bindings never become grants. The settings writer also
+    /// enforces these constraints when creating a binding.
+    public var effectiveClaudeUsageProfiles: [ClaudeProfileBinding] {
+        var accountIds = Set<String>()
+        var profilePaths = Set<String>()
+        return (claudeUsageProfiles ?? []).filter {
+            guard !accountIds.contains($0.accountId), !profilePaths.contains($0.profilePath) else { return false }
+            accountIds.insert($0.accountId)
+            profilePaths.insert($0.profilePath)
+            return true
+        }
+    }
+}
+
+public struct ClaudeProfileBinding: Codable, Equatable, Hashable, Sendable {
+    public let accountId: String
+    public let accountUuid: String
+    public let orgUuid: String
+    /// Canonical realpath of a user-selected Claude CLI profile directory.
+    public let profilePath: String
+
+    public init(accountId: String, accountUuid: String, orgUuid: String, profilePath: String) {
+        self.accountId = accountId
+        self.accountUuid = accountUuid
+        self.orgUuid = orgUuid
+        self.profilePath = profilePath
+    }
 }
