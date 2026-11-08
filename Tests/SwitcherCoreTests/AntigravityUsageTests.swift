@@ -425,6 +425,34 @@ struct AntigravityUsageTests {
         })
     }
 
+    @Test("an expired cache on a transient Keychain failure does not use the legacy file")
+    func expiredCacheDoesNotUseLegacyFileOnKeychainTimeout() {
+        let http = SpyTransport()
+        http.queue = [tokenResponse("cached-access"), project(), quota()]
+        let credentials = SpyCredentials()
+        legacyToken(credentials)
+        let clock = MutableUsageClock(now)
+        let tokenCache = AntigravityAccessTokenCache()
+        let screenCache = AntigravityUsageScreenCache()
+        let screen = CountingScreen([.failure(.failed(.timeout))])
+
+        let first = collector(http, credentials, runner: keychainRunner(), screen: screen,
+                              cache: tokenCache, screenCache: screenCache, clock: clock)
+            .collect().first
+        let requestsAfterRecord = http.requests.count
+        clock.advance(3_541)
+        let second = collector(http, credentials, runner: timeoutKeychain(), screen: screen,
+                               cache: tokenCache, screenCache: screenCache, clock: clock)
+            .collect().first
+
+        #expect(first?.state == .ok)
+        #expect(second?.state == .failed(.timeout))
+        #expect(http.requests.count == requestsAfterRecord)
+        #expect(credentials.reads == 0)
+        #expect(tokenCache.value(at: clock.now())?.accessToken == nil)
+        #expect(screen.readCount == 2)
+    }
+
     @Test("Keychain item not found clears old account caches when no file token exists")
     func keychainSignOutClearsCaches() {
         let tokenCache = AntigravityAccessTokenCache()

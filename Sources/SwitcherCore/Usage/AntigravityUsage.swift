@@ -296,7 +296,7 @@ public struct AntigravityUsageCollector: Sendable {
             if let cached = tokenCache.value(at: current) {
                 return .token(cached.accessToken, projectID: cached.projectID)
             }
-            return fileToken(at: current, read: legacyTokenRead ?? readLegacyFileToken())
+            return .failure(.failed(.timeout))
         }
     }
 
