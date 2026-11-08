@@ -277,7 +277,16 @@ struct AntigravityUsageTests {
         legacyToken(credentials)
         http.queue = [project(), UsageHTTPResponse(status: status, body: Data())]
         let result = collector(http, credentials, runner: missingKeychain()).collect().first
-        #expect(result?.state == (status == 429 ? .failed(.rateLimited) : .failed(.refused)))
+        #expect(result?.state == (status == 429 ? .failed(.rateLimited) : .failed(.signInRejected)))
+    }
+
+    @Test("quota API sign-in rejection wins over the screen result")
+    func quotaRejectionPreferred() {
+        let http = SpyTransport(); let credentials = SpyCredentials()
+        legacyToken(credentials)
+        http.queue = [project(), UsageHTTPResponse(status: 403, body: Data())]
+        let result = collector(http, credentials, runner: missingKeychain()).collect().first
+        #expect(result?.state == .failed(.signInRejected))
     }
 
     @Test("token-exchange authorization failures outrank a screen timeout", arguments: [400, 401])

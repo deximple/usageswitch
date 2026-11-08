@@ -156,12 +156,13 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 |---|---|---|
 | **需要连接用量** | 该可选工具处于关闭状态。 | 点击**连接用量**，或用 **⚙︎ › 用量连接**。 |
 | **未找到登录信息 · 请先登录 *X*** | 工具已安装但在这台 Mac 上未登录。 | 登录该工具一次。 |
-| **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude`、`codex`、`cursor-agent login`、`grok`、`gemini`、`agy`、`devin`、`opencode`。 |
+| **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude auth login`、`codex login`、`cursor-agent login`、`grok login`、`gemini`、`agy`、`devin auth login`、`opencode auth login`。 |
+| **登录被拒绝 · 请在终端运行一次 *`command`*** | 服务商拒绝了已保存的登录——它已被撤销、被其他应用的登录替换，或属于此工具不支持的账户。 | 运行显示的命令，并用你想查看的账户登录。 |
 | **未关联 CLI 配额** | 已保存的 Claude Desktop 账户没有关联的 Claude Code 配置。 | 在**详情**中[关联配置](#3-给已保存的-claude-账户配上它自己的数字可选)。 |
 | **未报告用量** | API 密钥配置——没有订阅额度。 | 无需处理。花费估算见 [API 标签页](#api-标签页)。 |
 | **此账户不适用 *X* 用量** | 服务商表示该账户的套餐没有可显示的配额。 | 无需处理。 |
 | **Google 已停止为个人账号提供 Gemini CLI 配额（已迁移到 Antigravity）** | Google 已把个人账户迁移到 Antigravity。 | 开启 **Antigravity**；其 *Gemini Models* 额度显示的正是同一配额。 |
-| **读取用量被拒绝** | 服务商拒绝了该登录。 | 重新登录该工具。 |
+| **读取用量被拒绝** | 工具的命令行程序在没有返回用量报告的情况下停止了。 | 下次刷新时重试。若持续出现，请在终端中运行一次该工具，确认它已登录且工作正常。 |
 | **返回的是其他账户的用量，因此不显示** | 读取期间登录发生了变化。UsageSwitch 绝不显示别的账户的数字。 | 等待下次刷新。 |
 | **无法读取用量 — 此 *X* 版本可能需要更新 UsageSwitch** | 工具的响应格式变了。 | 检查是否有新版 UsageSwitch，或[提交问题](https://github.com/deximple/usageswitch/issues)。 |
 | **读取用量超时** · **无法连接服务** · **已达速率限制 — 请稍后再试** | 暂时性的网络或服务问题。 | 下次刷新时自动重试。 |

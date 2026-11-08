@@ -118,7 +118,7 @@ public struct AntigravityUsageCollector: Sendable {
 
     private static func preferredFailure(_ screen: UsageState, _ api: UsageState) -> UsageState {
         switch api {
-        case .failed(.refused), .failed(.rateLimited), .unavailable(.noSignIn):
+        case .failed(.refused), .failed(.signInRejected), .failed(.rateLimited), .unavailable(.noSignIn):
             return api
         default:
             break
@@ -203,7 +203,7 @@ public struct AntigravityUsageCollector: Sendable {
 
     private static func apiFailure(_ response: UsageHTTPResponse) -> UsageState? {
         switch response.status {
-        case 401, 403: return .failed(.refused)
+        case 401, 403: return .failed(.signInRejected)
         case 429: return .failed(.rateLimited)
         case 200: return nil
         default: return .failed(.network)

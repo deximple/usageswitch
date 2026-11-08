@@ -396,6 +396,7 @@ extension Strings {
         .usageReasonNotReporting: "未报告用量",
         .usageReasonNoSignIn: "未找到登录信息 · 请先登录 %@",
         .usageReasonSignInExpired: "登录已过期 · 请在终端运行一次 %@",
+        .usageReasonSignInRejected: "登录被拒绝 · 请在终端运行一次 %@",
         .usageReasonNotEligible: "此账号不适用 %@ 用量",
         .usageReasonGeminiRetired: "Google 已停止为个人账号提供 Gemini CLI 配额（已迁移到 Antigravity）",
         .usageReasonCliMissing: "找不到命令行工具",

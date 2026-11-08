@@ -157,12 +157,13 @@ A row without numbers always says why. Here is what each message means and what 
 |---|---|---|
 | **Usage connection required** | This optional tool is turned off. | Click **Connect usage**, or use **⚙︎ › Usage Connections**. |
 | **No sign-in found — sign in to *X* first** | The tool is installed but not signed in on this Mac. | Sign in with that tool once. |
-| **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude`, `codex`, `cursor-agent login`, `grok`, `gemini`, `agy`, `devin` or `opencode`. |
+| **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` or `opencode auth login`. |
+| **Sign-in not accepted — run *`command`* once in Terminal** | The provider rejected the stored sign-in — it was revoked, replaced by another app's sign-in, or belongs to an account this tool won't serve. | Run the command shown and sign in with the account you want to see. |
 | **Not linked to CLI quota** | A saved Claude Desktop account has no linked Claude Code profile. | [Link a profile](#3-give-saved-claude-accounts-their-own-numbers-optional) in **Details**. |
 | **Not reporting usage** | An API-key profile — it has no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates. |
 | **This account isn't eligible for *X* usage** | The provider says this account's plan has no quota to show. | Nothing to fix. |
 | **Google no longer offers Gemini CLI quota for individual accounts (moved to Antigravity)** | Google moved individual accounts to Antigravity. | Turn on **Antigravity**; its *Gemini Models* limit shows the same quota. |
-| **Usage read was refused** | The provider rejected the sign-in. | Sign in to that tool again. |
+| **Usage read was refused** | The tool's command-line program stopped without returning a usage report. | It retries at the next refresh. If it keeps happening, open the tool once in Terminal to check it's signed in and working. |
 | **Usage came back for a different account, so none is shown** | The sign-in changed during a read. UsageSwitch never shows another account's numbers. | Wait for the next refresh. |
 | **Couldn't read usage — this *X* version may need a UsageSwitch update** | The tool's response format changed. | Check for a newer UsageSwitch, or [open an issue](https://github.com/deximple/usageswitch/issues). |
 | **Timed out reading usage** · **Couldn't reach the service** · **Rate limited — try again later** | A temporary network or service problem. | It retries at the next refresh. |
