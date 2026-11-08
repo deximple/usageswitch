@@ -223,6 +223,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         }
 
         let type: String?
+        let timestamp: String?
         let payload: Payload?
     }
 
@@ -293,7 +294,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
             case .codex:
                 (nextCursor, parsed) = processCodex(
                     data, cursor: cursor, accountRef: accountRef,
-                    fileDay: SuggestionRetention.utcDay(file.modifiedAt))
+                    now: now)
             // Cursor, Devin, Gemini, Antigravity and OpenCode have no readers because their formats are unverified.
             default:
                 continue
@@ -440,7 +441,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
     }
 
     private func processCodex(_ data: Data, cursor: Cursor, accountRef: String,
-                              fileDay: String) -> (Cursor, [ParsedUsage]) {
+                              now: Date) -> (Cursor, [ParsedUsage]) {
         let (lines, next) = completeLines(data, cursor: cursor)
         let decoder = JSONDecoder()
         var model = cursor.codexModel
@@ -462,14 +463,17 @@ public final class SuggestionLogReader: @unchecked Sendable {
             case "session_meta":
                 version = safeToolVersion(payload.cli_version)
             case "event_msg" where payload.type == "token_count":
-                guard let currentModel = model,
+                guard let timestamp = decoded.timestamp,
+                      let date = parseTimestamp(timestamp),
+                      (0...Self.maximumFileAge).contains(now.timeIntervalSince(date)),
+                      let currentModel = model,
                       let usage = payload.info?.last_token_usage else { continue }
                 let tokens = [usage.input_tokens, usage.cached_input_tokens, usage.output_tokens,
                               usage.reasoning_output_tokens]
                 guard tokens.contains(where: { $0 != nil }),
                       tokens.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { continue }
                 usages.append(ParsedUsage(
-                    day: fileDay, provider: .codex, accountRef: accountRef,
+                    day: SuggestionRetention.utcDay(date), provider: .codex, accountRef: accountRef,
                     model: currentModel, effort: effort,
                     inputTokens: usage.input_tokens ?? 0,
                     cachedInputTokens: usage.cached_input_tokens ?? 0,
@@ -485,6 +489,13 @@ public final class SuggestionLogReader: @unchecked Sendable {
         updated.codexEffort = effort
         updated.codexToolVersion = version
         return (updated, usages)
+    }
+
+    private func parseTimestamp(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private func completeLines(_ data: Data, cursor: Cursor) -> ([Data], Cursor) {

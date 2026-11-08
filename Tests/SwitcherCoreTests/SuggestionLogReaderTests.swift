@@ -180,12 +180,12 @@ struct SuggestionLogReaderTests {
         let logRoot = try codexRoot(root, accountRef: "codex-profile")
         let file = logRoot.directory.appendingPathComponent("sessions/2027/01/rollout-one.jsonl")
         let fixture = """
-        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":999}}}}
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":999}}}}
         {"type":"session_meta","payload":{"cli_version":"0.99"}}
         {"type":"turn_context","payload":{"collaboration_mode":{"settings":{"model":"gpt-5","reasoning_effort":"high"}}}}
-        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":25,"output_tokens":40,"reasoning_output_tokens":15}}},"response_item":{"text":"jay.song@example.com sk-ant-FAKE"},"cwd":"/Users/jay/private"}
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":25,"output_tokens":40,"reasoning_output_tokens":15}}},"response_item":{"text":"jay.song@example.com sk-ant-FAKE"},"cwd":"/Users/jay/private"}
         {"type":"turn_context","payload":{"model":"gpt-4.1","effort":"medium"}}
-        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":50,"output_tokens":8}}}}
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":50,"output_tokens":8}}}}
         """
         try write(fixture + "\n", to: file, modifiedAt: now)
         let pass = reader(root).read(roots: [logRoot], now: now)
@@ -217,7 +217,7 @@ struct SuggestionLogReaderTests {
         let logReader = reader(root)
         #expect(logReader.read(roots: [logRoot], now: now).records.isEmpty)
 
-        let event = #"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":73,"output_tokens":9}}}}"#
+        let event = #"{"type":"event_msg","timestamp":"\#(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":73,"output_tokens":9}}}}"#
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((event + "\n").utf8))
@@ -228,6 +228,28 @@ struct SuggestionLogReaderTests {
         #expect(record.model == "gpt-5")
         #expect(record.effort == "high")
         #expect(record.toolVersion == "1.0")
+        #expect(record.inputTokens == 73)
+    }
+
+    @Test("Codex event timestamps set each usage day and exclude old or missing timestamps")
+    func codexEventDates() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try codexRoot(root)
+        let file = logRoot.directory.appendingPathComponent("sessions/2027/01/rollout-dates.jsonl")
+        let old = timestamp(now.addingTimeInterval(-20 * 24 * 60 * 60))
+        let recent = now.addingTimeInterval(-2 * 24 * 60 * 60)
+        let fixture = """
+        {"type":"turn_context","payload":{"model":"gpt-5","effort":"high"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":999}}}}
+        {"type":"event_msg","timestamp":"\(old)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":888}}}}
+        {"type":"event_msg","timestamp":"\(timestamp(recent))","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":73}}}}
+        """
+        try write(fixture + "\n", to: file, modifiedAt: now)
+        let pass = reader(root).read(roots: [logRoot], now: now)
+        let record = try #require(pass.records.first)
+        #expect(pass.records.count == 1)
+        #expect(record.day == SuggestionRetention.utcDay(recent))
         #expect(record.inputTokens == 73)
     }
 
