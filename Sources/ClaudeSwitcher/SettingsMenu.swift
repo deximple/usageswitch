@@ -8,6 +8,7 @@ struct SettingsMenu: View {
     @ObservedObject var model: SwitcherModel
     @ObservedObject var codex: CodexModel
     @ObservedObject var usage: UsageModel
+    @State private var confirmingLearningFlush = false
 
     var body: some View {
         Menu {
@@ -39,6 +40,9 @@ struct SettingsMenu: View {
                                                             set: { model.setMenuBarShowsUsage($0) }))
             Toggle(L10n.t(.uiSettingUsageAlerts), isOn: Binding(get: { model.usageAlertsEnabled },
                                                               set: { model.setUsageAlertsEnabled($0) }))
+            Toggle(L10n.t(.suggestionQuietSignalSetting),
+                   isOn: Binding(get: { model.suggestionQuietSignal },
+                                 set: { model.setSuggestionQuietSignal($0) }))
             Picker(L10n.t(.uiSettingWarnLevel), selection: Binding(
                 get: { model.usageWarnPercent }, set: { model.setUsageWarnPercent($0) })) {
                 Text(L10n.t(.usageUsedPercent, 70)).tag(70)
@@ -74,6 +78,10 @@ struct SettingsMenu: View {
                     .disabled(codex.isBusy)
             }
             Divider()
+            Button(L10n.t(.suggestionFlushTitle), role: .destructive) {
+                confirmingLearningFlush = true
+            }
+            .disabled(model.isDemo)
             Button(L10n.t(.uiOpenDataFolder)) {
                 NSWorkspace.shared.activateFileViewerSelecting([model.dataFolder])
             }
@@ -92,6 +100,24 @@ struct SettingsMenu: View {
         .fixedSize()
         .help(L10n.t(.uiSettings))
         .accessibilityLabel(L10n.t(.uiSettings))
+        .alert(L10n.t(.suggestionFlushTitle), isPresented: $confirmingLearningFlush) {
+            Button(L10n.t(.uiCancel), role: .cancel) {}
+            Button(L10n.t(.suggestionFlushConfirm), role: .destructive) {
+                Task {
+                    do {
+                        try await usage.flushSuggestionLearningData()
+                    } catch {
+                        let alert = NSAlert()
+                        alert.alertStyle = .warning
+                        alert.messageText = L10n.t(.suggestionFlushTitle)
+                        alert.informativeText = L10n.t(.suggestionFlushFailure)
+                        alert.runModal()
+                    }
+                }
+            }
+        } message: {
+            Text(L10n.t(.suggestionFlushMessage))
+        }
     }
 
     /// The single opt-in path used by the Settings toggle AND the inline Connect-usage

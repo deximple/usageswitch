@@ -30,6 +30,7 @@ public struct SuggestionObservation: Codable, Equatable, Sendable {
 }
 
 public struct SuggestionDelta: Codable, Equatable, Sendable {
+    public let provider: UsageProvider?
     public let windowKey: String
     public let accountRef: String
     public let from: Double
@@ -37,8 +38,9 @@ public struct SuggestionDelta: Codable, Equatable, Sendable {
     public let usedDelta: Double
     public let seconds: TimeInterval
 
-    public init(windowKey: String, accountRef: String, from: Double, to: Double,
+    public init(provider: UsageProvider? = nil, windowKey: String, accountRef: String, from: Double, to: Double,
                 usedDelta: Double, seconds: TimeInterval) {
+        self.provider = provider
         self.windowKey = windowKey
         self.accountRef = accountRef
         self.from = from
@@ -50,6 +52,10 @@ public struct SuggestionDelta: Codable, Equatable, Sendable {
 
 public struct SuggestionResetEvent: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable { case hard, soft }
+
+    private enum CodingKeys: String, CodingKey {
+        case windowKey, accountRef, at, kind, before, after, expectedAt
+    }
 
     public let windowKey: String
     public let accountRef: String
@@ -69,6 +75,96 @@ public struct SuggestionResetEvent: Codable, Equatable, Sendable {
         self.after = after
         self.expectedAt = expectedAt
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        windowKey = try container.decode(String.self, forKey: .windowKey)
+        accountRef = try container.decode(String.self, forKey: .accountRef)
+        at = try Self.decodeDate(container, forKey: .at)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        before = try container.decode(Double.self, forKey: .before)
+        after = try container.decode(Double.self, forKey: .after)
+        if container.contains(.expectedAt), try !container.decodeNil(forKey: .expectedAt) {
+            expectedAt = try Self.decodeDate(container, forKey: .expectedAt)
+        } else {
+            expectedAt = nil
+        }
+    }
+
+    private static func decodeDate<Key: CodingKey>(
+        _ container: KeyedDecodingContainer<Key>, forKey key: Key
+    ) throws -> Date {
+        if let value = try? container.decode(String.self, forKey: key) {
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: value) { return date }
+            throw DecodingError.dataCorruptedError(
+                forKey: key, in: container, debugDescription: "Invalid ISO-8601 date")
+        }
+        let timestamp = try container.decode(Double.self, forKey: key)
+        guard timestamp.isFinite else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key, in: container, debugDescription: "Invalid date timestamp")
+        }
+        return timestamp >= 1_000_000_000
+            ? Date(timeIntervalSince1970: timestamp)
+            : Date(timeIntervalSinceReferenceDate: timestamp)
+    }
+}
+
+public struct SuggestionCandidate: Codable, Equatable, Sendable {
+    public let provider: UsageProvider
+    public let accountKey: String
+    public let model: String?
+    public let effort: String?
+
+    public init(provider: UsageProvider, accountKey: String, model: String?, effort: String?) {
+        self.provider = provider
+        self.accountKey = accountKey
+        self.model = model
+        self.effort = effort
+    }
+
+    public func matchesUsage(provider: UsageProvider, accountKey: String,
+                             model: String, effort: String?) -> Bool {
+        self.provider == provider && self.accountKey == accountKey
+            && self.model == model && self.effort == effort
+    }
+
+    public func hasSameIdentity(as other: SuggestionCandidate) -> Bool {
+        provider == other.provider && accountKey == other.accountKey
+            && model == other.model && effort == other.effort
+    }
+}
+
+public struct SuggestionUsageSnapshot: Codable, Equatable, Sendable {
+    public let provider: UsageProvider
+    public let accountKey: String
+    public let windowKey: String
+    public let usedPercent: Double
+    public let resetsAt: Date?
+
+    public init(provider: UsageProvider, accountKey: String, windowKey: String,
+                usedPercent: Double, resetsAt: Date?) {
+        self.provider = provider
+        self.accountKey = accountKey
+        self.windowKey = windowKey
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+    }
+}
+
+public enum SuggestionTaskChangeSource: String, Codable, Sendable {
+    case declared, override
+}
+
+public enum SuggestionQuietSignal {
+    public static func shouldShow(enabled: Bool, guideExpanded: Bool,
+                                  topCandidateID: String?, activeCandidateID: String?) -> Bool {
+        guard enabled, !guideExpanded, let topCandidateID else { return false }
+        return topCandidateID != activeCandidateID
+    }
 }
 
 public typealias Observation = SuggestionObservation
@@ -87,6 +183,7 @@ public struct SuggestionStateTracker: Sendable {
     public func track(previous: [String: SuggestionObservation],
                       previousIdentityKeys: [String: String],
                       fresh: [AccountUsage],
+                      appGap: Bool = false,
                       accountRefKey: (UsageProvider, String) -> String? = { _, value in value }) -> Result {
         var observations: [SuggestionObservation] = []
         var deltas: [SuggestionDelta] = []
@@ -107,6 +204,7 @@ public struct SuggestionStateTracker: Sendable {
                     toolVersion: usage.toolVersion.map(UsageSnapshot.maskedString))
                 observations.append(observation)
 
+                guard !appGap else { continue }
                 guard let prior = previous[key] else { continue }
                 let identityMatches = usage.identityKey.map {
                     !$0.isEmpty && previousIdentityKeys[key] == $0
@@ -135,7 +233,7 @@ public struct SuggestionStateTracker: Sendable {
                     && !dropped && prior.provider == usage.provider
                 if continuous {
                     deltas.append(SuggestionDelta(
-                        windowKey: windowKey, accountRef: accountRef,
+                        provider: usage.provider, windowKey: windowKey, accountRef: accountRef,
                         from: prior.usedPercent, to: window.usedPercent,
                         usedDelta: window.usedPercent - prior.usedPercent, seconds: gap))
                 }

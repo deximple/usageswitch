@@ -23,13 +23,17 @@ public struct SuggestionLogUsage: Codable, Equatable, Sendable {
     public let turns: Int
     public let inputTokens: Int64
     public let cachedInputTokens: Int64
+    public let cachedCreationTokens: Int64?
     public let outputTokens: Int64
     public let reasoningTokens: Int64
     public let toolVersion: String?
+    public let lastUsedAt: Date?
 
     public init(day: String, provider: UsageProvider, accountRef: String, model: String,
                 effort: String?, turns: Int, inputTokens: Int64, cachedInputTokens: Int64,
-                outputTokens: Int64, reasoningTokens: Int64, toolVersion: String?) {
+                cachedCreationTokens: Int64 = 0,
+                outputTokens: Int64, reasoningTokens: Int64, toolVersion: String?,
+                lastUsedAt: Date? = nil) {
         self.day = day
         self.provider = provider
         self.accountRef = accountRef
@@ -38,9 +42,11 @@ public struct SuggestionLogUsage: Codable, Equatable, Sendable {
         self.turns = turns
         self.inputTokens = inputTokens
         self.cachedInputTokens = cachedInputTokens
+        self.cachedCreationTokens = cachedCreationTokens
         self.outputTokens = outputTokens
         self.reasoningTokens = reasoningTokens
         self.toolVersion = toolVersion
+        self.lastUsedAt = lastUsedAt
     }
 }
 
@@ -179,15 +185,19 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var turns = 0
         var inputTokens: Int64 = 0
         var cachedInputTokens: Int64 = 0
+        var cachedCreationTokens: Int64 = 0
         var outputTokens: Int64 = 0
         var reasoningTokens: Int64 = 0
+        var lastUsedAt: Date?
 
         mutating func add(_ usage: ParsedUsage) {
             turns += 1
             inputTokens = Self.add(inputTokens, usage.inputTokens)
             cachedInputTokens = Self.add(cachedInputTokens, usage.cachedInputTokens)
+            cachedCreationTokens = Self.add(cachedCreationTokens, usage.cachedCreationTokens)
             outputTokens = Self.add(outputTokens, usage.outputTokens)
             reasoningTokens = Self.add(reasoningTokens, usage.reasoningTokens)
+            lastUsedAt = max(lastUsedAt ?? usage.occurredAt, usage.occurredAt)
         }
 
         private static func add(_ lhs: Int64, _ rhs: Int64) -> Int64 {
@@ -198,12 +208,14 @@ public final class SuggestionLogReader: @unchecked Sendable {
 
     private struct ParsedUsage {
         let day: String
+        let occurredAt: Date
         let provider: UsageProvider
         let accountRef: String
         let model: String
         let effort: String?
         let inputTokens: Int64
         let cachedInputTokens: Int64
+        let cachedCreationTokens: Int64
         let outputTokens: Int64
         let reasoningTokens: Int64
         let toolVersion: String?
@@ -357,8 +369,9 @@ public final class SuggestionLogReader: @unchecked Sendable {
             SuggestionLogUsage(day: key.day, provider: key.provider, accountRef: key.accountRef,
                                model: key.model, effort: key.effort, turns: value.turns,
                                inputTokens: value.inputTokens, cachedInputTokens: value.cachedInputTokens,
+                               cachedCreationTokens: value.cachedCreationTokens,
                                outputTokens: value.outputTokens, reasoningTokens: value.reasoningTokens,
-                               toolVersion: key.toolVersion)
+                               toolVersion: key.toolVersion, lastUsedAt: value.lastUsedAt)
         }.sorted {
             ($0.day, $0.provider.rawValue, $0.accountRef, $0.model, $0.effort ?? "", $0.toolVersion ?? "")
                 < ($1.day, $1.provider.rawValue, $1.accountRef, $1.model, $1.effort ?? "", $1.toolVersion ?? "")
@@ -374,6 +387,10 @@ public final class SuggestionLogReader: @unchecked Sendable {
 
     public func recentSummary(now: Date = Date()) -> [String: SuggestionLogSummary.Hint] {
         SuggestionLogSummary.recent(usageStore.recentRecords(now: now), now: now)
+    }
+
+    public func recentRecords(now: Date = Date(), days: Int = 2) -> [SuggestionLogUsage] {
+        usageStore.recentRecords(now: now, days: days)
     }
 
     private func loadCursors() -> [String: Cursor] {
@@ -500,11 +517,11 @@ public final class SuggestionLogReader: @unchecked Sendable {
     private func claudeUsage(from pending: PendingClaudeMessage,
                              accountRef: String) -> ParsedUsage {
         ParsedUsage(
-            day: SuggestionRetention.utcDay(pending.timestamp), provider: .claude,
+            day: SuggestionRetention.utcDay(pending.timestamp), occurredAt: pending.timestamp, provider: .claude,
             accountRef: accountRef, model: pending.model, effort: pending.effort,
             inputTokens: pending.inputTokens,
-            cachedInputTokens: Self.saturatingAdd(
-                pending.cacheReadInputTokens, pending.cacheCreationInputTokens),
+            cachedInputTokens: pending.cacheReadInputTokens,
+            cachedCreationTokens: pending.cacheCreationInputTokens,
             outputTokens: pending.outputTokens, reasoningTokens: 0,
             toolVersion: pending.toolVersion)
     }
@@ -550,10 +567,11 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 guard tokens.contains(where: { $0 != nil }),
                       tokens.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { continue }
                 usages.append(ParsedUsage(
-                    day: SuggestionRetention.utcDay(date), provider: .codex, accountRef: accountRef,
+                    day: SuggestionRetention.utcDay(date), occurredAt: date, provider: .codex, accountRef: accountRef,
                     model: currentModel, effort: effort,
                     inputTokens: usage.input_tokens ?? 0,
                     cachedInputTokens: usage.cached_input_tokens ?? 0,
+                    cachedCreationTokens: 0,
                     outputTokens: usage.output_tokens ?? 0,
                     reasoningTokens: usage.reasoning_output_tokens ?? 0,
                     toolVersion: version))
@@ -739,24 +757,42 @@ private final class SuggestionLogUsageStore {
         }
     }
 
-    func recentRecords(now: Date) -> [SuggestionLogUsage] {
+    func recentRecords(now: Date, days: Int = 2) -> [SuggestionLogUsage] {
+        let dayCount = min(max(days, 1), 35)
         let today = SuggestionRetention.utcDay(now)
-        let firstDay = SuggestionRetention.utcDay(now.addingTimeInterval(-24 * 60 * 60))
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil) else { return [] }
+        let firstDay = SuggestionRetention.utcDay(now.addingTimeInterval(-Double(dayCount - 1) * 86_400))
+        let archiveDirectory = directory.appendingPathComponent("archive", isDirectory: true)
+        let files = ([directory, archiveDirectory]).flatMap {
+            (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
         var remaining = SuggestionLogReader.maximumReadBytes
-        let candidates = files.filter { file in
-            guard let day = Self.day(in: file.lastPathComponent) else { return false }
-            return day >= firstDay && day <= today
-        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let candidates = files.compactMap { file -> (URL, String)? in
+            guard let day = Self.day(in: file.lastPathComponent),
+                  day >= firstDay && day <= today else { return nil }
+            return (file, day)
+        }.sorted {
+            $0.1 == $1.1
+                ? Self.part(in: $0.0.lastPathComponent) > Self.part(in: $1.0.lastPathComponent)
+                : $0.1 > $1.1
+        }
         let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         var records: [SuggestionLogUsage] = []
-        for file in candidates where remaining > 0 {
+        for (file, _) in candidates where remaining > 0 {
             guard let info = SuggestionLogReaderFileInfo.read(file),
                   info.size <= UInt64(remaining),
-                  case let .data(data) = reader.read(atPath: file.path, using: { path in
+                  case let .data(stored) = reader.read(atPath: file.path, using: { path in
                     FileManager.default.contents(atPath: path)
                   }) else { continue }
+            let data: Data
+            if file.pathExtension == "zlib" {
+                guard let decoded = try? (stored as NSData).decompressed(using: .zlib) as Data,
+                      decoded.count <= remaining else { continue }
+                data = decoded
+            } else {
+                data = stored
+            }
+            guard data.count <= remaining else { continue }
             remaining -= data.count
             guard let lastNewline = data.lastIndex(of: 10) else { continue }
             var start = data.startIndex
@@ -778,13 +814,23 @@ private final class SuggestionLogUsageStore {
     }
 
     private static func day(in filename: String) -> String? {
-        guard let range = filename.range(of: #"^log-usage-([0-9]{4}-[0-9]{2}-[0-9]{2})(?:-[0-9]+)?\.jsonl$"#,
+        guard let range = filename.range(of: #"^log-usage-([0-9]{4}-[0-9]{2}-[0-9]{2})(?:-[0-9]+)?\.jsonl(?:\.zlib)?$"#,
                                          options: .regularExpression) else { return nil }
         let matched = String(filename[range])
         let prefix = "log-usage-"
         let suffix = matched.firstIndex(of: ".") ?? matched.endIndex
         let stem = matched[prefix.endIndex..<suffix]
         return String(stem.prefix(10))
+    }
+
+    private static func part(in filename: String) -> Int {
+        guard let match = filename.range(of: #"^log-usage-[0-9]{4}-[0-9]{2}-[0-9]{2}-([0-9]+)\.jsonl(?:\.zlib)?$"#,
+                                         options: .regularExpression),
+              let numberRange = filename[match].range(of: #"-([0-9]+)\.jsonl"#,
+                                                      options: .regularExpression),
+              let digits = filename[match][numberRange].split(separator: ".").first?.dropFirst(),
+              let part = Int(digits) else { return 1 }
+        return part
     }
 }
 

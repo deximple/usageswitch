@@ -122,7 +122,8 @@ final class SwitcherModel: ObservableObject {
     }
 
     func refreshIfIdle() {
-        expireSuggestionUrgentModeIfNeeded(now: Date())
+        expireSuggestionUrgentModeIfNeeded(
+            now: Date(), snapshot: AppModel.usage.suggestionUsageSnapshot())
         if case .working = phase { return }
         refresh()
     }
@@ -474,7 +475,8 @@ final class SwitcherModel: ObservableObject {
         if !saveSettings({ $0.usageWarnPercent = percent }) { usageWarnPercent = before }
     }
 
-    func setSuggestionMode(_ mode: SuggestionMode, urgentUntil: Date? = nil) {
+    func setSuggestionMode(_ mode: SuggestionMode, urgentUntil: Date? = nil,
+                           snapshot: [SuggestionUsageSnapshot] = []) {
         let beforeMode = suggestionMode
         let beforeUntil = suggestionUrgentUntil
         suggestionMode = mode
@@ -486,16 +488,28 @@ final class SwitcherModel: ObservableObject {
         }) {
             suggestionMode = beforeMode
             suggestionUrgentUntil = beforeUntil
+        } else if !isDemo, beforeMode != mode {
+            suggestionStore().recordEventAfterSettingsSave(
+                .modeChanged(from: beforeMode, to: mode, snapshot: snapshot, at: Date()),
+                succeeded: true)
         }
     }
 
-    func setSuggestionTask(_ task: Double) {
+    func setSuggestionTask(_ task: Double, snapshot: [SuggestionUsageSnapshot] = []) {
         guard task.isFinite else { return }
         let before = suggestionTask
         suggestionTask = min(max(task, 0), 1)
         if !saveSettings({ $0.suggestionTask = self.suggestionTask }) {
             suggestionTask = before
+        } else if !isDemo, before != suggestionTask {
+            suggestionStore().recordEventAfterSettingsSave(
+                .taskChanged(from: before, to: suggestionTask, source: .declared,
+                             snapshot: snapshot, at: Date()), succeeded: true)
         }
+    }
+
+    private func suggestionStore() -> SuggestionStateStore {
+        SuggestionStateStore(env: switcher.env, fs: switcher.fs)
     }
 
     func setSuggestionQuietSignal(_ enabled: Bool) {
@@ -510,15 +524,22 @@ final class SwitcherModel: ObservableObject {
         SuggestionMode.effectiveMode(suggestionMode, urgentUntil: suggestionUrgentUntil, now: now)
     }
 
-    private func expireSuggestionUrgentModeIfNeeded(now: Date) {
+    private func expireSuggestionUrgentModeIfNeeded(now: Date,
+                                                    snapshot: [SuggestionUsageSnapshot] = []) {
         guard suggestionMode == .urgent,
               SuggestionMode.urgentHasExpired(until: suggestionUrgentUntil, now: now)
         else { return }
+        let before = suggestionMode
         suggestionMode = .balanced
         suggestionUrgentUntil = nil
-        _ = saveSettings {
+        guard saveSettings({
             $0.suggestionMode = .balanced
             $0.suggestionUrgentUntil = nil
+        }) else { return }
+        if !isDemo, before != .balanced {
+            suggestionStore().recordEventAfterSettingsSave(
+                .modeChanged(from: before, to: .balanced, snapshot: snapshot, at: now),
+                succeeded: true)
         }
     }
 

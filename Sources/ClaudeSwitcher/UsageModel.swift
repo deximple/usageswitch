@@ -32,6 +32,7 @@ final class UsageModel: ObservableObject {
     /// can't overwrite revoked-provider values.
     private var refreshTask: Task<Void, Never>?
     private var suggestionStore: SuggestionStateStore?
+    private var suggestionStateTask: Task<Void, Never>?
     private var suggestionLogReader: SuggestionLogReader?
     private var suggestionLogTask: Task<Void, Never>?
     private var lastSuggestionLogReadAt: Date?
@@ -112,6 +113,106 @@ final class UsageModel: ObservableObject {
 
     func suggestionModelName(for key: String) -> String? {
         Self.suggestionCatalog?.models.first { $0.key == key }?.name
+    }
+
+    func suggestionCandidateIdentity(now: Date = Date()) -> String? {
+        guard let candidate = suggestionCandidate(now: now) else { return nil }
+        return Self.suggestionIdentity(provider: candidate.provider, accountKey: candidate.accountKey,
+                                       model: candidate.model, effort: candidate.effort)
+    }
+
+    func activeSuggestionCandidateIdentity() -> String? {
+        guard let usage = activeSuggestionUsage(),
+              let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
+        let hint = suggestionLogReader?.accountRefKey(for: usage.accountRef)
+            .flatMap { suggestionLogHints[$0] }
+        return Self.suggestionIdentity(provider: usage.provider, accountKey: accountKey,
+                                       model: hint?.model, effort: hint?.effort)
+    }
+
+    private func activeSuggestionUsage() -> AccountUsage? {
+        if settings.status?.activeAccount != nil {
+            return usages.first { $0.provider == .claude && $0.accountRef == "cli" }
+        }
+        if let active = AppModel.codex.status?.accounts.first(where: { $0.state == .running }) {
+            return usages.first { $0.provider == .codex && $0.accountRef == active.id }
+        }
+        return nil
+    }
+
+    private static func suggestionIdentity(provider: UsageProvider, accountKey: String,
+                                            model: String?, effort: String?) -> String {
+        [provider.rawValue, accountKey, model ?? "", effort ?? ""]
+            .map { "\($0.utf8.count):\($0)" }
+            .joined(separator: "|")
+    }
+
+    func suggestionCandidate(now: Date = Date()) -> SuggestionCandidate? {
+        guard !isDemo else { return nil }
+        let accountID: String
+        let modelKey: String
+        let effort: String?
+        switch suggestionResult(now: now) {
+        case .suggest(let id, _, let key, let value, _, _),
+             .neutral(let id, _, let key, let value, _, _):
+            accountID = id
+            modelKey = key
+            effort = value
+        case .none:
+            return nil
+        }
+        guard let usage = usages.first(where: { $0.id == accountID }),
+              let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
+        return SuggestionCandidate(provider: usage.provider, accountKey: accountKey,
+                                   model: modelKey, effort: effort)
+    }
+
+    func recordSuggestionShownIfNeeded(now: Date = Date()) {
+        guard !isDemo, guideExpanded, let candidate = suggestionCandidate(now: now) else { return }
+        _ = stateStore().recordSuggestionShown(candidate, now: now)
+    }
+
+    func suggestionUsageSnapshot() -> [SuggestionUsageSnapshot] {
+        guard !isDemo else { return [] }
+        let store = stateStore()
+        let snapshots: [SuggestionUsageSnapshot] = usages.filter { $0.state == .ok }
+            .flatMap { usage -> [SuggestionUsageSnapshot] in
+                guard let accountKey = store.accountKey(for: usage.accountRef) else { return [] }
+                return usage.windows.filter {
+                    $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                }.map { window in
+                    SuggestionUsageSnapshot(provider: usage.provider, accountKey: accountKey,
+                        windowKey: SuggestionObservation.windowKey(for: window),
+                        usedPercent: window.usedPercent, resetsAt: window.resetsAt)
+                }
+            }
+        return Array(snapshots.prefix(512))
+    }
+
+    func flushSuggestionLearningData() async throws {
+        guard !isDemo else { return }
+        generation += 1
+        suggestionStore?.invalidateBefore(generation)
+        suggestionStateTask?.cancel()
+        await suggestionStateTask?.value
+        suggestionLogTask?.cancel()
+        await suggestionLogTask?.value
+        try stateStore().flush()
+        suggestionStateTask = nil
+        suggestionLogTask = nil
+        suggestionLogReader = nil
+        lastSuggestionLogReadAt = nil
+        suggestionLogHints = [:]
+        pace = [:]
+        previousSamples = [:]
+        alertedKeys = []
+    }
+
+    private func stateStore(env: SwitcherEnvironment = .live()) -> SuggestionStateStore {
+        if let suggestionStore { return suggestionStore }
+        let store = SuggestionStateStore(env: env, fs: SafeFS(env: env))
+        suggestionStore = store
+        return store
     }
 
     func suggestionLogEffort(for usage: AccountUsage) -> String? {
@@ -389,12 +490,11 @@ final class UsageModel: ObservableObject {
             reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
         }
         updatePace()
-        if fresh.contains(where: { $0.state == .ok }) {
-            let store = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
-            suggestionStore = store
-            Task.detached(priority: .utility) {
-                store.record(fresh, now: now, generation: generation)
-            }
+        let store = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
+        suggestionStore = store
+        suggestionStateTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return }
+            store.record(fresh, now: now, generation: generation)
         }
         scheduleSuggestionLogRead(now: now, generation: generation, env: env)
         // The `--cli usage` file: display-safe identity, authentication and window
@@ -427,8 +527,16 @@ final class UsageModel: ObservableObject {
         suggestionLogReader = reader
         lastSuggestionLogReadAt = now
         let roots = suggestionLogRoots(env: env)
+        let stateStore = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
+        suggestionStore = stateStore
         let backgroundTask = Task.detached(priority: .utility) {
             _ = reader.read(roots: roots, now: now)
+            for record in reader.recentRecords(now: now) {
+                guard let observedAt = record.lastUsedAt else { continue }
+                let candidate = SuggestionCandidate(provider: record.provider,
+                    accountKey: record.accountRef, model: record.model, effort: record.effort)
+                _ = stateStore.recordObservedAcceptance(candidate: candidate, observedAt: observedAt)
+            }
             return reader.recentSummary(now: now)
         }
         suggestionLogTask = Task { @MainActor [weak self] in

@@ -17,6 +17,13 @@ struct UsageListHeader: View {
     @ObservedObject var model: UsageModel
     @ObservedObject var settings: SwitcherModel
 
+    private var quietSignalVisible: Bool {
+        SuggestionQuietSignal.shouldShow(enabled: settings.suggestionQuietSignal,
+            guideExpanded: model.guideExpanded,
+            topCandidateID: model.suggestionCandidateIdentity(),
+            activeCandidateID: model.activeSuggestionCandidateIdentity())
+    }
+
     var body: some View {
         HStack {
             Text(L10n.t(.usageListTitle))
@@ -27,7 +34,7 @@ struct UsageListHeader: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(L10n.t(.usageSegGuide))
-                    if settings.suggestionQuietSignal && model.hasSuggestion() {
+                    if quietSignalVisible {
                         Circle().fill(Theme.active).frame(width: 5, height: 5)
                             .accessibilityLabel(Text(L10n.t(.suggestionAvailable)))
                     }
@@ -41,7 +48,9 @@ struct UsageListHeader: View {
             }
             .buttonStyle(.plain)
             .disabled(model.usages.isEmpty)
-            .accessibilityLabel(L10n.t(.usageSegGuide))
+            .accessibilityLabel(quietSignalVisible
+                ? L10n.t(.usageSegGuide) + ", " + L10n.t(.suggestionAvailable)
+                : L10n.t(.usageSegGuide))
             .accessibilityValue(model.guideExpanded ? L10n.t(.usageGuideExpandedA11y)
                                                     : L10n.t(.usageGuideCollapsedA11y))
         }
@@ -98,12 +107,20 @@ struct UsageContent: View {
                 }
             }
         }
+        .onAppear { model.recordSuggestionShownIfNeeded() }
+        .onChange(of: model.guideExpanded) { _, expanded in
+            if expanded { model.recordSuggestionShownIfNeeded() }
+        }
+        .onChange(of: model.suggestionCandidate(now: Date())) { _, _ in
+            model.recordSuggestionShownIfNeeded()
+        }
         .alert(L10n.t(.suggestionUrgentTitle), isPresented: $confirmingUrgentMode) {
             Button(L10n.t(.uiCancel), role: .cancel) {}
             Button(L10n.t(.suggestionUrgentConfirm)) {
                 settings.setSuggestionMode(
                     .urgent,
-                    urgentUntil: SuggestionMode.urgentExpiry(usages: model.usages, now: Date()))
+                    urgentUntil: SuggestionMode.urgentExpiry(usages: model.usages, now: Date()),
+                    snapshot: model.suggestionUsageSnapshot())
             }
         } message: {
             Text(L10n.t(.suggestionUrgentMessage))
@@ -242,7 +259,7 @@ struct UsageContent: View {
                     if mode == .urgent {
                         confirmingUrgentMode = true
                     } else {
-                        settings.setSuggestionMode(mode)
+                        settings.setSuggestionMode(mode, snapshot: model.suggestionUsageSnapshot())
                     }
                 })) {
                     ForEach(SuggestionMode.allCases, id: \.self) { mode in
@@ -256,7 +273,7 @@ struct UsageContent: View {
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
                 Slider(value: Binding(
                     get: { settings.suggestionTask },
-                    set: { settings.setSuggestionTask($0) }), in: 0...1)
+                    set: { settings.setSuggestionTask($0, snapshot: model.suggestionUsageSnapshot()) }), in: 0...1)
                     .accessibilityLabel(Text(L10n.t(.suggestionTaskLabel)))
                 Text(L10n.t(.suggestionTaskReasoning))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)

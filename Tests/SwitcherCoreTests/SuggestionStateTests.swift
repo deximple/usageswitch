@@ -211,7 +211,7 @@ struct SuggestionStateTests {
             directory.appendingPathComponent("observations-2023-11-14.jsonl").path))
     }
 
-    @Test("daily JSONL rotates over one MiB and retention prunes old files once per UTC day")
+    @Test("daily JSONL rotates over one MiB and expires archives older than 180 days")
     func rotationAndRetention() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -238,7 +238,7 @@ struct SuggestionStateTests {
         let oldFile = directory.appendingPathComponent("events-2023-01-01.jsonl")
         try Data("later old file\n".utf8).write(to: oldFile)
         SuggestionRetention.prune(directory: directory, fs: fs, now: start.addingTimeInterval(60))
-        #expect(FileManager.default.fileExists(atPath: oldFile.path))
+        #expect(!FileManager.default.fileExists(atPath: oldFile.path))
         SuggestionRetention.prune(directory: directory, fs: fs,
                                   now: start.addingTimeInterval(86_400))
         #expect(!FileManager.default.fileExists(atPath: oldFile.path))
