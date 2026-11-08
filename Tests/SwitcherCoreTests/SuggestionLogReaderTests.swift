@@ -310,7 +310,9 @@ struct SuggestionLogReaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)
         let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
-        try write(claudeLine(id: "mode", input: 12) + "\n", to: file, modifiedAt: now)
+        try write(claudeLine(id: "mode", input: 12) + "\n"
+                  + claudeLine(id: "mode-next", input: 13) + "\n",
+                  to: file, modifiedAt: now)
         let env = environment(root)
         let fs = SafeFS(env: env)
         let directory = env.storeDir.appendingPathComponent("suggestion")

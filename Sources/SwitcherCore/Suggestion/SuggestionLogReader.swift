@@ -488,8 +488,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 anonymous.append(claudeUsage(from: messageFields, accountRef: accountRef))
             }
         }
-        if finalizePending, let pending {
-            finalized.append(claudeUsage(from: pending, accountRef: accountRef))
+        if finalizePending, let pendingToFinalize = pending {
+            finalized.append(claudeUsage(from: pendingToFinalize, accountRef: accountRef))
             pending = nil
         }
         var updated = next
