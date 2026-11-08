@@ -50,6 +50,7 @@ final class UsageModel: ObservableObject {
     private var alertedKeys: Set<String> = []
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
+    private let geminiClientFinder = GeminiOAuthClientFinder()
     private let antigravityScreenCache = AntigravityUsageScreenCache()
 
     static let interval: TimeInterval = 300
@@ -351,6 +352,7 @@ final class UsageModel: ObservableObject {
         let geminiRefreshAllowed = settings.geminiTokenRefreshAllowed
         let antigravityTokenCache = self.antigravityTokenCache
         let geminiTokenCache = self.geminiTokenCache
+        let geminiClientFinder = self.geminiClientFinder
         let antigravityScreenCache = self.antigravityScreenCache
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
@@ -407,6 +409,7 @@ final class UsageModel: ObservableObject {
                             environment: environment,
                             refreshAllowed: geminiRefreshAllowed,
                             cli: installation.cli,
+                            clientFinder: geminiClientFinder,
                             tokenCache: geminiTokenCache).collect()
                     case .antigravity:
                         return AntigravityUsageCollector(enabled: true, http: transport,
