@@ -14,7 +14,7 @@ Saved Claude Desktop accounts have a separate, default-off **Connect usage via C
 |---|---|---|
 | Cursor | Cursor's Keychain entry, then its bounded `auth.json` fallback | `api2.cursor.sh` |
 | Grok | The Grok CLI sign-in file | `cli-chat-proxy.grok.com` |
-| Gemini | Gemini CLI Keychain item (`gemini-cli-oauth` / `main-account`), then bounded flat `~/.gemini/oauth_creds.json`; access token and expiry only | `cloudcode-pa.googleapis.com` |
+| Gemini | Gemini CLI Keychain item (`gemini-cli-oauth` / `main-account`), then bounded flat `~/.gemini/oauth_creds.json`; access token and expiry, plus the refresh token only under the refresh disclosure | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` (token exchange) |
 | Antigravity | Hidden `agy` PTY `/usage` screen; read-only quota API uses agy's Keychain item (`gemini` / `antigravity-acp`), or the old jetski access-token file when that item is absent | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` |
 | Devin | Devin CLI credentials and a local CLI version probe | `server.codeium.com` |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` |

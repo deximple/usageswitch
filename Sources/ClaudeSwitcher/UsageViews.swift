@@ -729,7 +729,7 @@ struct UsageBarRow: View {
                 .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
                 .lineLimit(1).truncationMode(.tail)
                 .minimumScaleFactor(usage.provider == .gemini ? 0.8 : (compact ? 0.85 : 1))
-                .frame(width: compact ? 84 : 96, alignment: .leading)
+                .frame(width: compact ? 84 : 168, alignment: .leading)
             ZStack(alignment: .leading) {
                 GeometryReader { proxy in
                     Capsule().fill(color.opacity(0.25))

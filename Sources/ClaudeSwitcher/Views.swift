@@ -464,6 +464,9 @@ struct MenuView: View {
 
     private var panelCap: CGFloat {
         let mouse = NSEvent.mouseLocation
+        // `--snapshot-height` lifts the panel budget so README renders can show
+        // the full list; the menu keeps its own chrome-aware fitting.
+        if let height = LaunchOptions.snapshotHeight { return height }
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         return min(600, (screen?.visibleFrame.height ?? 600) - 80)
     }

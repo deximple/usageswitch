@@ -10,7 +10,8 @@ import SwitcherCore
 /// `--menu-preview` (render the menu content in the window for screenshots), `--lang <code>` (not saved),
 /// `--tab usage|claude|codex` (not saved),
 /// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).
-/// `--snapshot <path.png>` (render the window offscreen to a PNG and quit; no real window, honors --ui-fixture, --menu-preview, --appearance, --lang).
+/// `--snapshot <path.png>` (render the window offscreen at 2x to a PNG and quit; no real window, honors --ui-fixture, --menu-preview, --appearance, --lang),
+/// `--snapshot-height <points>` (override the snapshot height; width stays 360 for menus, 700 for windows).
 enum LaunchOptions {
     static let args = CommandLine.arguments
     static var background: Bool { args.contains("--background") }
@@ -21,6 +22,7 @@ enum LaunchOptions {
     static var menuPreview: Bool { args.contains("--menu-preview") }
     static var behind: Bool { args.contains("--behind") }
     static var snapshot: String? { value("--snapshot") }
+    static var snapshotHeight: Double? { value("--snapshot-height").flatMap(Double.init) }
 
     static func value(_ flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
@@ -166,7 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 MainView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
             }
         }
-        let size = menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
+        let base = menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
+        let size = LaunchOptions.snapshotHeight.map { CGSize(width: base.width, height: $0) } ?? base
         let hosting = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
@@ -178,7 +181,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if menuPreview { hosting.frame.size = hosting.fittingSize }
         window.orderBack(nil)
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-        let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds)!
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                   pixelsWide: Int(hosting.bounds.width) * 2,
+                                   pixelsHigh: Int(hosting.bounds.height) * 2,
+                                   bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .calibratedRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = hosting.bounds.size
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         if let png = rep.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: path))
