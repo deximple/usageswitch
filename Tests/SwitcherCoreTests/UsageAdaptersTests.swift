@@ -935,3 +935,57 @@ struct UsageConnectionsValueTests {
                 == ["gemini"])
     }
 }
+
+
+@Suite("Gemini retired individual")
+struct GeminiRetiredTests {
+    private let home = URL(fileURLWithPath: "/tmp/gemini-retired-home")
+    private func collector(_ http: SpyTransport) -> GeminiUsageCollector {
+        let creds = SpyCredentials()
+        creds.files["/tmp/gemini-retired-home/.gemini/oauth_creds.json"] =
+            #"{"access_token":"t1","expiry_date":9999999999999}"#.data(using: .utf8)
+        return GeminiUsageCollector(enabled: true, http: http, credentials: creds,
+                                    runner: FakeUsageRunner(), home: home)
+    }
+    private func send(_ body: String) -> (state: UsageState?, calls: Int) {
+        let http = SpyTransport()
+        http.queue = [UsageHTTPResponse(status: 200, body: body.data(using: .utf8)!)]
+        return (collector(http).collect().first?.state, http.requests.count)
+    }
+
+    @Test("UNSUPPORTED_CLIENT ineligible tier is notEligible, one request, no quota call")
+    func retired() {
+        let (state, calls) = send(#"{"allowedTiers":[],"ineligibleTiers":[{"tierId":"free-tier","reasonCode":"UNSUPPORTED_CLIENT","reasonMessage":"x"}]}"#)
+        #expect(state == .unavailable(.notEligible) && calls == 1)
+    }
+
+    @Test("no project and no such reason is notReporting")
+    func notReporting() {
+        let (state, calls) = send(#"{"allowedTiers":[],"ineligibleTiers":[{"tierId":"free-tier","reasonCode":"OTHER"}]}"#)
+        #expect(state == .notReporting && calls == 1)
+    }
+
+    @Test("non-object body is schemaChanged")
+    func nonObject() {
+        let (state, _) = send(#"["not","an","object"]"#)
+        #expect(state == .unavailable(.schemaChanged))
+    }
+
+    @Test("an invalid project, a current tier without a project, or no tier list is schemaChanged")
+    func otherProjectlessShapes() {
+        for body in [#"{"cloudaicompanionProject":42,"currentTier":{"id":"standard-tier"}}"#,
+                     #"{"currentTier":{"id":"standard-tier"},"allowedTiers":[]}"#,
+                     #"{"cloudaicompanionProject":null,"allowedTiers":[]}"#,
+                     #"{"somethingElse":true}"#] {
+            let (state, calls) = send(body)
+            #expect(state == .unavailable(.schemaChanged) && calls == 1, "\(body)")
+        }
+    }
+
+    @Test("reason strings: Gemini-retired vs generic notEligible")
+    func text() {
+        L10n.language = .en
+        #expect(UsageText.problem(.notEligible, provider: .gemini).contains("Antigravity"))
+        #expect(UsageText.problem(.notEligible, provider: .grok).contains("Grok"))
+    }
+}

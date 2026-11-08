@@ -31,6 +31,8 @@
   Keys are never sent anywhere.
 
 **Fixes:**
+- A Gemini account that Google no longer serves through the Gemini CLI (individual accounts
+  moved to Antigravity) says so instead of "response changed".
 - UI fixtures never write to the real store.
 - Flaky Antigravity terminal tests fixed.
 

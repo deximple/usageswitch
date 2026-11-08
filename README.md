@@ -71,7 +71,7 @@ treated as subscription balances.
 | Codex | `app-server` → `account/rateLimits/read` | Listed ChatGPT homes; API-key profiles don't report subscription quota |
 | Cursor | Current-period usage endpoint | Opt-in; windows are the monthly included total plus the dashboard pools “Cursor Models” and “Other Models”; Grok Bot and on-demand spending are not read |
 | Grok | CLI usage endpoint | Opt-in; **experimental** |
-| Gemini | Code Assist project/quota — may exchange the stored refresh token for a memory-only access token | Opt-in; Keychain then legacy auth file (encrypted-file storage unsupported); model/input/output limits kept separate |
+| Gemini | Code Assist project/quota — may exchange the stored refresh token for a memory-only access token | Opt-in; Keychain then legacy auth file (encrypted-file storage unsupported); model/input/output limits kept separate; individual accounts Google moved to Antigravity show that state |
 | Antigravity | Hidden `agy` `/usage` screen; read-only Code Assist quota API as fallback/enrichment | Opt-in; may use agy's Keychain login for a temporary in-memory API token |
 | Devin | CLI-compatible user status | Opt-in; requires a supported CLI version |
 | OpenCode Go | Go usage endpoint | Opt-in; only the Go plan, not an OpenCode total |

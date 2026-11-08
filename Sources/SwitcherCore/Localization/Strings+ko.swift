@@ -396,6 +396,8 @@ extension Strings {
         .usageReasonNotReporting: "사용량을 알리지 않습니다",
         .usageReasonNoSignIn: "로그인 정보 없음 · %@에 먼저 로그인하세요",
         .usageReasonSignInExpired: "로그인 만료 · 터미널에서 %@ 실행 후 다시 확인하세요",
+        .usageReasonNotEligible: "이 계정은 %@ 사용량 대상이 아닙니다",
+        .usageReasonGeminiRetired: "Google이 개인 계정용 Gemini CLI 할당량을 종료함 (Antigravity로 이전)",
         .usageReasonCliMissing: "명령행 도구를 찾을 수 없습니다",
         .usageReasonManaged: "관리 설정이 있어 사용량을 읽을 수 없습니다",
         .usageReasonRefused: "사용량 읽기가 거부되었습니다",

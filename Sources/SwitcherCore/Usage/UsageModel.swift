@@ -74,9 +74,11 @@ public enum UsageProblem: String, Codable, Sendable {
     case profileInvalid, unsupportedVersion
     /// Installed but not connected (Cursor usage off). Created by orchestration, never by a collector.
     case connectionRequired
-    /// A stored credential parsed fine but is expired or too close to expiry. The vendor CLI
-    /// refreshes its own sign-in when run; the app never refreshes it.
+    /// A stored credential parsed fine but is expired or too close to expiry, and no consented
+    /// memory-only refresh (Gemini) could replace it. The vendor CLI refreshes its own sign-in.
     case signInExpired
+    /// The vendor says this account can't use the feature (e.g. a retired plan).
+    case notEligible
     /// The answer named another account than the one this row reads (a login changed mid-read).
     case accountMismatch
 }
