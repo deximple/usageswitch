@@ -175,11 +175,15 @@ public struct GeminiUsageCollector: Sendable {
             return [finish(.unavailable(.schemaChanged))]
         }
         guard let project = UsageJSON.plainID(assist["cloudaicompanionProject"], max: 200) else {
-            // A valid 200 with no project: UNSUPPORTED_CLIENT means Google retired
-            // individual Code Assist access — say so, don't call it a changed response.
+            // Only the known "not onboarded" shape — no project field, no current tier, a
+            // tier list — is read as no usage; UNSUPPORTED_CLIENT there means Google retired
+            // individual Code Assist access. Any other project-less answer is a changed response.
+            guard assist["cloudaicompanionProject"] == nil, assist["currentTier"] == nil,
+                  assist["allowedTiers"] is [Any] || assist["ineligibleTiers"] is [Any] else {
+                return [finish(.unavailable(.schemaChanged))]
+            }
             let ineligible = assist["ineligibleTiers"] as? [[String: Any]] ?? []
-            if assist["currentTier"] == nil,
-               ineligible.contains(where: { $0["reasonCode"] as? String == "UNSUPPORTED_CLIENT" }) {
+            if ineligible.contains(where: { $0["reasonCode"] as? String == "UNSUPPORTED_CLIENT" }) {
                 return [finish(.unavailable(.notEligible))]
             }
             return [finish(.notReporting)]

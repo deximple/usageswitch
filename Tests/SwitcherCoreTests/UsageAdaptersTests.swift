@@ -971,6 +971,17 @@ struct GeminiRetiredTests {
         #expect(state == .unavailable(.schemaChanged))
     }
 
+    @Test("an invalid project, a current tier without a project, or no tier list is schemaChanged")
+    func otherProjectlessShapes() {
+        for body in [#"{"cloudaicompanionProject":42,"currentTier":{"id":"standard-tier"}}"#,
+                     #"{"currentTier":{"id":"standard-tier"},"allowedTiers":[]}"#,
+                     #"{"cloudaicompanionProject":null,"allowedTiers":[]}"#,
+                     #"{"somethingElse":true}"#] {
+            let (state, calls) = send(body)
+            #expect(state == .unavailable(.schemaChanged) && calls == 1, "\(body)")
+        }
+    }
+
     @Test("reason strings: Gemini-retired vs generic notEligible")
     func text() {
         L10n.language = .en
