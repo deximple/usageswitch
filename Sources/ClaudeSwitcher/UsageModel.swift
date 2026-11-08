@@ -638,13 +638,24 @@ final class UsageModel: ObservableObject {
         append(.claude, "cli", env.home.appendingPathComponent(".claude", isDirectory: true))
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         for binding in claudeBindings where registeredClaudeIds.contains(binding.accountId) {
-            append(.claude, "app:\(binding.accountId)",
+            let accountRef = "app:\(binding.accountId)"
+            guard SuggestionLogRootPolicy.includes(provider: .claude,
+                                                    accountRef: accountRef, usages: usages) else {
+                continue
+            }
+            append(.claude, accountRef,
                    URL(fileURLWithPath: binding.profilePath, isDirectory: true))
         }
 
-        append(.codex, "standard", env.codexStandardHome)
+        if SuggestionLogRootPolicy.includes(provider: .codex, accountRef: "standard", usages: usages) {
+            append(.codex, "standard", env.codexStandardHome)
+        }
         if let codex = AppModel.codex.status {
             for account in codex.accounts + codex.found {
+                guard SuggestionLogRootPolicy.includes(provider: .codex,
+                                                        accountRef: account.id, usages: usages) else {
+                    continue
+                }
                 append(.codex, account.id, URL(fileURLWithPath: account.home, isDirectory: true))
             }
         }
