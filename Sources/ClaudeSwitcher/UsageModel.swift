@@ -427,13 +427,18 @@ final class UsageModel: ObservableObject {
         suggestionLogReader = reader
         lastSuggestionLogReadAt = now
         let roots = suggestionLogRoots(env: env)
-        suggestionLogTask = Task.detached(priority: .utility) { [weak self] in
+        let backgroundTask = Task.detached(priority: .utility) {
             _ = reader.read(roots: roots, now: now)
-            let hints = reader.recentSummary(now: now)
-            await MainActor.run {
-                guard let self, self.generation == generation else { return }
-                self.suggestionLogHints = hints
-            }
+            return reader.recentSummary(now: now)
+        }
+        suggestionLogTask = Task { @MainActor [weak self] in
+            let hints = await withTaskCancellationHandler(operation: {
+                await backgroundTask.value
+            }, onCancel: {
+                backgroundTask.cancel()
+            })
+            guard let self, self.generation == generation else { return }
+            self.suggestionLogHints = hints
         }
     }
 
