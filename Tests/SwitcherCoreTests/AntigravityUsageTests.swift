@@ -374,7 +374,9 @@ struct AntigravityPTYTests {
         let executable = directory.appendingPathComponent("agy")
         try Data(contents.utf8).write(to: executable)
         #expect(chmod(executable.path, mode_t(0o700)) == 0)
-        let runner = SystemAntigravityPTYRunner(timing: timing(promptQuiet: 2, promptTimeout: 5))
+        var cancellationTiming = timing(promptQuiet: 2, promptTimeout: 5)
+        cancellationTiming.totalTimeout = 10
+        let runner = SystemAntigravityPTYRunner(timing: cancellationTiming)
         let task = Task.detached {
             runner.run(executable: executable, workingDirectory: directory, environment: [:])
         }
