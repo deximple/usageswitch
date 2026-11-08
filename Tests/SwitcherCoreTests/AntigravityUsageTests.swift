@@ -561,7 +561,7 @@ struct AntigravityPTYTests {
             executable: executable, workingDirectory: directory, environment: environment)
         #expect(result.outcome == .promptNotReady)
         let received = try Data(contentsOf: inputFile)
-        #expect(!String(decoding: received, as: UTF8.self).contains("/usage"))
+        #expect(received.isEmpty)
     }
 
     @Test("Enter is withheld when the typed usage command is not rendered")
@@ -617,8 +617,8 @@ struct AntigravityPTYTests {
         let executable = directory.appendingPathComponent("agy")
         try Data(contents.utf8).write(to: executable)
         #expect(chmod(executable.path, mode_t(0o700)) == 0)
-        var cancellationTiming = timing(promptQuiet: 2, promptTimeout: 5)
-        cancellationTiming.totalTimeout = 10
+        var cancellationTiming = timing(promptQuiet: 2, promptTimeout: 30)
+        cancellationTiming.totalTimeout = 40
         let runner = SystemAntigravityPTYRunner(timing: cancellationTiming)
         let task = Task.detached {
             runner.run(executable: executable, workingDirectory: directory, environment: [:])

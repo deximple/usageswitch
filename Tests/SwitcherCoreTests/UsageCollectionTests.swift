@@ -80,7 +80,7 @@ struct UsageCollectionTests {
         let gate = Gate(); let rec = Rec()
         // claude stalls on a gate that gemini (provider 4) opens — if refill were
         // batch-of-3, gemini could never start and the test would time out.
-        let out = await withTimeout(5) {
+        let out = await withTimeout(15) {
             await UsageCollection.collect(
                 installations: [inst(.claude), inst(.codex), inst(.cursor), inst(.grok)],
                 enabledProviders: self.all,

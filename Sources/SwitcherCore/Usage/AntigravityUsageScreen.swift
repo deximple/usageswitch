@@ -381,10 +381,13 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             skipTerminalInput = true
         case .cancelled:
             outcome = .cancelled
+            skipTerminalInput = true
         case .promptNotReady:
             outcome = .promptNotReady
+            skipTerminalInput = true
         case .timedOut:
             outcome = .timedOut
+            skipTerminalInput = true
         }
         if terminal.hasTrustPrompt {
             outcome = .trustPrompt
