@@ -29,8 +29,8 @@ final class UsageModel: ObservableObject {
     private var abandonedRefreshes = 0
     private var abandonedRefreshGenerations: Set<Int> = []
     private var pendingRefresh = false
-    /// The in-flight refresh; a consent change cancels it so superseded work
-    /// can't overwrite revoked-provider values.
+    /// The in-flight refresh; invalidations cancel it so superseded work can't
+    /// overwrite newer values.
     private var refreshTask: Task<Void, Never>?
     private var suggestionStore: SuggestionStateStore?
     private var suggestionStateTask: Task<Void, Never>?
@@ -194,6 +194,16 @@ final class UsageModel: ObservableObject {
 
     func flushSuggestionLearningData() async throws {
         guard !isDemo else { return }
+        let wasRefreshing = isRefreshing
+        abandonCurrentRefresh(clearRefreshing: false)
+        if wasRefreshing { refreshStartedAt = nil }
+        defer {
+            if wasRefreshing {
+                isRefreshing = false
+                refreshStartedAt = nil
+                refresh()
+            }
+        }
         generation += 1
         suggestionStore?.invalidateBefore(generation)
         suggestionStateTask?.cancel()
@@ -292,10 +302,20 @@ final class UsageModel: ObservableObject {
     private func restartStalledRefreshIfAllowed() -> Bool {
         guard UsageRefreshPolicy.shouldRestartStalledRefresh(
             startedAt: refreshStartedAt, now: Date(), abandoned: abandonedRefreshes) else { return false }
-        abandonedRefreshes += 1
-        abandonedRefreshGenerations.insert(generation)
+        abandonCurrentRefresh()
         refresh()
         return true
+    }
+
+    private func abandonCurrentRefresh(clearRefreshing: Bool = true) {
+        guard isRefreshing else { return }
+        abandonedRefreshes += 1
+        abandonedRefreshGenerations.insert(generation)
+        refreshTask?.cancel()
+        if clearRefreshing {
+            isRefreshing = false
+            refreshStartedAt = nil
+        }
     }
 
     /// A tick is not a manual refresh: it waits out a busy Codex tab and fires on the interval or
@@ -436,8 +456,8 @@ final class UsageModel: ObservableObject {
             usages = out
             return
         }
+        abandonCurrentRefresh()
         generation += 1
-        refreshTask?.cancel()
         suggestionLogTask?.cancel()
         suggestionStore?.invalidateBefore(generation)
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
@@ -455,8 +475,8 @@ final class UsageModel: ObservableObject {
 
     func applyClaudeProfiles(_ bindings: [ClaudeProfileBinding]) {
         guard !isDemo else { return }
+        abandonCurrentRefresh()
         generation += 1
-        refreshTask?.cancel()
         suggestionLogTask?.cancel()
         suggestionStore?.invalidateBefore(generation)
         let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
