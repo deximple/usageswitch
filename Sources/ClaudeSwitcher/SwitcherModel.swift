@@ -45,6 +45,8 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var usageConnections: Set<UsageProvider> = []
     /// Granted only when Gemini was connected under the refresh-disclosing text.
     @Published private(set) var geminiTokenRefreshAllowed = false
+    /// Granted only when Cursor was enabled under the renewal-disclosing alert text.
+    @Published private(set) var cursorCLIRenewalAllowed = false
     @Published private(set) var claudeUsageProfiles: [ClaudeProfileBinding] = []
     /// Appearance choice persisted in settings; system follows the OS live.
     @Published private(set) var appearanceChoice: AppAppearance = .system
@@ -92,6 +94,7 @@ final class SwitcherModel: ObservableObject {
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
         geminiTokenRefreshAllowed = demo == nil && settings.geminiTokenRefreshAllowed
+        cursorCLIRenewalAllowed = demo == nil && settings.cursorCLIRenewalAllowed
         claudeUsageProfiles = demo == nil ? settings.effectiveClaudeUsageProfiles : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
         usageWarnPercent = demo == nil ? settings.effectiveUsageWarnPercent : 80
@@ -379,7 +382,13 @@ final class SwitcherModel: ObservableObject {
     func setCursorUsageEnabled(_ on: Bool) {
         let before = cursorUsageEnabled
         cursorUsageEnabled = on
-        if !saveSettings({ $0.cursorUsageEnabled = on }) { cursorUsageEnabled = before }
+        if !saveSettings({
+            $0.cursorUsageEnabled = on
+            $0.usageConnections = SwitcherSettings.usageConnectionsValue(
+                providers: self.usageConnections,
+                geminiTokenRefresh: self.geminiTokenRefreshAllowed,
+                cursorEnabled: on, cursorCLIRenewal: on)
+        }) { cursorUsageEnabled = before } else { cursorCLIRenewalAllowed = on }
     }
 
     /// One entry point for any consent-required provider; Cursor delegates to its own
@@ -395,7 +404,9 @@ final class SwitcherModel: ObservableObject {
         if !saveSettings({
             $0.usageConnections = SwitcherSettings.usageConnectionsValue(
                 providers: self.usageConnections,
-                geminiTokenRefresh: provider == .gemini ? on : self.geminiTokenRefreshAllowed)
+                geminiTokenRefresh: provider == .gemini ? on : self.geminiTokenRefreshAllowed,
+                cursorEnabled: self.cursorUsageEnabled,
+                cursorCLIRenewal: self.cursorCLIRenewalAllowed)
         }) { usageConnections = before } else if provider == .gemini {
             geminiTokenRefreshAllowed = on
         }
