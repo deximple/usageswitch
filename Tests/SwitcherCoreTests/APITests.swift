@@ -14,7 +14,7 @@ struct APITests {
 
     @Test("balance and quota budget types persist distinctly")
     func budgetCodingAndSettings() throws {
-        let balance = APIBudget.balance(amountUSD: 100, asOf: now)
+        let balance = APIBudget.balance(amountUSD: 100, asOf: now, asOfDaySpentUSD: 12)
         let quota = APIBudget.quota(amountUSD: 75, resetDayOfMonth: 17)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -22,6 +22,12 @@ struct APITests {
         decoder.dateDecodingStrategy = .iso8601
         #expect(try decoder.decode(APIBudget.self, from: encoder.encode(balance)) == balance)
         #expect(try decoder.decode(APIBudget.self, from: encoder.encode(quota)) == quota)
+        var oldBalanceJSON = try #require(
+            JSONSerialization.jsonObject(with: encoder.encode(balance)) as? [String: Any])
+        oldBalanceJSON.removeValue(forKey: "asOfDaySpentUSD")
+        let decodedOldBalance = try decoder.decode(
+            APIBudget.self, from: JSONSerialization.data(withJSONObject: oldBalanceJSON))
+        #expect(decodedOldBalance == .balance(amountUSD: 100, asOf: now))
 
         let google = APIBudget.balance(amountUSD: 20, asOf: now)
         let xai = APIBudget.quota(amountUSD: 30, resetDayOfMonth: 3)
@@ -63,6 +69,19 @@ struct APITests {
         #expect(APIBudgetMath.daysLeft(remainingUSD: 25, dailyRateUSD: nil) == nil)
         #expect(APIBudgetMath.remaining(.balance(amountUSD: 25,
             asOf: now.addingTimeInterval(60)), spending: [], now: now) == nil)
+
+        let asOf = try #require(calendar.date(from: DateComponents(year: 2025, month: 3, day: 10, hour: 12)))
+        let savedBalance = APIBudget.balance(amountUSD: 100, asOf: asOf, asOfDaySpentUSD: 10)
+        #expect(APIBudgetMath.remaining(savedBalance,
+            spending: [APIDailySpend(day: "2025-03-10", amountUSD: 10)], now: asOf) == 100)
+        #expect(APIBudgetMath.remaining(savedBalance,
+            spending: [APIDailySpend(day: "2025-03-10", amountUSD: 16)],
+            now: asOf.addingTimeInterval(60)) == 94)
+        #expect(APIBudgetMath.remaining(savedBalance,
+            spending: [
+                APIDailySpend(day: "2025-03-10", amountUSD: 16),
+                APIDailySpend(day: "2025-03-11", amountUSD: 4),
+            ], now: asOf.addingTimeInterval(86_400)) == 90)
     }
 
     @Test("spend estimates include API-key accounts only and hide unknown prices")

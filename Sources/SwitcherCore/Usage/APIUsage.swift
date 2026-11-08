@@ -20,17 +20,21 @@ public enum APIVendor: String, CaseIterable, Codable, Identifiable, Sendable {
 }
 
 public enum APIBudget: Codable, Equatable, Sendable {
-    case balance(amountUSD: Double, asOf: Date)
+    case balance(amountUSD: Double, asOf: Date, asOfDaySpentUSD: Double = 0)
     case quota(amountUSD: Double, resetDayOfMonth: Int)
 
-    private enum CodingKeys: String, CodingKey { case kind, amountUSD, asOf, resetDayOfMonth }
+    private enum CodingKeys: String, CodingKey {
+        case kind, amountUSD, asOf, asOfDaySpentUSD, resetDayOfMonth
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let amount = try container.decode(Double.self, forKey: .amountUSD)
         switch try container.decode(String.self, forKey: .kind) {
         case "balance":
-            self = .balance(amountUSD: amount, asOf: try container.decode(Date.self, forKey: .asOf))
+            self = .balance(amountUSD: amount, asOf: try container.decode(Date.self, forKey: .asOf),
+                            asOfDaySpentUSD: try container.decodeIfPresent(
+                                Double.self, forKey: .asOfDaySpentUSD) ?? 0)
         case "quota":
             self = .quota(amountUSD: amount,
                           resetDayOfMonth: try container.decode(Int.self, forKey: .resetDayOfMonth))
@@ -43,10 +47,11 @@ public enum APIBudget: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .balance(let amountUSD, let asOf):
+        case .balance(let amountUSD, let asOf, let asOfDaySpentUSD):
             try container.encode("balance", forKey: .kind)
             try container.encode(amountUSD, forKey: .amountUSD)
             try container.encode(asOf, forKey: .asOf)
+            try container.encode(asOfDaySpentUSD, forKey: .asOfDaySpentUSD)
         case .quota(let amountUSD, let resetDayOfMonth):
             try container.encode("quota", forKey: .kind)
             try container.encode(amountUSD, forKey: .amountUSD)
@@ -56,7 +61,7 @@ public enum APIBudget: Codable, Equatable, Sendable {
 
     public var amountUSD: Double {
         switch self {
-        case .balance(let amount, _), .quota(let amount, _): amount
+        case .balance(let amount, _, _), .quota(let amount, _): amount
         }
     }
 }
@@ -224,23 +229,39 @@ public enum APIUsageEstimator {
 }
 
 public enum APIBudgetMath {
+    public static func utcDay(_ date: Date) -> String {
+        SuggestionRetention.utcDay(date)
+    }
+
     public static func remaining(_ budget: APIBudget, spending: [APIDailySpend], now: Date) -> Double? {
         let amount = budget.amountUSD
         guard amount.isFinite, amount >= 0,
               spending.allSatisfy({ $0.amountUSD.isFinite && $0.amountUSD >= 0 }) else { return nil }
         let firstDay: String
+        let baselineDay: String?
+        let baselineAmount: Double
         switch budget {
-        case .balance(_, let asOf):
-            guard asOf <= now else { return nil }
+        case .balance(_, let asOf, let asOfDaySpentUSD):
+            guard asOf <= now, asOfDaySpentUSD.isFinite, asOfDaySpentUSD >= 0 else { return nil }
             firstDay = SuggestionRetention.utcDay(asOf)
             let earliest = SuggestionRetention.utcDay(now.addingTimeInterval(-34 * 86_400))
             guard firstDay >= earliest else { return nil }
+            baselineDay = firstDay
+            baselineAmount = asOfDaySpentUSD
         case .quota(_, let resetDay):
             guard let start = monthlyCycleStart(resetDayOfMonth: resetDay, now: now) else { return nil }
             firstDay = SuggestionRetention.utcDay(start)
+            baselineDay = nil
+            baselineAmount = 0
         }
-        let used = spending.filter { $0.day >= firstDay && $0.day <= SuggestionRetention.utcDay(now) }
-            .reduce(0) { $0 + $1.amountUSD }
+        let today = SuggestionRetention.utcDay(now)
+        let used = spending.filter { $0.day >= firstDay && $0.day <= today }
+            .reduce(0.0) { total, daily in
+                let amount = daily.day == baselineDay
+                    ? max(0, daily.amountUSD - baselineAmount)
+                    : daily.amountUSD
+                return total + amount
+            }
         guard used.isFinite else { return nil }
         return max(0, amount - used)
     }

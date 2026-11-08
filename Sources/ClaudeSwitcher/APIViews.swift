@@ -107,7 +107,7 @@ struct APIContent: View {
         VStack(alignment: .leading, spacing: Theme.gapTight) {
             Text(vendorName(vendor))
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
-            APIBudgetRow(vendor: vendor, settings: settings)
+            APIBudgetRow(vendor: vendor, settings: settings, usage: usage)
             if let budget = settings.apiBudget(for: vendor),
                let remaining = usage.apiBudgetRemaining(for: vendor) {
                 switch budget {
@@ -207,6 +207,7 @@ struct APIContent: View {
 private struct APIBudgetRow: View {
     let vendor: APIVendor
     @ObservedObject var settings: SwitcherModel
+    @ObservedObject var usage: UsageModel
     @State private var amount = ""
     @State private var kind: Kind = .balance
     @State private var resetDay = "1"
@@ -216,11 +217,12 @@ private struct APIBudgetRow: View {
         var id: String { rawValue }
     }
 
-    init(vendor: APIVendor, settings: SwitcherModel) {
+    init(vendor: APIVendor, settings: SwitcherModel, usage: UsageModel) {
         self.vendor = vendor
         self.settings = settings
+        self.usage = usage
         switch settings.apiBudget(for: vendor) {
-        case .balance(let amount, _):
+        case .balance(let amount, _, _):
             _amount = State(initialValue: String(amount))
             _kind = State(initialValue: .balance)
         case .quota(let amount, let day):
@@ -260,7 +262,13 @@ private struct APIBudgetRow: View {
         guard let value = Double(amount), value.isFinite, value >= 0 else { return }
         switch kind {
         case .balance:
-            settings.setAPIBudget(.balance(amountUSD: value, asOf: Date()), for: vendor)
+            let asOf = Date()
+            let asOfDay = APIBudgetMath.utcDay(asOf)
+            let asOfDaySpentUSD = usage.apiUsageEstimates[vendor]?.dailySpend
+                .filter { $0.day == asOfDay }
+                .reduce(0.0) { $0 + $1.amountUSD } ?? 0
+            settings.setAPIBudget(.balance(amountUSD: value, asOf: asOf,
+                                            asOfDaySpentUSD: asOfDaySpentUSD), for: vendor)
         case .quota:
             guard let day = Int(resetDay), (1...31).contains(day) else { return }
             settings.setAPIBudget(.quota(amountUSD: value, resetDayOfMonth: day), for: vendor)
