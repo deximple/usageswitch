@@ -58,7 +58,6 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var apiBudgetOpenAI: APIBudget?
     @Published private(set) var apiBudgetGoogle: APIBudget?
     @Published private(set) var apiBudgetXAI: APIBudget?
-    @Published private(set) var apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy = .standard
     let isDemo: Bool
 
     struct PendingAction: Identifiable, Equatable {
@@ -105,7 +104,6 @@ final class SwitcherModel: ObservableObject {
         apiBudgetOpenAI = demo == nil ? settings.apiBudgetOpenAI : nil
         apiBudgetGoogle = demo == nil ? settings.apiBudgetGoogle : nil
         apiBudgetXAI = demo == nil ? settings.apiBudgetXAI : nil
-        apiKeyVaultAccessPolicy = demo == nil ? settings.effectiveAPIKeyVaultAccessPolicy : .standard
         status = demo
         phase = demoPhase
         steps = demoSteps
@@ -615,14 +613,6 @@ final class SwitcherModel: ObservableObject {
             }
         }
         if !saved { assignAPIBudget(before, to: vendor) }
-    }
-
-    func setAPIKeyVaultAccessPolicy(_ policy: APIKeyVaultAccessPolicy) {
-        let before = apiKeyVaultAccessPolicy
-        apiKeyVaultAccessPolicy = policy
-        if !saveSettings({ $0.apiKeyVaultAccessPolicy = policy }) {
-            apiKeyVaultAccessPolicy = before
-        }
     }
 
     private func assignAPIBudget(_ budget: APIBudget?, to vendor: APIVendor) {

@@ -33,7 +33,7 @@ Claude Desktop and Codex keep talking to Anthropic and OpenAI as they normally d
 
 ## What UsageSwitch stores
 
-All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with two exceptions: API keys you put in the API key vault are stored in the macOS Keychain, and the app's macOS preferences hold a few interface details (the window position, the last open tab, and when launch-at-login was turned on). UsageSwitch's own folders and files there are readable only by you (0700 and 0600). Files that Codex writes inside the Codex folders keep the permissions Codex gives them.
+All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with two exceptions: API keys you put in the API key vault are stored in the macOS Keychain (service `com.jaysong.usageswitch.apikey`), and the app's macOS preferences (`com.jaysong.usageswitch`) hold a few interface details (the window position, the last open tab, and when launch-at-login was turned on). UsageSwitch's own folders and files there are readable only by you (0700 and 0600). Files that Codex writes inside the Codex folders keep the permissions Codex gives them.
 
 **Claude tab:**
 

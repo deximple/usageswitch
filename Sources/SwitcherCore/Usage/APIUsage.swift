@@ -17,6 +17,10 @@ public enum APIVendor: String, CaseIterable, Codable, Identifiable, Sendable {
     public static func matching(_ provider: UsageProvider) -> APIVendor? {
         allCases.first { $0.usageProvider == provider }
     }
+
+    /// Only Codex rows can be marked as API-key accounts, so only OpenAI spend has local
+    /// API-key logs to price (audit B-07, D-5).
+    public var hasLogReader: Bool { self == .openai }
 }
 
 public enum APIBudget: Codable, Equatable, Sendable {
@@ -76,13 +80,18 @@ public struct APIKeyEntry: Codable, Equatable, Identifiable, Sendable {
     public let nickname: String
     public let last4: String
     public let createdAt: Date
+    /// The stored label failed to decode; nickname carries the account ID tail and the entry
+    /// stays deletable (audit B-06).
+    public let isUnreadable: Bool
 
-    public init(id: String, vendor: APIVendor, nickname: String, last4: String, createdAt: Date) {
+    public init(id: String, vendor: APIVendor, nickname: String, last4: String, createdAt: Date,
+                isUnreadable: Bool = false) {
         self.id = id
         self.vendor = vendor
         self.nickname = nickname
         self.last4 = last4
         self.createdAt = createdAt
+        self.isUnreadable = isUnreadable
     }
 }
 
@@ -90,7 +99,6 @@ public protocol APIKeyVault: Sendable {
     func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry
     func list() async throws -> [APIKeyEntry]
     func reveal(id: String) async throws -> String
-    func read(id: String) async throws -> String
     func delete(id: String) async throws
 }
 
@@ -123,14 +131,17 @@ public struct APIUsageEstimate: Equatable, Sendable {
     public let dailySpend: [APIDailySpend]
     /// No estimate yet because this vendor's logs are still being read (not because a price is unknown).
     public let isReadingLogs: Bool
+    /// Only vendors with a log reader can estimate spend from local logs (audit B-07, D-5).
+    public let isEstimable: Bool
     /// The first UTC day the stored usage is complete from, when known.
     public let coverageStartDay: String?
 
     public init(hasAPIKeyAccounts: Bool, spendIsComplete: Bool, spendLast7DaysUSD: Double?,
                 dailyRateUSD: Double?, medianDailyRate14DaysUSD: Double?,
                 dailySpend: [APIDailySpend], isReadingLogs: Bool = false,
-                coverageStartDay: String? = nil) {
+                isEstimable: Bool = true, coverageStartDay: String? = nil) {
         self.isReadingLogs = isReadingLogs
+        self.isEstimable = isEstimable
         self.coverageStartDay = coverageStartDay
         self.hasAPIKeyAccounts = hasAPIKeyAccounts
         self.spendIsComplete = spendIsComplete
@@ -192,15 +203,23 @@ public enum APIUsageEstimator {
             let sorted = values.sorted()
             let median = (sorted[6] + sorted[7]) / 2
             let sevenDayValue = unknownSevenDayPrice ? nil : sevenDaySpend
+            // The rate divides by the days the logs actually cover inside the 7-day window, zero-spend
+            // days included, not a flat 7 (audit B-07). Unknown coverage keeps the full window.
+            let coveredDays = coverageStartDay
+                .map { max($0, firstSeven) }
+                .flatMap { SuggestionRetention.date(utcDay: $0) }
+                .flatMap { calendar.dateComponents([.day], from: $0, to: startOfToday).day }
+                .map { min(7, max(1, $0 + 1)) } ?? 7
             result[vendor] = APIUsageEstimate(
                 hasAPIKeyAccounts: !accounts.isEmpty,
                 spendIsComplete: !unknownBudgetPrice,
                 spendLast7DaysUSD: sevenDayValue,
-                dailyRateUSD: sevenDayValue.map { $0 / 7 },
+                dailyRateUSD: sevenDayValue.map { $0 / Double(coveredDays) },
                 medianDailyRate14DaysUSD: unknownRecentPrice ? nil : median,
                 dailySpend: unknownBudgetPrice ? [] : daily.keys.sorted()
                     .map { APIDailySpend(day: $0, amountUSD: daily[$0] ?? 0) },
-                isReadingLogs: isReadingLogs, coverageStartDay: coverageStartDay)
+                isReadingLogs: isReadingLogs, isEstimable: vendor.hasLogReader,
+                coverageStartDay: coverageStartDay)
         }
         return result
     }
@@ -237,6 +256,7 @@ public enum APIUsageEstimator {
         let amount: Double = inputCost + cachedCost + outputCost
         return amount.isFinite && amount >= 0 ? amount : nil
     }
+
 
     private static var utcCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)

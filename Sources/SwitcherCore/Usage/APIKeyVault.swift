@@ -24,6 +24,24 @@ public struct DeviceOwnerAPIKeyAuthenticator: APIKeyVaultAuthenticator {
     }
 }
 
+/// The three SecItem calls the vault uses, behind a seam so tests run against a memory store
+/// (audit B-06). Queries are SecItem dictionaries; results are attribute/item dictionaries.
+public protocol KeychainItemStore: Sendable {
+    func add(_ query: [String: Any]) -> OSStatus
+    func copyMatching(_ query: [String: Any]) -> (OSStatus, CFTypeRef?)
+    func delete(_ query: [String: Any]) -> OSStatus
+}
+
+public struct SystemKeychainItemStore: KeychainItemStore {
+    public init() {}
+    public func add(_ query: [String: Any]) -> OSStatus { SecItemAdd(query as CFDictionary, nil) }
+    public func copyMatching(_ query: [String: Any]) -> (OSStatus, CFTypeRef?) {
+        var result: CFTypeRef?
+        return (SecItemCopyMatching(query as CFDictionary, &result), result)
+    }
+    public func delete(_ query: [String: Any]) -> OSStatus { SecItemDelete(query as CFDictionary) }
+}
+
 public enum APIKeyVaultError: Error, Equatable, Sendable {
     case invalidEntry
     case authenticationFailed
@@ -33,12 +51,12 @@ public enum APIKeyVaultError: Error, Equatable, Sendable {
 
 public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
     public static let service = "com.jaysong.usageswitch.apikey"
-    private let policy: APIKeyVaultAccessPolicy
+    private let store: KeychainItemStore
     private let authenticator: APIKeyVaultAuthenticator
 
-    public init(policy: APIKeyVaultAccessPolicy = .standard,
+    public init(store: KeychainItemStore = SystemKeychainItemStore(),
                 authenticator: APIKeyVaultAuthenticator = DeviceOwnerAPIKeyAuthenticator()) {
-        self.policy = policy
+        self.store = store
         self.authenticator = authenticator
     }
 
@@ -65,7 +83,7 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: Data(key.utf8),
         ]
-        guard SecItemAdd(query as CFDictionary, nil) == errSecSuccess else {
+        guard store.add(query) == errSecSuccess else {
             throw APIKeyVaultError.keychainFailure
         }
         return entry
@@ -78,33 +96,30 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = store.copyMatching(query)
         if status == errSecItemNotFound { return [] }
         guard status == errSecSuccess else { throw APIKeyVaultError.keychainFailure }
         let items = result as? [[String: Any]] ?? []
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        // Entries whose stored label no longer decodes are reported, not dropped: the user must
+        // still be able to see and delete them (audit B-06).
         return items.compactMap { item in
             guard let account = item[kSecAttrAccount as String] as? String,
-                  let (vendor, _) = Self.parseAccount(account),
-                  let label = item[kSecAttrLabel as String] as? String,
-                  let metadata = try? decoder.decode(KeychainMetadata.self, from: Data(label.utf8))
-            else { return nil }
-            return APIKeyEntry(id: account, vendor: vendor, nickname: metadata.nickname,
-                               last4: metadata.last4, createdAt: metadata.createdAt)
+                  let (vendor, _) = Self.parseAccount(account) else { return nil }
+            if let label = item[kSecAttrLabel as String] as? String,
+               let metadata = try? decoder.decode(KeychainMetadata.self, from: Data(label.utf8)) {
+                return APIKeyEntry(id: account, vendor: vendor, nickname: metadata.nickname,
+                                   last4: metadata.last4, createdAt: metadata.createdAt)
+            }
+            return APIKeyEntry(id: account, vendor: vendor,
+                               nickname: String(account.suffix(4)),
+                               last4: "", createdAt: .distantPast, isUnreadable: true)
         }.sorted { $0.createdAt < $1.createdAt }
     }
 
     public func reveal(id: String) async throws -> String {
         try await authenticator.evaluatePolicy()
-        return try password(id: id)
-    }
-
-    public func read(id: String) async throws -> String {
-        if policy == .strong {
-            try await authenticator.evaluatePolicy()
-        }
         return try password(id: id)
     }
 
@@ -117,9 +132,8 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
+        let (status, result) = store.copyMatching(query)
+        guard status == errSecSuccess, let data = result as? Data,
               let value = String(data: data, encoding: .utf8) else {
             throw APIKeyVaultError.keyUnavailable
         }
@@ -134,7 +148,7 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: id,
         ]
-        let status = SecItemDelete(query as CFDictionary)
+        let status = store.delete(query)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw APIKeyVaultError.keychainFailure
         }

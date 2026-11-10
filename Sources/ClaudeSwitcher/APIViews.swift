@@ -12,9 +12,7 @@ struct APIContent: View {
     @State private var revealedKeys: [String: String] = [:]
     @State private var keyMessage: String?
 
-    private var vault: KeychainAPIKeyVault {
-        KeychainAPIKeyVault(policy: settings.apiKeyVaultAccessPolicy)
-    }
+    private var vault: KeychainAPIKeyVault { KeychainAPIKeyVault() }
 
     var body: some View {
         ScrollView {
@@ -41,14 +39,6 @@ struct APIContent: View {
                 VStack(alignment: .leading, spacing: Theme.gapTight) {
                     Text(L10n.t(.apiVaultTitle))
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
-                    Picker(L10n.t(.apiPolicy), selection: Binding(
-                        get: { settings.apiKeyVaultAccessPolicy },
-                        set: { settings.setAPIKeyVaultAccessPolicy($0) })) {
-                        Text(L10n.t(.apiPolicyStandard)).tag(APIKeyVaultAccessPolicy.standard)
-                        Text(L10n.t(.apiPolicyStrong)).tag(APIKeyVaultAccessPolicy.strong)
-                    }
-                    .pickerStyle(.menu)
-
                     HStack {
                         Picker(L10n.t(.apiKeyVendor), selection: $selectedVendor) {
                             ForEach(APIVendor.allCases) { vendor in
@@ -70,7 +60,9 @@ struct APIContent: View {
                     }
                     ForEach(entries) { entry in
                         HStack(spacing: 8) {
-                            Text("\(vendorName(entry.vendor)) · \(entry.nickname) · ••••\(entry.last4)")
+                            Text(entry.isUnreadable
+                                 ? "\(vendorName(entry.vendor)) · \(entry.nickname) · \(L10n.t(.apiKeyUnreadable))"
+                                 : "\(vendorName(entry.vendor)) · \(entry.nickname) · ••••\(entry.last4)")
                                 .font(Theme.caption).foregroundStyle(Theme.ink)
                                 .lineLimit(1).truncationMode(.middle)
                             Spacer()
@@ -79,7 +71,7 @@ struct APIContent: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 150)
                                 Button(L10n.t(.apiKeyHide)) { revealedKeys.removeValue(forKey: entry.id) }
-                            } else {
+                            } else if !entry.isUnreadable {
                                 Button(L10n.t(.apiKeyReveal)) { revealKey(entry) }
                             }
                             Button(L10n.t(.apiKeyDelete), role: .destructive) { deleteKey(entry) }
@@ -92,9 +84,9 @@ struct APIContent: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .task { await reloadKeys() }
-        .onChange(of: settings.apiKeyVaultAccessPolicy) { _, _ in
+        .onDisappear { revealedKeys.removeAll() }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.apiKeysShouldHideNotification)) { _ in
             revealedKeys.removeAll()
-            Task { await reloadKeys() }
         }
     }
 
@@ -119,7 +111,11 @@ struct APIContent: View {
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
             }
-            if hasAPIKeyAccount {
+            if !vendor.hasLogReader {
+                // Shown whether or not an API-key account exists: only Codex rows can be one.
+                Text(L10n.t(.apiNotEstimable))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            } else if hasAPIKeyAccount {
                 if let spend = estimate?.spendLast7DaysUSD,
                    let dailyRate = estimate?.dailyRateUSD {
                     Text(L10n.t(.apiEstimate, usd(spend)))
@@ -177,13 +173,17 @@ struct APIContent: View {
             return
         }
         do { entries = try await vault.list() }
-        catch { entries = [] }
+        catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
     }
 
     private func revealKey(_ entry: APIKeyEntry) {
         Task {
-            do { revealedKeys[entry.id] = try await vault.reveal(id: entry.id) }
-            catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
+            do {
+                revealedKeys[entry.id] = try await vault.reveal(id: entry.id)
+                // A revealed secret must not stay on screen (audit B-06).
+                try? await Task.sleep(for: .seconds(60))
+                revealedKeys.removeValue(forKey: entry.id)
+            } catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
         }
     }
 

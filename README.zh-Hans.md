@@ -159,7 +159,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude auth login`、`codex login`、`cursor-agent login`、`grok login`、`gemini`、`agy`、`devin auth login`、`opencode auth login`。 |
 | **登录被拒绝 · 请在终端运行一次 *`command`*** | 服务商拒绝了已保存的登录——它已被撤销、被其他应用的登录替换，或属于此工具不支持的账户。 | 运行显示的命令，并用你想查看的账户登录。 |
 | **未关联 CLI 配额** | 已保存的 Claude Desktop 账户没有关联的 Claude Code 配置。 | 在**详情**中[关联配置](#3-给已保存的-claude-账户配上它自己的数字可选)。 |
-| **未报告用量** | API 密钥配置——没有订阅额度。 | 无需处理。花费估算见 [API 标签页](#api-标签页)。 |
+| **未报告用量** | API 密钥配置——没有订阅额度。 | 无需处理。花费估算见 [API 标签页](#api-标签页)（仅限 Codex API 密钥账户）。 |
 | **此账户不适用 *X* 用量** | 服务商表示该账户的套餐没有可显示的配额。 | 无需处理。 |
 | **Google 已停止为个人账号提供 Gemini CLI 配额（已迁移到 Antigravity）** | Google 已把个人账户迁移到 Antigravity。 | 开启 **Antigravity**；其 *Gemini Models* 额度显示的正是同一配额。 |
 | **读取用量被拒绝** | 工具的命令行程序在没有返回用量报告的情况下停止了。 | 下次刷新时重试。若持续出现，请在终端中运行一次该工具，确认它已登录且工作正常。 |
@@ -267,7 +267,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 
 - **预算** — 为 Anthropic、OpenAI、Google、xAI 设置预付余额或月度配额（含重置日）。
 - **估算** — 过去 7 天的花费、日均费率和预算大约还能撑几天。仅根据 API 密钥账户的本地 CLI 日志估算，绝不向服务商查询。
-- **API 密钥保险库** — 把密钥存入 macOS 钥匙串，用 Touch ID 或密码保护。*标准*在更改密钥时验证；*严格*在每次读取密钥时验证。密钥绝不会发往任何地方。
+- **API 密钥保险库** — 在应用中添加、显示或删除密钥时会要求 Touch ID 或密码。密钥存放在登录钥匙串，遵循钥匙串自身的访问规则。密钥绝不会发往任何地方。
 
 ## 设置
 
@@ -457,9 +457,10 @@ Google 已停止为个人账号提供 Gemini CLI 配额并将其迁到 Antigravi
 
 ## 卸载
 
-1. 可选：要登出你添加的 Codex 账户，先在 **Codex** 标签页中移除它们。
-2. 关闭 **⚙︎ › 登录时打开**，退出 UsageSwitch，移到废纸篓。
-3. 可选：删除 `~/Library/Application Support/com.jaysong.usageswitch/`。里面保存着你的登录、设置和在 UsageSwitch 中添加的 Codex 文件夹，保留还需要的内容。
+1. 可选：先在 **API** 标签页删除你的 API 密钥——卸载后它们仍留在钥匙串中。
+2. 可选：要登出你添加的 Codex 账户，先在 **Codex** 标签页中移除它们。
+3. 关闭 **⚙︎ › 登录时打开**，退出 UsageSwitch，移到废纸篓。
+4. 可选：删除 `~/Library/Application Support/com.jaysong.usageswitch/`。里面保存着你的登录、设置和在 UsageSwitch 中添加的 Codex 文件夹，保留还需要的内容。
 
 ## 从源码构建
 

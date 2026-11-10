@@ -84,6 +84,58 @@ struct APITests {
             ], now: asOf.addingTimeInterval(86_400)) == 90)
     }
 
+    @Test func theDailyRateUsesTheDaysCovered() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let model = try #require(catalog.models.first { $0.model == "claude-fable-5-1" })
+        let key = APIKeyAccountKey(provider: .claude, accountKey: "acct-rate")
+        func record(daysAgo: Int, usd: Double) -> SuggestionLogUsage {
+            let day = SuggestionRetention.utcDay(
+                Calendar(identifier: .gregorian).date(byAdding: .day, value: -daysAgo, to: now) ?? now)
+            // one token at $1/token keeps the arithmetic exact
+            let costPerToken = try? model.values.first { $0.code == "inputPricePerMTok" }?.number
+            let tokens = Int64((usd * 1_000_000) / (costPerToken ?? 1))
+            return SuggestionLogUsage(day: day, provider: .claude, accountRef: key.accountKey,
+                model: model.model, effort: "high", turns: 1, inputTokens: tokens,
+                cachedInputTokens: 0, cachedCreationTokens: 0,
+                outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
+        }
+        func day(_ daysAgo: Int) -> String {
+            SuggestionRetention.utcDay(Calendar(identifier: .gregorian).date(byAdding: .day, value: -daysAgo, to: now) ?? now)
+        }
+        // Coverage started today: one covered day.
+        var e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(0))
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 14) < 0.01)
+        // Three covered days.
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 7),
+            record(daysAgo: 1, usd: 7), record(daysAgo: 2, usd: 7)],
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(2))
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 7) < 0.01)
+        // Covered zero-spend days count: $14 today after six covered days without spend.
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(13))
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01)
+        // Unknown coverage keeps the full 7-day window.
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
+            record(daysAgo: 6, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 4) < 0.01)
+    }
+
+    @Test func vendorsWithoutALogReaderAreMarkedNotEstimable() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let e = APIUsageEstimator.estimate(records: [], apiKeyAccounts: [
+            APIKeyAccountKey(provider: .claude, accountKey: "a"),
+            APIKeyAccountKey(provider: .gemini, accountKey: "b"),
+            APIKeyAccountKey(provider: .grok, accountKey: "c"),
+            APIKeyAccountKey(provider: .codex, accountKey: "d")],
+            catalog: catalog, now: now)
+        #expect(e[.anthropic]?.isEstimable == false)
+        #expect(e[.google]?.isEstimable == false)
+        #expect(e[.xai]?.isEstimable == false)
+        #expect(e[.openai]?.isEstimable == true)
+    }
+
     @Test("spend estimates include API-key accounts only and hide unknown prices")
     func estimatesUseOnlyPricedAPIKeyUsage() throws {
         let catalog = try SuggestionCatalog.bundled()
@@ -121,6 +173,7 @@ struct APITests {
         let anthropic = try #require(estimates[.anthropic])
         #expect(anthropic.hasAPIKeyAccounts)
         #expect(abs(try #require(anthropic.spendLast7DaysUSD) - expected) < 0.000_001)
+        // Coverage unknown here: the full 7-day window.
         #expect(abs(try #require(anthropic.dailyRateUSD) - expected / 7) < 0.000_001)
         #expect(estimates[.openai]?.hasAPIKeyAccounts == false)
 
@@ -251,38 +304,68 @@ struct APITests {
                 UsageWindow(durationMinutes: 300, usedPercent: 50, resetsAt: nil)]))
     }
 
-    @Test("fake vault authenticates policy-specific reads and other key operations")
-    func fakeVaultAuthentication() async throws {
-        let standardAuthenticator = CountingAuthenticator()
-        let standardVault = FakeAPIKeyVault(policy: .standard, authenticator: standardAuthenticator)
-        let entry = try await standardVault.register(
-            vendor: .anthropic, nickname: "work", key: "sk-test-1234")
-        let listed = try await standardVault.list()
-        #expect(listed == [entry])
-        #expect(entry.last4 == "1234")
-        #expect(!listed.description.contains("sk-test-1234"))
-        #expect(try await standardVault.read(id: entry.id) == "sk-test-1234")
-        #expect(await standardAuthenticator.callCount == 1)
-        #expect(try await standardVault.reveal(id: entry.id) == "sk-test-1234")
-        try await standardVault.delete(id: entry.id)
-        #expect(try await standardVault.list().isEmpty)
-        #expect(await standardAuthenticator.callCount == 3)
+    @Test func registerRevealAndDeleteAlwaysAuthenticate() async throws {
+        // Auth failure must stop all three operations before any Keychain call (audit B-06).
+        let store = MemoryKeychainItemStore()
+        let authenticator = CountingAuthenticator()
+        await authenticator.failAuthentication()
+        let vault = KeychainAPIKeyVault(store: store, authenticator: authenticator)
+        #expect((try? await vault.register(vendor: .anthropic, nickname: "n", key: "k")) == nil)
+        #expect((try? await vault.reveal(id: "anthropic:\(UUID().uuidString)")) == nil)
+        do { try await vault.delete(id: "anthropic:\(UUID().uuidString)"); #expect(false) }
+        catch { #expect(error as? APIKeyVaultError == .authenticationFailed) }
+        #expect(store.callCount == 0)
+    }
 
-        let strongAuthenticator = CountingAuthenticator()
-        let strongVault = FakeAPIKeyVault(policy: .strong, authenticator: strongAuthenticator)
-        let strongEntry = try await strongVault.register(
-            vendor: .openai, nickname: "strong", key: "sk-strong-5678")
-        #expect(try await strongVault.read(id: strongEntry.id) == "sk-strong-5678")
-        #expect(await strongAuthenticator.callCount == 2)
-        await strongAuthenticator.failAuthentication()
-        var returnedValue: String?
-        do {
-            returnedValue = try await strongVault.read(id: strongEntry.id)
-        } catch {
-            #expect(error as? APIKeyVaultError == .authenticationFailed)
+    @Test func listNeverReturnsKeyMaterial() async throws {
+        let store = MemoryKeychainItemStore()
+        let vault = KeychainAPIKeyVault(store: store, authenticator: CountingAuthenticator())
+        let entry = try await vault.register(
+            vendor: .anthropic, nickname: "work", key: "sk-secret-test-1234")
+        let listed = try await vault.list()
+        #expect(listed.map(\.id) == [entry.id])
+        #expect(listed.first?.nickname == "work")
+        #expect(listed.first?.last4 == "1234")
+        #expect(listed.description.contains("sk-secret-test-1234") == false)
+        #expect(store.storedLabel(for: entry.id)?.contains("sk-secret-test-1234") == false)
+    }
+
+    @Test func aCorruptLabelIsReportedNotDropped() async throws {
+        let store = MemoryKeychainItemStore()
+        let vault = KeychainAPIKeyVault(store: store, authenticator: CountingAuthenticator())
+        let entry = try await vault.register(
+            vendor: .openai, nickname: "mine", key: "sk-x")
+        store.corruptLabel(of: entry.id)
+        let listed = try await vault.list()
+        #expect(listed.count == 1)
+        #expect(listed[0].isUnreadable)
+        #expect(listed[0].nickname == String(entry.id.suffix(4)))
+        try await vault.delete(id: entry.id)
+        #expect(try await vault.list().isEmpty)
+    }
+
+    @Test func malformedIdsAreRejected() async throws {
+        let vault = KeychainAPIKeyVault(store: MemoryKeychainItemStore(),
+                                      authenticator: CountingAuthenticator())
+        for id in ["", "nope", "anthropic:", ":\(UUID())", "claude:\(UUID().uuidString)"] {
+            #expect((try? await vault.reveal(id: id)) == nil)
+            do { try await vault.delete(id: id); #expect(false, "id accepted: \(id)") }
+            catch { #expect(error as? APIKeyVaultError == .invalidEntry) }
         }
-        #expect(returnedValue == nil)
-        #expect(await strongAuthenticator.callCount == 3)
+    }
+
+    @Test func nicknameAndKeyBoundsAreEnforced() async throws {
+        let vault = KeychainAPIKeyVault(store: MemoryKeychainItemStore(),
+                                      authenticator: CountingAuthenticator())
+        #expect((try? await vault.register(vendor: .openai, nickname: "   ", key: "k")) == nil)
+        #expect((try? await vault.register(vendor: .openai,
+                                        nickname: String(repeating: "n", count: 81), key: "k")) == nil)
+        #expect((try? await vault.register(vendor: .openai, nickname: "ok", key: "")) == nil)
+        #expect((try? await vault.register(vendor: .openai, nickname: "ok",
+                                        key: String(repeating: "k", count: 16_385))) == nil)
+        let entry = try await vault.register(vendor: .openai, nickname: "ok",
+                                             key: String(repeating: "k", count: 16_384))
+        #expect(entry.nickname == "ok")
     }
 }
 
@@ -300,50 +383,51 @@ private actor CountingAuthenticator: APIKeyVaultAuthenticator {
     }
 }
 
-private actor FakeAPIKeyVault: APIKeyVault {
-    private struct Item: Sendable {
-        let entry: APIKeyEntry
-        let key: String
+/// In-memory `KeychainItemStore`: same query shapes, no real Keychain (audit B-06).
+private final class MemoryKeychainItemStore: KeychainItemStore, @unchecked Sendable {
+    private var items: [String: [String: Any]] = [:]
+    private let lock = NSLock()
+    private var _callCount = 0
+    var callCount: Int { lock.lock(); defer { lock.unlock() }; return _callCount }
+
+    func add(_ query: [String: Any]) -> OSStatus {
+        lock.lock(); defer { lock.unlock() }
+        _callCount += 1
+        guard let account = query[kSecAttrAccount as String] as? String else { return errSecParam }
+        items[account] = query
+        return errSecSuccess
     }
 
-    private let authenticator: APIKeyVaultAuthenticator
-    private let policy: APIKeyVaultAccessPolicy
-    private var items: [String: Item] = [:]
-
-    init(policy: APIKeyVaultAccessPolicy, authenticator: APIKeyVaultAuthenticator) {
-        self.policy = policy
-        self.authenticator = authenticator
-    }
-
-    func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry {
-        try await authenticator.evaluatePolicy()
-        let id = "\(vendor.rawValue):\(UUID().uuidString)"
-        let entry = APIKeyEntry(id: id, vendor: vendor, nickname: nickname,
-                                last4: String(key.suffix(4)), createdAt: Date())
-        items[id] = Item(entry: entry, key: key)
-        return entry
-    }
-
-    func list() async throws -> [APIKeyEntry] {
-        items.values.map(\.entry)
-    }
-
-    func reveal(id: String) async throws -> String {
-        try await authenticator.evaluatePolicy()
-        guard let item = items[id] else { throw APIKeyVaultError.keyUnavailable }
-        return item.key
-    }
-
-    func read(id: String) async throws -> String {
-        if policy == .strong {
-            try await authenticator.evaluatePolicy()
+    func copyMatching(_ query: [String: Any]) -> (OSStatus, CFTypeRef?) {
+        lock.lock(); defer { lock.unlock() }
+        _callCount += 1
+        if query[kSecMatchLimit as String] as? String == kSecMatchLimitOne as String,
+           let account = query[kSecAttrAccount as String] as? String {
+            guard let item = items[account] else { return (errSecItemNotFound, nil) }
+            if query[kSecReturnData as String] as? Bool == true {
+                let data = item[kSecValueData as String] as? Data
+                return (errSecSuccess, data as CFTypeRef?)
+            }
+            return (errSecSuccess, item as CFDictionary)
         }
-        guard let item = items[id] else { throw APIKeyVaultError.keyUnavailable }
-        return item.key
+        if items.isEmpty { return (errSecItemNotFound, nil) }
+        return (errSecSuccess, Array(items.values) as CFArray)
     }
 
-    func delete(id: String) async throws {
-        try await authenticator.evaluatePolicy()
-        items.removeValue(forKey: id)
+    func delete(_ query: [String: Any]) -> OSStatus {
+        lock.lock(); defer { lock.unlock() }
+        _callCount += 1
+        guard let account = query[kSecAttrAccount as String] as? String else { return errSecParam }
+        return items.removeValue(forKey: account) == nil ? errSecItemNotFound : errSecSuccess
+    }
+
+    func corruptLabel(of account: String) {
+        lock.lock(); defer { lock.unlock() }
+        items[account]?[kSecAttrLabel as String] = "not-json"
+    }
+
+    func storedLabel(for account: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return items[account]?[kSecAttrLabel as String] as? String
     }
 }

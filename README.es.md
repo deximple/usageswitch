@@ -159,7 +159,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 | **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
 | **Sesión rechazada: ejecute *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
 | **No vinculada a la cuota CLI** | Una cuenta de Claude Desktop guardada no tiene perfil de Claude Code vinculado. | [Vincule un perfil](#3-dé-a-las-cuentas-de-claude-guardadas-sus-propios-números-opcional) en **Detalles**. |
-| **No informa uso** | Un perfil de clave de API — no tiene límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto. |
+| **No informa uso** | Un perfil de clave de API — no tiene límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto (solo cuentas Codex con clave API). |
 | **Esta cuenta no tiene uso de *X*** | El proveedor dice que el plan de esta cuenta no tiene cuota que mostrar. | Nada que arreglar. |
 | **Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)** | Google movió las cuentas individuales a Antigravity. | Active **Antigravity**; su límite *Gemini Models* muestra la misma cuota. |
 | **La lectura del uso fue rechazada** | El programa de línea de comandos de la herramienta se detuvo sin devolver un informe de uso. | Reintenta en la próxima actualización. Si sigue ocurriendo, abra la herramienta una vez en Terminal para comprobar que tiene sesión iniciada y funciona. |
@@ -267,7 +267,7 @@ Para cuentas que usan una clave de API en lugar de una suscripción:
 
 - **Presupuestos** — establezca un saldo prepagado o una cuota mensual (con su día de reinicio) para Anthropic, OpenAI, Google o xAI.
 - **Estimaciones** — gasto de los últimos 7 días, la tasa diaria media y aproximadamente cuántos días dura su presupuesto. Se estiman solo a partir de los registros CLI locales de cuentas con clave de API, nunca del proveedor.
-- **Almacén de claves API** — guarde claves en el llavero de macOS, protegidas por Touch ID o su contraseña. *Estándar* pide al cambiar una clave; *Fuerte* pide cada vez que se lee una clave. Las claves nunca se envían a ningún sitio.
+- **Almacén de claves API** — la app pide Touch ID o su contraseña al añadir, mostrar o borrar una clave. Las claves se guardan en el llavero de inicio de sesión y siguen sus reglas de acceso. Las claves nunca se envían a ningún sitio.
 
 ## Ajustes
 
@@ -457,9 +457,10 @@ No. Es un proyecto independiente de código abierto y no está afiliado ni avala
 
 ## Desinstalación
 
-1. Opcional: para cerrar sesión de las cuentas de Codex que añadió, elimínelas primero en la pestaña **Codex**.
-2. Apague **⚙︎ › Abrir al iniciar sesión**, salga de UsageSwitch y muévalo a la Papelera.
-3. Opcional: elimine `~/Library/Application Support/com.jaysong.usageswitch/`. Contiene sus inicios de sesión guardados, ajustes y las carpetas de Codex añadidas en UsageSwitch, así que conserve lo que aún necesite.
+1. Opcional: borre primero sus claves de API en la pestaña **API** — permanecen en el llavero tras la desinstalación.
+2. Opcional: para cerrar sesión de las cuentas de Codex que añadió, elimínelas primero en la pestaña **Codex**.
+3. Apague **⚙︎ › Abrir al iniciar sesión**, salga de UsageSwitch y muévalo a la Papelera.
+4. Opcional: elimine `~/Library/Application Support/com.jaysong.usageswitch/`. Contiene sus inicios de sesión guardados, ajustes y las carpetas de Codex añadidas en UsageSwitch, así que conserve lo que aún necesite.
 
 ## Compilar desde el código fuente
 

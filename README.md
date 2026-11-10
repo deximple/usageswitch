@@ -160,7 +160,7 @@ A row without numbers always says why. Here is what each message means and what 
 | **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` or `opencode auth login`. |
 | **Sign-in not accepted — run *`command`* once in Terminal** | The provider rejected the stored sign-in — it was revoked, replaced by another app's sign-in, or belongs to an account this tool won't serve. | Run the command shown and sign in with the account you want to see. |
 | **Not linked to CLI quota** | A saved Claude Desktop account has no linked Claude Code profile. | [Link a profile](#3-give-saved-claude-accounts-their-own-numbers-optional) in **Details**. |
-| **Not reporting usage** | An API-key profile — it has no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates. |
+| **Not reporting usage** | An API-key profile — it has no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates (Codex API-key accounts only). |
 | **This account isn't eligible for *X* usage** | The provider says this account's plan has no quota to show. | Nothing to fix. |
 | **Google no longer offers Gemini CLI quota for individual accounts (moved to Antigravity)** | Google moved individual accounts to Antigravity. | Turn on **Antigravity**; its *Gemini Models* limit shows the same quota. |
 | **Usage read was refused** | The tool's command-line program stopped without returning a usage report. | It retries at the next refresh. If it keeps happening, open the tool once in Terminal to check it's signed in and working. |
@@ -268,7 +268,7 @@ For accounts that use an API key instead of a subscription:
 
 - **Budgets** — set a prepaid balance or a monthly quota (with its reset day) for Anthropic, OpenAI, Google or xAI.
 - **Estimates** — spend over the last 7 days, the average daily rate, and roughly how many days your budget lasts. These are estimated from local CLI logs of API-key accounts only, never fetched from the provider.
-- **API key vault** — store keys in the macOS Keychain, protected by Touch ID or your password. *Standard* asks when you change a key; *Strong* asks every time a key is read. Keys are never sent anywhere.
+- **API key vault** — the app asks for Touch ID or your password when you add, show or delete a key. Keys are stored in the login Keychain and follow its access rules. Keys are never sent anywhere.
 
 ## Settings
 
@@ -458,9 +458,10 @@ No. It's an independent open-source project and isn't affiliated with or endorse
 
 ## Uninstall
 
-1. Optional: to sign out of Codex accounts you added, remove them in the **Codex** tab first.
-2. Turn off **⚙︎ › Open at Login**, quit UsageSwitch, and move it to the Trash.
-3. Optional: delete `~/Library/Application Support/com.jaysong.usageswitch/`. It holds your saved sign-ins, settings and the Codex folders added in UsageSwitch, so keep anything you still need.
+1. Optional: delete your API keys in the **API** tab first — they stay in the Keychain after uninstall.
+2. Optional: to sign out of Codex accounts you added, remove them in the **Codex** tab first.
+3. Turn off **⚙︎ › Open at Login**, quit UsageSwitch, and move it to the Trash.
+4. Optional: delete `~/Library/Application Support/com.jaysong.usageswitch/`. It holds your saved sign-ins, settings and the Codex folders added in UsageSwitch, so keep anything you still need.
 
 ## Build from source
 
