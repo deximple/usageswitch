@@ -41,7 +41,9 @@ public struct UsageAlertStore: Sendable {
         guard let data = BoundedReader.readBounded(env.usageAlertsFile.path, limit: Self.maximumBytes, allowBinary: true),
               let state = try? JSONDecoder().decode(UsageAlertState.self, from: data)
         else { return nil }
-        return UsageAlertState(threshold: state.threshold, marks: state.marks.filter { $0.value.resetsAt != nil })
+        let marks = state.marks.filter { $0.value.resetsAt != nil }
+        return UsageAlertState(threshold: state.threshold, marks: Dictionary(
+            marks.map { (AntigravityScope.canonicalKey($0.key), $0.value) }, uniquingKeysWith: { first, _ in first }))
     }
 
     /// Marks without a reset time cannot tell accounts apart across a restart, so they are not

@@ -560,6 +560,19 @@ struct AntigravityUsageTests {
         #expect(AntigravityScope.canonical("claude and gpt models") == "Claude And Gpt Models")
     }
 
+    @Test func pinsSavedUnderTheAPISpellingKeepMatching() {
+        let settings = SwitcherSettings(usagePins: [
+            "antigravity:current/weekly/Claude and GPT models",
+            "antigravity:current/weekly/Claude And Gpt Models",
+            "codex:a/weekly/",
+        ])
+        #expect(settings.effectiveUsagePins == ["antigravity:current/weekly/Claude And Gpt Models", "codex:a/weekly/"])
+        #expect(AntigravityScope.canonicalKey("antigravity:current/weekly/gemini models")
+            == "antigravity:current/weekly/Gemini Models")
+        #expect(AntigravityScope.canonicalKey("antigravity:current/weekly/") == "antigravity:current/weekly/")
+        #expect(AntigravityScope.canonicalKey("cursor:cursor/monthly/Other Models") == "cursor:cursor/monthly/Other Models")
+    }
+
     @Test("an expired cache on a transient Keychain failure does not use the legacy file")
     func expiredCacheDoesNotUseLegacyFileOnKeychainTimeout() {
         let http = SpyTransport()

@@ -267,6 +267,19 @@ public enum AntigravityScope {
             }
             .joined(separator: " ")
     }
+
+    /// A stored row key (`antigravity:current/<kind>/<scope>`) with its scope in the canonical
+    /// spelling. Pins and warnings saved while the API path spelled it differently ("Claude and GPT
+    /// models") keep matching. Keys of other rows are returned unchanged.
+    public static func canonicalKey(_ key: String) -> String {
+        let prefix = AntigravityUsageCollector.rowID + "/"
+        guard key.hasPrefix(prefix) else { return key }
+        let rest = key.dropFirst(prefix.count)
+        guard let slash = rest.firstIndex(of: "/") else { return key }
+        let scope = rest[rest.index(after: slash)...]
+        guard !scope.isEmpty else { return key }
+        return prefix + rest[...slash] + canonical(String(scope))
+    }
 }
 
 extension AntigravityUsageCollector {

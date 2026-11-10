@@ -90,7 +90,8 @@ public enum UsagePace {
         // Otherwise project only on anchored evidence: ≥ 2 points over ≥ 10 minutes (audit B-08).
         let anchorDt = now.timeIntervalSince(previous.anchorAt)
         let anchorClimb = window.usedPercent - previous.anchorPercent
-        guard anchorDt >= 600, anchorClimb >= 2 else { return .unknown }
+        // An anchor older than maximumAnchorAge is dropped by `anchor(for:)`; it is not evidence here either.
+        guard anchorDt >= 600, anchorDt <= maximumAnchorAge, anchorClimb >= 2 else { return .unknown }
         let hoursToEmpty = (100 - window.usedPercent) / (anchorClimb / (anchorDt / 3600))
         return .depleting(at: now.addingTimeInterval(hoursToEmpty * 3600))
     }

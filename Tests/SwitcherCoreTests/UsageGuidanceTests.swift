@@ -129,6 +129,14 @@ struct UsagePaceTests {
         #expect(reading == .depleting(at: epoch.addingTimeInterval(3000)))
     }
 
+    @Test func anAnchorOlderThanAnHourIsNotEvidence() {
+        // The streak's anchor is 61 minutes old: `anchor(for:)` would drop it, so no projection from it.
+        let old = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 31, identityKey: "id1",
+                                   resetsAt: epoch.addingTimeInterval(3 * 86400), durationMinutes: 300,
+                                   anchorAt: epoch.addingTimeInterval(-3660), anchorPercent: 10)
+        #expect(UsagePace.reading(fresh(epoch, 32), previous: old, now: epoch, identityKey: "id1") == .unknown)
+    }
+
     @Test("anything that breaks the chain is unknown")
     func chainBreaks() {
         let prevAt = epoch.addingTimeInterval(-300)
@@ -523,6 +531,15 @@ struct UsageAlertStoreTests {
         let loaded = try #require(store.load())
         #expect(loaded.threshold == 80)
         #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))])
+    }
+
+    @Test func aStoredAntigravityKeyIsReadInTheCanonicalSpelling() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let json = #"{"marks":{"antigravity:current/weekly/Claude and GPT models":{"resetsAt":800000000}},"threshold":80}"#
+        try sb.fs.createDirectory(sb.env.storeDir)
+        try sb.fs.write(Data(json.utf8), to: sb.env.usageAlertsFile)
+        let loaded = try #require(UsageAlertStore(env: sb.env, fs: sb.fs).load())
+        #expect(Array(loaded.marks.keys) == ["antigravity:current/weekly/Claude And Gpt Models"])
     }
 
     @Test func aStoredMarkWithoutAResetTimeIsIgnoredOnLoad() throws {
