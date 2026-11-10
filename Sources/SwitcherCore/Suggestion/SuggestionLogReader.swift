@@ -196,9 +196,6 @@ public final class SuggestionLogReader: @unchecked Sendable {
     private struct FileCursorState: Codable {
         var cursors: [String: Cursor]
         var firstPassDay: String?
-        /// After an unreadable-cursor recovery, days before this are already in the kept
-        /// store and must not be counted again on the rebuild pass.
-        var rebuildFromDay: String?
     }
 
     private enum CursorLoad {
@@ -385,25 +382,17 @@ public final class SuggestionLogReader: @unchecked Sendable {
         SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: boundedReader)
         var state: FileCursorState
         switch loadCursors() {
-        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now), rebuildFromDay: nil)
+        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
         case .loaded(let loaded): state = loaded
         case .stalled: return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         case .unreadable:
-            // Offsets are lost, so what was already counted is unknown: set the cursor file aside
-            // and rebuild only the days a re-read can fully reproduce — eligibleFiles reaches back
-            // 14 days by mtime, so any day inside rebuildFromDay is re-counted exactly once while
-            // older stored days are kept. If the file cannot be set aside nothing is removed.
+            // Offsets are lost, so what was already counted is unknown: set the cursor file aside,
+            // drop the stored usage and let the next pass count everything once from the start.
+            // If the file cannot be set aside nothing is removed: the pass is skipped and tried again.
             guard (try? fs.move(cursorFile, to: directory.appendingPathComponent(
                 "log-cursors.json.unreadable-\(Int(now.timeIntervalSince1970))"))) != nil
             else { return SuggestionLogPass(records: [], bytesRead: 0, failed: true) }
-            let rebuildFromDay = SuggestionRetention.utcDay(now.addingTimeInterval(-13 * 86_400))
-            usageStore.removeDays(from: rebuildFromDay)
-            // Without the marker the next pass would load .missing and double-count the kept days.
-            state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now),
-                                    rebuildFromDay: rebuildFromDay)
-            if (try? saveCursors(state)) == nil {
-                usageStore.removeAll()
-            }
+            usageStore.removeAll()
             return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         }
         var cursors = state.cursors
@@ -472,9 +461,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
             }
         }
 
-        let records = totals.filter { key, _ in
-            state.rebuildFromDay.map { key.day >= $0 } ?? true
-        }.map { key, value in
+        let records = totals.map { key, value in
             SuggestionLogUsage(day: key.day, provider: key.provider, accountRef: key.accountRef,
                                model: key.model, effort: key.effort, turns: value.turns,
                                inputTokens: value.inputTokens, cachedInputTokens: value.cachedInputTokens,
@@ -908,17 +895,6 @@ private final class SuggestionLogUsageStore {
         } catch {
             SuggestionStorage.rollBack(appended, fs: fs)
             return nil
-        }
-    }
-
-    /// Removes stored usage files (current and archived) for every day on or after `fromDay`.
-    func removeDays(from fromDay: String) {
-        let archiveDirectory = directory.appendingPathComponent("archive", isDirectory: true)
-        for folder in [directory, archiveDirectory] {
-            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            for file in files where Self.day(in: file.lastPathComponent).map({ $0 >= fromDay }) == true {
-                try? fs.remove(file)
-            }
         }
     }
 

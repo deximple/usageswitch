@@ -224,7 +224,7 @@ struct SwitcherSwitchTests {
     }
 
     @Test func anInitLineObservedJustBeforeTheDeadlineStillSettles() throws {
-        var options = SwitcherOptions()
+        let options = SwitcherOptions()
         let rig = try Rig.make(options: options); defer { rig.cleanup() }
         // The init line lands inside the launch-verify window but is first polled
         // near its end: it must still get the full settle, not a deadline rollback.
@@ -237,7 +237,7 @@ struct SwitcherSwitchTests {
     }
 
     @Test func anInitLineAfterTheVerifyWindowStillTimesOut() throws {
-        var options = SwitcherOptions()
+        let options = SwitcherOptions()
         let rig = try Rig.make(options: options); defer { rig.cleanup() }
         rig.world.update {
             $0.launchInitDelay = options.launchVerifyTimeout + options.pollInterval + 2

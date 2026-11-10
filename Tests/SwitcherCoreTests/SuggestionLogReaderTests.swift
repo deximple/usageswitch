@@ -288,10 +288,7 @@ struct SuggestionLogReaderTests {
         let skipped = logReader.read(roots: [logRoot], now: now)
         #expect(skipped.records.isEmpty && skipped.bytesRead == 0 && skipped.failed)
         #expect(suggestionFiles(root).contains { $0.hasPrefix("log-cursors.json.unreadable-") })
-        // A fresh cursor is written at once carrying the rebuild marker — without it the next
-        // pass would re-count the days the recovery kept.
-        let cursorText = try String(contentsOf: cursorFile(root), encoding: .utf8)
-        #expect(cursorText.contains("rebuildFromDay"))
+        #expect(!suggestionFiles(root).contains("log-cursors.json"))
         #expect(usageLogBytes(root) == 0)
         #expect(logReader.recentRecords(now: now).isEmpty)
 
@@ -301,60 +298,47 @@ struct SuggestionLogReaderTests {
         #expect(logReader.recentRecords(now: now).map(\.inputTokens) == [10]) // counted once
     }
 
-    @Test func anUnreadableCursorKeepsDaysItCannotRebuild() throws {
-        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
-        let logRoot = try claudeRoot(root)
-        let stamp = { (d: Double) in self.timestamp(now.addingTimeInterval(d * 86_400)) }
-        let session = logRoot.directory.appendingPathComponent("projects/project")
-        // Stored day 20 back: the file that produced it is too old to re-read, so it must be kept.
-        try write(claudeLine(id: "old", input: 10, timestamp: stamp(-20)) + "\n",
-                  to: session.appendingPathComponent("seed-old.jsonl"),
-                  modifiedAt: now.addingTimeInterval(-19 * 86_400))
-        let logReader = reader(root)
-        // Read a day later: the file is eligible and old enough to finalize the turn.
-        _ = logReader.read(roots: [logRoot], now: now.addingTimeInterval(-18 * 86_400))
-        // Stored day 3 back: inside the rebuild window — removed and re-read from the logs.
-        try write(claudeLine(id: "mid", input: 30, timestamp: stamp(-3)) + "\n",
-                  to: session.appendingPathComponent("seed-mid.jsonl"),
-                  modifiedAt: now.addingTimeInterval(-4 * 86_400))
-        _ = logReader.read(roots: [logRoot], now: now.addingTimeInterval(-3.5 * 86_400))
-        // An eligible file with lines for both days: the 20d line must not double the kept day.
-        try write(claudeLine(id: "again", input: 99, timestamp: stamp(-20)) + "\n"
-                  + claudeLine(id: "fresh", input: 50, timestamp: stamp(-3)) + "\n",
-                  to: session.appendingPathComponent("recent.jsonl"),
-                  modifiedAt: now.addingTimeInterval(-2 * 86_400))
-        try Data("{broken".utf8).write(to: cursorFile(root))
-        #expect(logReader.read(roots: [logRoot], now: now).failed)
-        var pass = logReader.read(roots: [logRoot], now: now)
-        for _ in 0..<8 where pass.pendingBytes > 0 {
-            pass = logReader.read(roots: [logRoot], now: now)
-        }
-        #expect(!pass.failed)
-        let records = logReader.recentRecords(now: now, days: 35)
-        let byDay = Dictionary(grouping: records, by: \.day).mapValues {
-            $0.reduce(0) { $0 + $1.inputTokens }
-        }
-        let day20 = SuggestionRetention.utcDay(now.addingTimeInterval(-20 * 86_400))
-        let day3 = SuggestionRetention.utcDay(now.addingTimeInterval(-3 * 86_400))
-        #expect(byDay[day20] == 10) // kept: the 20d log line was not counted again
-        #expect(byDay[day3] == 80)  // rebuilt once: 30 (old session) + 50 (recent file)
-    }
-
-    @Test func anUnreadableCursorWhoseRecoverySaveFailsRemovesEverything() throws {
+    @Test func anUnreadableCursorRebuildsFromScratchOnce() throws {
         let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)
         try finishedSession(logRoot, name: "one", id: "one", input: 10)
         let logReader = reader(root)
         _ = logReader.read(roots: [logRoot], now: now)
         try Data("{broken".utf8).write(to: cursorFile(root))
-        logReader.cursorSaveFault = { throw SwitcherError.io("injected") }
-        let skipped = logReader.read(roots: [logRoot], now: now)
-        #expect(skipped.failed)
-        // The recovery cursor could not be written: without the rebuild marker the next pass
-        // would double-count kept days — everything is removed instead.
-        #expect(usageLogBytes(root) == 0)
-        #expect(logReader.recentRecords(now: now).isEmpty)
-        #expect(!suggestionFiles(root).contains("log-cursors.json"))
+        #expect(logReader.read(roots: [logRoot], now: now).failed)
+        // Everything is rebuilt from the logs once — the stored day is not doubled.
+        var pass = logReader.read(roots: [logRoot], now: now)
+        for _ in 0..<8 where pass.pendingBytes > 0 {
+            pass = logReader.read(roots: [logRoot], now: now)
+        }
+        #expect(!pass.failed && pass.pendingBytes == 0)
+        #expect(logReader.recentRecords(now: now).map(\.inputTokens) == [10])
+        // The rebuild loads .missing: coverage restarts today, conservatively.
+        #expect(pass.firstPassDay == SuggestionRetention.utcDay(now))
+    }
+
+    @Test func anOldDatedLineIsCountedAfterCursorRecovery() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        _ = logReader.read(roots: [logRoot], now: now)
+        try Data("{broken".utf8).write(to: cursorFile(root))
+        #expect(logReader.read(roots: [logRoot], now: now).failed)
+        _ = logReader.read(roots: [logRoot], now: now)
+        // A line dated before the recovery in a file first seen after it is genuinely new
+        // and must be counted — a day filter here would lose it for good.
+        let file = logRoot.directory.appendingPathComponent("projects/project/late.jsonl")
+        try write(claudeLine(id: "late", input: 40,
+                             timestamp: timestamp(now.addingTimeInterval(-20 * 86_400))) + "\n",
+                  to: file, modifiedAt: now.addingTimeInterval(-11 * 60))
+        let pass = logReader.read(roots: [logRoot], now: now)
+        #expect(pass.records.map(\.inputTokens) == [40])
+        let records = logReader.recentRecords(now: now, days: 35)
+        let byDay = Dictionary(grouping: records, by: \.day).mapValues {
+            $0.reduce(0) { $0 + $1.inputTokens }
+        }
+        #expect(byDay[SuggestionRetention.utcDay(now.addingTimeInterval(-20 * 86_400))] == 40)
     }
 
     @Test func anUnfinishedLastLineIsNotABacklog() throws {
