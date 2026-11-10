@@ -52,7 +52,7 @@ public enum UsageText {
 
     /// "58% left", rounded — "—" for a reading whose percent isn't a real number.
     public static func left(_ window: UsageWindow) -> String {
-        percentLeft(window.usedPercent).map { L10n.t(.usageLeft, $0) } ?? "—"
+        percentLeft(window.usedPercent).map { $0 == 0 ? L10n.t(.usageUsedUp) : L10n.t(.usageLeft, $0) } ?? "—"
     }
 
     /// "2d 4h" / "1h 13m" / "5m"; a reset in the past or under a minute away is "now".

@@ -72,8 +72,10 @@ struct UsageFooter: View {
                             Text(UsageText.updatedAgo(readAt: lastRead, now: context.date))
                                 .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
                         }
-                        Text(L10n.t(.usageNextUpdate,
-                                    UsageText.countdown(to: model.nextRefresh, from: context.date)))
+                        Text(model.nextRefresh.timeIntervalSince(context.date) < 60
+                            ? L10n.t(.usageRefreshingSoon)
+                            : L10n.t(.usageNextUpdate,
+                                     UsageText.countdown(to: model.nextRefresh, from: context.date)))
                             .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
                     }
                 }
@@ -319,7 +321,8 @@ struct UsageContent: View {
         switch situation {
         case .windowHeadroom:
             situationText = L10n.t(.suggestionSituationHeadroom,
-                                   UsageText.name(of: window), UsageText.left(window))
+                                   UsageText.name(of: window),
+                                   UsageText.percentLeft(window.usedPercent) ?? 0)
         case .remainingShare:
             situationText = L10n.t(.suggestionSituationRemaining,
                                    UsageText.name(of: window), UsageText.left(window))
@@ -378,7 +381,9 @@ struct UsageContent: View {
             Group {
                 if let resetsAt = proposal.window.resetsAt {
                     if resetsAt > now {
-                        Text(L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now)))
+                        Text(resetsAt.timeIntervalSince(now) < 60
+                            ? L10n.t(.usageRefreshingSoon)
+                            : L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now)))
                     } else {
                         Text(L10n.t(.usageRefreshNeeded)).foregroundStyle(Theme.usageLow)
                     }
@@ -654,7 +659,10 @@ struct UsageBarRow: View {
     private var shownLeft: Int? { compact && stale ? nil : left }
     /// Estimated run-out in the full localized form, for help and accessibility.
     private var runOutText: String? {
-        earlyRunOut.map { L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now)) }
+        earlyRunOut.map {
+            $0.timeIntervalSince(now) < 60 ? L10n.t(.usageRefreshingSoon)
+                : L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now))
+        }
     }
 
     /// Reset column text. The menu gets the compact form and ALWAYS the real reset time — the
