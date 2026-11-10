@@ -451,6 +451,15 @@ struct UsageAlertStoreTests {
         #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))])
     }
 
+    @Test func aStoredMarkWithoutAResetTimeIsIgnoredOnLoad() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let json = #"{"marks":{"grok:current/weekly/":{},"codex:m-1a2b3c4d/weekly/":{"resetsAt":800000000}},"threshold":80}"#
+        try sb.fs.createDirectory(sb.env.storeDir)
+        try sb.fs.write(Data(json.utf8), to: sb.env.usageAlertsFile)
+        let loaded = try #require(UsageAlertStore(env: sb.env, fs: sb.fs).load())
+        #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSinceReferenceDate: 800_000_000))])
+    }
+
     @Test func anotherAccountWithoutResetTimesWarnsAfterARestart() throws {
         let sb = try Sandbox(); defer { sb.remove() }
         let store = UsageAlertStore(env: sb.env, fs: sb.fs)
