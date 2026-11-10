@@ -90,13 +90,6 @@ public struct SwapEngine: Sendable {
         return .rolledBack
     }
 
-    /// Records, inside the pending journal, that `previous/` must be kept at `destination` on commit.
-    public func setKeepPrevious(_ destination: URL?) throws {
-        guard let destination, var journal = pendingJournal() else { return }
-        journal.keepPreviousAt = destination.path
-        try save(journal)
-    }
-
     /// Fresh, empty staging directory. Settles any interrupted run first, because its recovery may need
     /// the files it left in staging.
     public func prepareStaging() throws -> URL {
@@ -109,15 +102,16 @@ public struct SwapEngine: Sendable {
 
     /// Installs staged items over the live ones. `names` are processed in order; a name present live but not
     /// staged is moved aside (stale SQLite sidecars). On any error everything applied so far is rolled back.
-    public func install(names: [String]) throws {
+    public func install(names: [String], keepPreviousAt destination: URL? = nil) throws {
         guard pendingJournal() == nil else { throw SwitcherError.swapFailed(L10n.t(.reasonJournalPending)) }
         if Self.exists(env.previousDir) {
             // An orphaned previous/ (journal already gone) may be the only copy of a sign-in: keep it aside.
             try fs.createDirectory(env.displacedDir)
             try fs.move(env.previousDir, to: env.displacedDir.appendingPathComponent("orphan-\(UUID().uuidString)"))
+            stripDisplacedTokenCaches()
         }
         try fs.createDirectory(env.previousDir)
-        var journal = Journal(state: "installing", applied: [])
+        var journal = Journal(state: "installing", applied: [], keepPreviousAt: destination?.path)
         try save(journal)
         do {
             for name in names {
@@ -234,6 +228,15 @@ public struct SwapEngine: Sendable {
             try fs.remove(env.previousDir)
         }
         try fs.remove(env.stagingDir)
+    }
+
+    /// Displaced copies of Claude's config.json must not keep token caches (audit B-01).
+    private func stripDisplacedTokenCaches() {
+        let dirs = (try? FileManager.default.contentsOfDirectory(
+            at: env.displacedDir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for dir in dirs {
+            SnapshotStore.stripTokenCaches(inConfigAt: dir.appendingPathComponent(SnapshotItems.config), fs: fs)
+        }
     }
 
     static func exists(_ url: URL) -> Bool {

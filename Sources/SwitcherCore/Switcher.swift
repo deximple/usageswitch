@@ -286,6 +286,13 @@ public final class Switcher: @unchecked Sendable {
     @discardableResult
     public func recoverIfNeeded() -> [String] { runRecovery().notes }
 
+    /// Token caches must not survive in displaced copies (audit B-01).
+    private func stripDisplacedTokenCaches() {
+        let dirs = (try? FileManager.default.contentsOfDirectory(
+            at: env.displacedDir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for dir in dirs { store.stripTokenCaches(inConfigAt: dir.appendingPathComponent(SnapshotItems.config)) }
+    }
+
     private func runRecovery() -> (notes: [String], locked: Bool, failed: Bool) {
         do {
             try acquireLock()
@@ -316,7 +323,9 @@ public final class Switcher: @unchecked Sendable {
             do {
                 switch try swapper.resolvePending() {
                 case .rolledBack: notes.append(L10n.t(.recoverRolledBack))
-                case .committed: notes.append(L10n.t(.recoverCommitted))
+                case .committed:
+                    notes.append(L10n.t(.recoverCommitted))
+                    stripDisplacedTokenCaches()
                 case nil: break
                 }
             } catch {
@@ -386,8 +395,8 @@ public final class Switcher: @unchecked Sendable {
             // A recapture of the same identity (forced re-apply) produces a fresher generation; use the newest.
             let install = store.latest(for: identity) ?? snapshot
             if install != snapshot { try store.verify(install) }
-            try stageAndInstall(cookiesFrom: install.dir, mutation: .restore(accountUuid: identity.accountUuid), stripAuthRows: false)
-            try swapper.setKeepPrevious(displaced)
+            try stageAndInstall(cookiesFrom: install.dir, mutation: .restore(accountUuid: identity.accountUuid),
+                                stripAuthRows: false, keepPreviousAt: displaced)
             try launchAndVerify(target: identity, previous: from, fault: fault, keepPreviousAt: displaced, progress: progress)
         }
         progress(.done)
@@ -590,7 +599,8 @@ public final class Switcher: @unchecked Sendable {
         return log.signedInSinceLastInit()
     }
 
-    func stageAndInstall(cookiesFrom source: URL, mutation: ClaudeConfig.Mutation, stripAuthRows: Bool) throws {
+    func stageAndInstall(cookiesFrom source: URL, mutation: ClaudeConfig.Mutation, stripAuthRows: Bool,
+                         keepPreviousAt destination: URL? = nil) throws {
         let staging = try swapper.prepareStaging()
         for name in SnapshotItems.cookieGroup {
             let src = source.appendingPathComponent(name)
@@ -604,7 +614,8 @@ public final class Switcher: @unchecked Sendable {
         }
         try fs.write(try ClaudeConfig.mutated(liveConfig, mutation), to: staging.appendingPathComponent(SnapshotItems.config))
         do {
-            try swapper.install(names: [SnapshotItems.config] + SnapshotItems.cookieGroup)
+            try swapper.install(names: [SnapshotItems.config] + SnapshotItems.cookieGroup,
+                                keepPreviousAt: destination)
         } catch SwitcherError.swapInterrupted {
             // Something relaunched Claude mid-swap: quit it again and roll back while we still hold the session.
             if (try? quitClaude(progress: { _ in })) != nil, processes.mainProcess() == nil, (try? swapper.rollback()) != nil {

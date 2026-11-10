@@ -33,6 +33,28 @@ struct SwitcherRecoveryPathTests {
         #expect(!exists(rig.env.previousDir) && !rig.switcher.isLocked(), sourceLocation: sourceLocation)
     }
 
+    @Test func displacedConfigsHaveNoTokenCachesAfterRecovery() throws {
+        // A crash during verification leaves an "installed" journal: recovery commits it and
+        // must strip token caches out of every displaced config.json (B-01).
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        let displaced = env.displacedDir.appendingPathComponent("unsaved-1")
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        let cached = Data(#"{"oauth:tokenCache":{"token":"x"},"lastKnownAccountUuid":"a"}"#.utf8)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        try cached.write(to: env.previousDir.appendingPathComponent("config.json"))
+        var journal = SwapEngine.Journal(state: "installed", applied: [])
+        journal.keepPreviousAt = displaced.path
+        try JSONEncoder().encode(journal).write(to: env.journalFile)
+
+        _ = rig.switcher.recoverIfNeeded()
+
+        let config = try #require(try? ClaudeConfig.load(displaced.appendingPathComponent("config.json")))
+        #expect(!config.hasTokenCache)
+        #expect(String(decoding: try Data(contentsOf: displaced.appendingPathComponent("Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+    }
+
     // MARK: Launch faults that persist through the rollback relaunch
 
     @Test func noVerdictThatPersistsLeavesRollbackUnverified() throws {
