@@ -1,3 +1,4 @@
+import SwitcherCore
 import Foundation
 
 let arguments = Array(CommandLine.arguments.dropFirst())
