@@ -56,8 +56,8 @@ macOS 네이티브 메뉴 막대 앱입니다.
 | | |
 |---|---|
 | 📊 **모든 한도를 한눈에** | 계정마다 세션·일일·주간·월간 한도를 **남은** 비율과 초기화까지 남은 시간으로 보여 줍니다. |
-| 🧭 **실제로 쓰는 것만** | 이 Mac에 설치된 도구와 등록한 계정만 목록에 나옵니다. 없는 도구는 나타나지 않고, 그 도구의 정보를 읽지도 않습니다. |
-| 💡 **추천만 할 뿐, 자동으로 움직이지 않음** | 선택 기능인 **가이드**가 남은 한도에 맞는 계정과 모델, 노력 수준을 추천합니다. 스스로 계정을 전환하거나 앱을 열거나 로그인하지 않습니다. |
+| 🧭 **실제로 쓰는 것만** | 이 Mac에 설치된 도구와 등록한 계정만 목록에 나옵니다. 없는 도구는 나타나지 않고, 그 도구의 정보를 읽지도 않습니다. Claude와 Codex의 로컬 사용 로그는 가이드와 API 탭을 위해 항상 읽습니다 — 끌 수는 없습니다. |
+| 💡 **추천만 할 뿐, 자동으로 움직이지 않음** | **가이드**는 항상 읽는 로컬 로그로 남은 한도에 맞는 계정과 모델, 노력 수준을 추천합니다. 스스로 계정을 전환하거나 앱을 열거나 로그인하지 않습니다. |
 | 🔁 **클릭 한 번으로 전환** | 저장한 계정 사이에서 Claude Desktop 로그인을 바꿉니다. 전환 결과를 확인하고, 실패하면 자동으로 되돌립니다. Codex 계정은 각각 다른 창에서 나란히 엽니다. |
 | 🔒 **개인정보 우선 설계** | 분석·원격 측정·백그라운드 자동 업데이트가 없습니다. 이메일은 가려서 보여 줍니다. 선택 도구 여섯 개는 직접 켜기 전까지 꺼져 있습니다. |
 
@@ -160,7 +160,7 @@ UsageSwitch는 프로필의 계정·조직 ID와 CLI가 알려 주는 조직·�
 | **로그인 만료 · 터미널에서 *`명령`* 실행 후 다시 확인하세요** | 저장된 로그인이 만료됐습니다. | 표시된 명령을 실행합니다: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login`. |
 | **로그인 거부 · 터미널에서 *`명령`* 실행 후 다시 확인하세요** | 제공자가 저장된 로그인을 거부했습니다 — 취소되었거나, 다른 앱의 로그인으로 대체됐거나, 이 도구가 지원하지 않는 계정입니다. | 표시된 명령을 실행하고 보고 싶은 계정으로 로그인하세요. |
 | **CLI 할당량과 연결되지 않음** | 저장된 Claude Desktop 계정에 연결한 Claude Code 프로필이 없습니다. | **상세 보기**에서 [프로필을 연결](#3-저장된-claude-계정에-숫자-표시-선택)합니다. |
-| **사용량을 알리지 않습니다** | API 키 프로필이라 구독 한도가 없습니다. | 고칠 것이 없습니다. 예상 지출은 [API 탭](#api-탭)에서 봅니다. (Codex API 키 계정만) |
+| **사용량을 알리지 않습니다** | 도구가 사용량 숫자 없이 응답했습니다: API 키 프로필(구독 한도 없음), 로그아웃된 Codex 홈, 구독 한도가 없는 계정입니다. | 고칠 것이 없습니다. 예상 지출은 [API 탭](#api-탭)에서 봅니다. (Codex API 키 계정만) |
 | **이 계정은 *X* 사용량 대상이 아닙니다** | 제공자가 이 요금제에는 보여 줄 할당량이 없다고 응답했습니다. | 고칠 것이 없습니다. |
 | **Google이 개인 계정용 Gemini CLI 할당량을 종료함 (Antigravity로 이전)** | Google이 개인 계정을 Antigravity로 옮겼습니다. | **Antigravity**를 켭니다. 그 행의 *Gemini Models* 한도가 같은 할당량입니다. |
 | **사용량 읽기가 거부되었습니다** | 도구의 명령줄 프로그램이 사용량 보고 없이 중단됐습니다. | 다음 새로 고침 때 다시 시도합니다. 계속되면 터미널에서 도구를 한 번 실행해 로그인과 작동을 확인하세요. |
@@ -185,14 +185,14 @@ UsageSwitch는 프로필의 계정·조직 ID와 CLI가 알려 주는 조직·�
 | **Devin** | Devin CLI가 알려 주는 할당량 | Devin CLI 사용자 상태 | ⚙︎ › 사용량 연결 |
 | **OpenCode Go** | 5시간 롤링·주간·월간 한도 | OpenCode Go 사용량 엔드포인트 | ⚙︎ › 사용량 연결 |
 
-도구는 명령줄 프로그램이 `PATH`(또는 npm, bun, Volta의 기본 폴더)에 있거나, 앱이 `/Applications` 또는 `~/Applications`에 있을 때 목록에 나옵니다. 도구를 찾는 과정에서 그 도구를 실행하지는 않습니다.
+도구는 명령줄 프로그램이 `PATH`(또는 `~/.local/bin`, npm·bun·Volta의 기본 폴더, `/opt/homebrew/bin`, `/usr/local/bin`)에 있거나, 앱이 `/Applications` 또는 `~/Applications`에 있을 때 목록에 나옵니다. 도구를 찾는 과정에서 그 도구를 실행하지는 않습니다.
 
 <details>
 <summary><b>선택 연결별로 정확히 무엇을 읽고 보내는지</b></summary>
 
 <br>
 
-선택 연결은 모두 그 도구의 로컬 로그인 정보를 읽어 메모리에만 두고, 정해진 호스트 하나에 읽기 전용 HTTPS 요청을 보냅니다. 리다이렉트는 거부하고 응답은 1 MiB까지만 받습니다. 기록하거나 저장하는 것은 없습니다.
+선택 연결은 모두 그 도구의 로컬 로그인 정보를 읽어 메모리에만 두고, 정해진 호스트 — 도구당 하나(Gemini와 Antigravity는 토큰 갱신을 위해 `oauth2.googleapis.com`까지 둘) — 에 읽기 전용 HTTPS 요청을 보냅니다. 리다이렉트는 거부하고 응답은 1 MiB까지만 받습니다. 기록하거나 저장하는 것은 없습니다.
 
 | 도구 | 읽는 로컬 로그인 | 연결하는 호스트 | 참고 |
 |---|---|---|---|
@@ -437,7 +437,7 @@ Google이 개인 계정용 Gemini CLI 할당량을 종료하고 Antigravity로 �
 <details>
 <summary><b>화면을 공유하는 중에 써도 안전한가요?</b></summary>
 
-기본 설정에서는 메뉴 막대를 포함해 모든 곳의 이메일을 가립니다. 저장된 사용량 파일과 `--cli usage` 출력은 **이메일 항상 보이기**를 켜도 언제나 가립니다.
+기본 설정에서는 메뉴 막대를 포함해 모든 곳의 이메일을 가립니다. 저장된 사용량 파일과 `--cli usage` 출력은 **이메일 항상 보이기**를 켜도 언제나 가립니다. 다른 CLI 출력(`--cli status`, `--cli codex status`, `--cli switch`, `--cli capture`)은 계정의 원래 이메일을 그대로 인쇄합니다.
 
 </details>
 
@@ -487,7 +487,7 @@ build/UsageSwitch.app/Contents/MacOS/UsageSwitch --ui-fixture usage-seven
 
 ## 감사의 말
 
-독립 오픈소스 프로젝트입니다. Anthropic, OpenAI, Anysphere(Cursor), xAI, Google, Cognition, Sourcegraph와 제휴하거나 보증받지 않았으며, 제품 이름은 각 소유자의 것입니다.
+독립 오픈소스 프로젝트입니다. Anthropic, OpenAI, Anysphere(Cursor), xAI, Google, Cognition(Devin), SST(OpenCode)와 제휴하거나 보증받지 않았으며, 제품 이름은 각 소유자의 것입니다.
 관련 커뮤니티 프로젝트: [CodexBar](https://github.com/steipete/CodexBar), [claudepot-app](https://github.com/xiaolai/claudepot-app), [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts), [Swivel](https://github.com/jspanji/Swivel), [claude-graft](https://github.com/aaditya-v-more/claude-graft).
 
 ## 라이선스

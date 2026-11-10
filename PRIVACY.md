@@ -39,19 +39,25 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 
 | What | Contents |
 |---|---|
-| Saved sign-ins (`snapshots/`) | For each account, a copy of Claude Desktop's cookie database. Cookie values stay encrypted exactly as Claude stores them. Alongside it: the account and organization IDs, the email and display name when known, the session's expiry date, and file checksums. |
+| Saved sign-ins (`snapshots/`) | For each account, a copy of Claude Desktop's cookie database. Cookie values stay encrypted exactly as Claude stores them. Alongside it: the account and organization IDs, the email and display name when known, the session's expiry date, file checksums, and a `relogin-required` marker when the saved session must be signed in again. |
 | Original backup (`backups/`) | A one-time copy, made before the first switch and never restored automatically, of: <ul><li>Claude's cookie database;</li><li>`config.json`, with cached tokens removed;</li><li>its web storage folders (`Local Storage`, `Session Storage`, `IndexedDB`, `WebStorage`);</li><li>its settings files: `claude_desktop_config.json` (your MCP server settings, including any API keys you put there), `ccd-session-presets.json`, `bridge-state.json`, `ant-device-registry.json` and `mcp-user-tool-toggles.json`.</li></ul> |
 | Displaced sign-ins (`displaced/`) | If an account wasn't saved when you switched away from it, its cookie database and `config.json` (cached tokens removed) are kept here rather than deleted. |
 | `account-names.json` | Names you gave your accounts. |
 | `cli-workdir/` | Two empty folders (`claude/`, `codex/`). UsageSwitch starts the vendor CLIs there when it reads usage, so a CLI that records its working directory records one fixed entry. |
 | `usage-alerts.json` | The usage limits you were already warned about, as opaque row keys (for example `codex:m-1a2b3c4d/weekly/`) with the warning level and the reset time of each warned limit, so a restart does not repeat a warning. Limits without a reset time are remembered only until the app quits. No name or email. |
-| Switch journal and lock | Used to recover an interrupted switch. |
+| Switch journal and lock | Used to recover an interrupted switch (`switch.lock`; `settings.lock`, `account-names.lock` and `codex-accounts.lock` guard the other store files). |
+| Switch work areas (`staging/`, `previous/`, `tmp/`) | Present only while a switch is running; `previous/` holds the outgoing files until the new sign-in is verified. |
+| `suspended-relaunchers.json` | Which relauncher agents were paused during a switch, so recovery can restore them. |
+| `usage-alerts.json` | Per-account alert state for the usage notifications you enabled. |
+| `cli-workdir/` | The working directory the vendor CLIs run in for usage reads. |
+| `legacy-import-done`, `legacy-import-handled.json` | One-time markers recording that a 1.0 store was found and handled. |
+| `suggestion/` | The Guide's local learning files: salted-HMAC account keys, window/provider identifiers, usage percentages and mode/task state — never labels, emails or raw credentials. |
 
 **Codex tab:**
 
 | What | Contents |
 |---|---|
-| `codex/` | One folder per account added with **Add Codex account**. Each holds: <ul><li>`home`, its Codex home. Codex's own CLI writes the account's `auth.json` there, as it does in `~/.codex`.</li><li>`app-data`, the Codex app's data for that account.</li></ul> |
+| `codex/` | One folder per account added with **Add Codex account**. Each holds: <ul><li>`home`, its Codex home. Codex's own CLI writes the account's `auth.json` there, as it does in `~/.codex`; UsageSwitch writes only a `config.toml` that points credentials at file storage.</li><li>`app-data`, the Codex app's data for that account.</li></ul> |
 | `codex-app-data/` | The Codex app's data for homes added from **Found on this Mac**. A home that already has its own Codex app-data folder in `~/Library/Application Support` keeps using that one instead. |
 | `codex-accounts.json` | Names, the homes you added from this Mac, and the homes you hid. |
 
@@ -64,7 +70,8 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
   - its log, to confirm which account loaded;
   - its cookie database's table layout and the session cookie's expiry date, never cookie values.
 - **Processes:** the process list, to see whether Claude, its Code sessions and Codex are running. From the environment of those processes it reads only:
-  - for Code sessions, the account ID and email variables;
+  - for Code sessions, the `CLAUDE_CONFIG_DIR` a session belongs to plus the account ID and email variables;
+  - for Claude's main process, the names of the environment variables — never their values;
   - for Codex, `CODEX_HOME` and `CODEX_ELECTRON_USER_DATA_PATH`, to tell which window belongs to which account.
 - **Your user LaunchAgents:** each plist (up to 1 MiB) and any script it points at (text files under 64 KiB), to find any agent that would relaunch Claude in the middle of a switch. During a switch such an agent is paused with `launchctl bootout` and restored with `launchctl bootstrap`; the plists themselves are never edited.
 - **Codex:** each Codex home's `auth.json`, to show which account a home belongs to. It reads only:
@@ -77,6 +84,8 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 - **Suggestion learning:** bounded local JSONL and snapshot files contain salted HMAC account keys, provider/window identifiers, usage percentages and reset times, mode/task changes, and Guide events. They never contain account labels, emails, raw account references, or tokens. Raw files are retained for 14 days, then archived; archives are compressed after 30 days and deleted after 180 days. “Flush learning data” removes these files and rotates the salt while keeping mode and task preferences.
 - **API tab:** budgets and optional API-key nicknames/creation metadata stay local. API keys are stored only in macOS Keychain; they are never sent anywhere because no verified read-only balance endpoint exists. Spend estimates use token counts from local CLI logs only for accounts marked as API-key authentication, priced from the bundled model snapshot. A Codex session whose log carries a ChatGPT plan marker is excluded, so sessions from before a switch to an API key do not count. They are labeled estimates and do not query providers for balances.
 - **Usage alerts:** when enabled, a trustworthy window crossing the warning level may post a macOS notification with the masked label and percentage. Unknown or stale readings are not presented as healthy quota.
+
+**Switching writes Claude Desktop's own files:** during a switch, UsageSwitch replaces Claude Desktop's `Cookies*` files and `config.json` in its folder with those of the account you switch to, after keeping the outgoing ones (in a saved account, or in `displaced/`). Nothing else in Claude Desktop's folder is written.
 
 ## What UsageSwitch never does
 
@@ -96,3 +105,10 @@ To delete everything UsageSwitch stores, follow **Uninstall** in the [README](RE
 ## Contact
 
 Questions or concerns: [open an issue](https://github.com/deximple/usageswitch/issues). For security problems, see [SECURITY.md](SECURITY.md).
+
+
+### A store left by UsageSwitch 1.0
+
+If an earlier `com.jaysong.claude-switcher` store exists, its saved sign-ins are copied once
+into the current store, and `switch.lock` may be created there so a switch can't run twice.
+The 1.0 store itself is never modified otherwise.

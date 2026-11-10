@@ -55,8 +55,8 @@ Una app nativa de macOS para la barra de menús, pensada para quienes trabajan c
 | | |
 |---|---|
 | 📊 **Todos los límites de un vistazo** | Límites de sesión, diarios, semanales y mensuales de cada cuenta, mostrados como la parte que **queda** y el tiempo hasta el reinicio. |
-| 🧭 **Solo lo que de verdad usa** | La lista muestra las herramientas instaladas en este Mac y las cuentas que registró. Una herramienta que no tiene nunca aparece, y nada se lee de ella. |
-| 💡 **Una sugerencia, nunca un piloto automático** | La **Guía** opcional sugiere qué cuenta — y qué modelo y esfuerzo — encaja con lo que queda. Nunca cambia, abre ni inicia sesión por sí misma. |
+| 🧭 **Solo lo que de verdad usa** | La lista muestra las herramientas instaladas en este Mac y las cuentas que registró. Una herramienta que no tiene nunca aparece, y nada se lee de ella. Para Claude y Codex, los registros de uso locales detrás de la Guía y la pestaña API siempre se leen — eso no se puede desactivar. |
+| 💡 **Una sugerencia, nunca un piloto automático** | La **Guía** — impulsada por esas lecturas locales siempre activas — sugiere qué cuenta — y qué modelo y esfuerzo — encaja con lo que queda. Nunca cambia, abre ni inicia sesión por sí misma. |
 | 🔁 **Cambio con un clic** | Cambie el inicio de sesión de Claude Desktop entre cuentas guardadas (con verificación y reversión automática), y use cuentas de Codex en paralelo en ventanas independientes. |
 | 🔒 **Privada por diseño** | Sin analítica, telemetría ni actualizaciones en segundo plano. Los correos se muestran ocultos. Las seis herramientas opcionales están apagadas hasta que las encienda una a una. |
 
@@ -159,7 +159,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 | **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
 | **Sesión rechazada: ejecute *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
 | **No vinculada a la cuota CLI** | Una cuenta de Claude Desktop guardada no tiene perfil de Claude Code vinculado. | [Vincule un perfil](#3-dé-a-las-cuentas-de-claude-guardadas-sus-propios-números-opcional) en **Detalles**. |
-| **No informa uso** | Un perfil de clave de API — no tiene límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto (solo cuentas Codex con clave API). |
+| **No informa uso** | La herramienta respondió sin número de uso: un perfil de clave API (sin límite de suscripción), una carpeta Codex sin sesión, o una cuenta sin límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto (solo cuentas Codex con clave API). |
 | **Esta cuenta no tiene uso de *X*** | El proveedor dice que el plan de esta cuenta no tiene cuota que mostrar. | Nada que arreglar. |
 | **Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)** | Google movió las cuentas individuales a Antigravity. | Active **Antigravity**; su límite *Gemini Models* muestra la misma cuota. |
 | **La lectura del uso fue rechazada** | El programa de línea de comandos de la herramienta se detuvo sin devolver un informe de uso. | Reintenta en la próxima actualización. Si sigue ocurriendo, abra la herramienta una vez en Terminal para comprobar que tiene sesión iniciada y funciona. |
@@ -184,14 +184,14 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 | **Devin** | La cuota que informa el CLI de Devin | El estado de usuario del CLI de Devin | ⚙︎ › Conexiones de uso |
 | **OpenCode Go** | Límites rodantes de 5 horas, semanales y mensuales | El endpoint de uso de OpenCode Go | ⚙︎ › Conexiones de uso |
 
-Una herramienta aparece cuando su programa de línea de comandos está en su `PATH` (o en las carpetas habituales de npm, bun y Volta), o su app está en `/Applications` o `~/Applications`. Encontrar una herramienta nunca la ejecuta.
+Una herramienta aparece cuando su programa de línea de comandos está en su `PATH` (o en `~/.local/bin`, las carpetas habituales de npm, bun y Volta, `/opt/homebrew/bin` o `/usr/local/bin`), o su app está en `/Applications` o `~/Applications`. Encontrar una herramienta nunca la ejecuta.
 
 <details>
 <summary><b>Exactamente qué lee y envía cada conexión opcional</b></summary>
 
 <br>
 
-Cada conexión opcional lee el inicio de sesión local propio de la herramienta, lo conserva solo en memoria y envía peticiones HTTPS de solo lectura a un único host fijo. Las redirecciones se rechazan y las respuestas se limitan a 1 MiB. Nada se registra ni se guarda.
+Cada conexión opcional lee el inicio de sesión local propio de la herramienta, lo conserva solo en memoria y envía peticiones HTTPS de solo lectura a una lista fija — un host por herramienta, dos para Gemini y Antigravity (su endpoint de cuota más `oauth2.googleapis.com` para renovar el token). Las redirecciones se rechazan y las respuestas se limitan a 1 MiB. Nada se registra ni se guarda.
 
 | Herramienta | Inicio de sesión local que lee | Host que contacta | Notas |
 |---|---|---|---|
@@ -436,7 +436,7 @@ Google ya no ofrece cuota de Gemini CLI para cuentas individuales y las movió a
 <details>
 <summary><b>¿Es seguro usarla mientras comparto pantalla?</b></summary>
 
-Los correos están ocultos en todas partes por defecto, incluida la barra de menús. El archivo de uso guardado y la salida de `--cli usage` siempre van ocultos, aunque elija **Mostrar siempre los correos**.
+Los correos están ocultos en todas partes por defecto, incluida la barra de menús. El archivo de uso guardado y la salida de `--cli usage` siempre van ocultos, aunque elija **Mostrar siempre los correos**. Otras salidas CLI — `--cli status`, `--cli codex status`, `--cli switch` y `--cli capture` — imprimen el correo original de la cuenta.
 
 </details>
 
@@ -450,7 +450,7 @@ No. Es un proyecto independiente de código abierto y no está afiliado ni avala
 ## Limitaciones
 
 - El cambio de Claude Desktop depende de los archivos internos de Claude. Si una actualización de Claude los cambia, el cambio falla de forma segura y revierte hasta que se actualice UsageSwitch.
-- Un inicio de sesión de Claude guardado puede caducar o ser revocado. Su fila le pedirá **Caducada**.
+- Un inicio de sesión de Claude guardado puede caducar o ser revocado. Su fila la mostrará como **Caducada**.
 - Las carpetas de Codex que guardan su sesión en el llavero (`cli_auth_credentials_store = "keyring"`) pueden aparecer como sin sesión.
 - Las conexiones opcionales usan endpoints privados que pueden cambiar sin aviso.
 - UsageSwitch muestra los límites que informa cada proveedor. No muestra saldos ni facturas del proveedor; la pestaña API muestra solo estimaciones locales.
@@ -486,7 +486,7 @@ Los issues y pull requests son bienvenidos. Los cambios están en [CHANGELOG.md]
 
 ## Agradecimientos
 
-Proyecto independiente de código abierto — no afiliado ni avalado por Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition o Sourcegraph. Los nombres de productos pertenecen a sus propietarios.
+Proyecto independiente de código abierto — no afiliado ni avalado por Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin) o SST (OpenCode). Los nombres de productos pertenecen a sus propietarios.
 Proyectos comunitarios relacionados: [CodexBar](https://github.com/steipete/CodexBar), [claudepot-app](https://github.com/xiaolai/claudepot-app), [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts), [Swivel](https://github.com/jspanji/Swivel), [claude-graft](https://github.com/aaditya-v-more/claude-graft).
 
 ## Licencia

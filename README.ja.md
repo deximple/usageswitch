@@ -55,8 +55,8 @@ Claude、Codex、Cursor などの AI コーディングツールを — しば�
 | | |
 |---|---|
 | 📊 **すべての上限を一目で** | セッション（5 時間）、週間、月間の上限をアカウントごとに、残りの**割合**とリセットまでの時間で表示します。 |
-| 🧭 **実際に使っているものだけ** | リストにはこの Mac にインストールされているツールと登録済みアカウントだけが表示されます。持っていないツールは表示されず、何も読み取られません。 |
-| 💡 **ヒントだけ、自動操縦はなし** | 任意の**ガイド**が、残りの量に合うアカウント・モデル・作業量を提案します。勝手に切り替えたり、起動したり、サインインしたりはしません。 |
+| 🧭 **実際に使っているものだけ** | リストにはこの Mac にインストールされているツールと登録済みアカウントだけが表示されます。持っていないツールは表示されず、何も読み取られません。Claude と Codex のローカル使用ログはガイドと API タブのために常に読み取られます — オフにはできません。 |
+| 💡 **ヒントだけ、自動操縦はなし** | **ガイド**は、常に読み取られるローカルログをもとに、残りの量に合うアカウント・モデル・作業量を提案します。勝手に切り替えたり、起動したり、サインインしたりはしません。 |
 | 🔁 **ワンクリックで切り替え** | Claude Desktop のサインインを保存済みアカウント間で切り替えます（検証と自動ロールバック付き）。Codex アカウントは別ウィンドウで並行して使えます。 |
 | 🔒 **プライバシー第一の設計** | 分析・テレメトリ・バックグラウンドアップデートはありません。メールアドレスは伏せ字表示。6 つの任意ツールは、それぞれオンにするまでオフのままです。 |
 
@@ -159,7 +159,7 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 | **サインインの期限切れ · ターミナルで *`command`* を一度実行してください** | 保存されたサインインが期限切れです。 | 表示されたコマンドを実行：`claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login`。 |
 | **サインインが拒否されました · ターミナルで *`command`* を一度実行してください** | プロバイダが保存されたサインインを拒否しました — 取り消されたか、別のアプリのサインインに置き換えられたか、このツールが対応しないアカウントです。 | 表示されたコマンドを実行し、表示したいアカウントでサインインしてください。 |
 | **CLI クォータと未リンク** | 保存済み Claude Desktop アカウントにリンクされた Claude Code プロファイルがありません。 | **詳細**で[プロファイルをリンク](#3-保存済み-claude-アカウントに自分の数字を持たせる任意)します。 |
-| **使用量を報告していません** | API キープロファイル — サブスクリプション上限がありません。 | 対処不要。使用料の見積もりは [API タブ](#api-タブ)を使います（Codex API キーアカウントのみ）。 |
+| **使用量を報告していません** | ツールが使用量の数字なしに応答しました: API キープロファイル（サブスクリプション上限なし）、サインアウトした Codex ホーム、サブスクリプション上限のないアカウントです。 | 対処不要。使用料の見積もりは [API タブ](#api-タブ)を使います（Codex API キーアカウントのみ）。 |
 | **このアカウントは *X* の使用量の対象外です** | プロバイダがこのアカウントのプランに表示できるクォータがないと言っています。 | 対処不要。 |
 | **Google は個人アカウント向けの Gemini CLI クォータを終了しました（Antigravity に移行）** | Google が個人アカウントを Antigravity に移しました。 | **Antigravity** をオンに。その *Gemini Models* 上限が同じクォータを表示します。 |
 | **使用量の読み取りが拒否されました** | ツールのコマンドラインプログラムが使用量を返さずに終了しました。 | 次の更新で再試行します。続く場合はターミナルでツールを一度実行し、サインインと動作を確認してください。 |
@@ -184,14 +184,14 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 | **Devin** | Devin CLI が報告するクォータ | Devin CLI のユーザーステータス | ⚙︎ › 使用量の接続 |
 | **OpenCode Go** | ローリング 5 時間・週間・月間の上限 | OpenCode の Go 使用量エンドポイント | ⚙︎ › 使用量の接続 |
 
-ツールは、そのコマンドラインプログラムが `PATH` 上（または一般的な npm、bun、Volta のフォルダ内）にあるか、そのアプリが `/Applications` または `~/Applications` にある場合に表示されます。ツールを見つけても実行されることはありません。
+ツールは、そのコマンドラインプログラムが `PATH` 上（または `~/.local/bin`、一般的な npm・bun・Volta のフォルダ、`/opt/homebrew/bin`、`/usr/local/bin` 内）にあるか、そのアプリが `/Applications` または `~/Applications` にある場合に表示されます。ツールを見つけても実行されることはありません。
 
 <details>
 <summary><b>各任意接続が実際に読み取り・送信するもの</b></summary>
 
 <br>
 
-どの任意接続も、ツール自身のローカルサインインを読み取り、メモリ内にだけ保持し、固定の 1 ホストへ読み取り専用の HTTPS リクエストを送ります。リダイレクトは拒否し、応答は 1 MiB に制限されます。ログや保存は一切ありません。
+どの任意接続も、ツール自身のローカルサインインを読み取り、メモリ内にだけ保持し、固定の許可リスト — ツールごとに 1 ホスト（Gemini と Antigravity はクォータ取得先に加えトークン更新の `oauth2.googleapis.com` の 2 つ）— へ読み取り専用の HTTPS リクエストを送ります。リダイレクトは拒否し、応答は 1 MiB に制限されます。ログや保存は一切ありません。
 
 | ツール | 読み取るローカルサインイン | 接続するホスト | 補足 |
 |---|---|---|---|
@@ -408,7 +408,7 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 <details>
 <summary><b>使っているツールがリストにありません。</b></summary>
 
-UsageSwitch は、そのツールのコマンドラインプログラムを `PATH`（または一般的な npm、bun、Volta のフォルダ）で見つけたとき、またはそのアプリが `/Applications` / `~/Applications` にあるときだけ表示します。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode はさらに **⚙︎ › 使用量の接続** が必要です。
+UsageSwitch は、そのツールのコマンドラインプログラムを `PATH`（または `~/.local/bin`、一般的な npm・bun・Volta のフォルダ、`/opt/homebrew/bin`、`/usr/local/bin`）で見つけたとき、またはそのアプリが `/Applications` / `~/Applications` にあるときだけ表示します。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode はさらに **⚙︎ › 使用量の接続** が必要です。
 
 </details>
 
@@ -436,7 +436,7 @@ Google は個人アカウント向けの Gemini CLI クォータを終了し、A
 <details>
 <summary><b>画面共有中でも安全ですか？</b></summary>
 
-メールアドレスはメニューバー含めすべての場所でデフォルト伏せ字です。保存される使用量ファイルと `--cli usage` の出力は、**メールアドレスを常に表示**を選んでも常に伏せ字です。
+メールアドレスはメニューバー含めすべての場所でデフォルト伏せ字です。保存される使用量ファイルと `--cli usage` の出力は、**メールアドレスを常に表示**を選んでも常に伏せ字です。ほかの CLI 出力（`--cli status`、`--cli codex status`、`--cli switch`、`--cli capture`）はアカウントの元のメールアドレスをそのまま表示します。
 
 </details>
 
@@ -486,7 +486,7 @@ build/UsageSwitch.app/Contents/MacOS/UsageSwitch --ui-fixture usage-seven
 
 ## 謝辞
 
-独立したオープンソースプロジェクト — Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition、Sourcegraph とは提携・承認関係はありません。製品名はそれぞれの所有者に帰属します。
+独立したオープンソースプロジェクト — Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、SST（OpenCode）とは提携・承認関係はありません。製品名はそれぞれの所有者に帰属します。
 関連するコミュニティプロジェクト：[CodexBar](https://github.com/steipete/CodexBar)、[claudepot-app](https://github.com/xiaolai/claudepot-app)、[claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts)、[Swivel](https://github.com/jspanji/Swivel)、[claude-graft](https://github.com/aaditya-v-more/claude-graft)。
 
 ## ライセンス

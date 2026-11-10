@@ -56,8 +56,8 @@ often with more than one account each.
 | | |
 |---|---|
 | 📊 **Every limit at a glance** | Session, daily, weekly and monthly limits for each account, shown as the share you have **left** and the time until it resets. |
-| 🧭 **Only what you actually use** | The list shows the tools installed on this Mac and the accounts you registered. A tool you don't have never appears, and nothing is read for it. |
-| 💡 **A hint, never an autopilot** | The optional **Guide** suggests which account — and which model and effort — fits what's left. It never switches, launches or signs in on its own. |
+| 🧭 **Only what you actually use** | The list shows the tools installed on this Mac and the accounts you registered. A tool you don't have never appears, and nothing is read for it. For Claude and Codex, the local usage logs behind the Guide and the API tab are always read — that part can't be turned off. |
+| 💡 **A hint, never an autopilot** | The **Guide** suggests which account, model and effort fit what's left, using those local log reads. It never switches, launches or signs in on its own. |
 | 🔁 **Switch in one click** | Swap the Claude Desktop sign-in between saved accounts (verified, with automatic rollback), and run Codex accounts side by side in separate windows. |
 | 🔒 **Private by design** | No analytics, telemetry or background updater. Emails are masked. The six optional tools stay off until you turn each one on. |
 
@@ -160,7 +160,7 @@ A row without numbers always says why. Here is what each message means and what 
 | **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` or `opencode auth login`. |
 | **Sign-in not accepted — run *`command`* once in Terminal** | The provider rejected the stored sign-in — it was revoked, replaced by another app's sign-in, or belongs to an account this tool won't serve. | Run the command shown and sign in with the account you want to see. |
 | **Not linked to CLI quota** | A saved Claude Desktop account has no linked Claude Code profile. | [Link a profile](#3-give-saved-claude-accounts-their-own-numbers-optional) in **Details**. |
-| **Not reporting usage** | An API-key profile — it has no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates (Codex API-key accounts only). |
+| **Not reporting usage** | The tool answered without a usage number: an API-key profile (no subscription limit), a signed-out Codex home, or an account with no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates (Codex API-key accounts only). |
 | **This account isn't eligible for *X* usage** | The provider says this account's plan has no quota to show. | Nothing to fix. |
 | **Google no longer offers Gemini CLI quota for individual accounts (moved to Antigravity)** | Google moved individual accounts to Antigravity. | Turn on **Antigravity**; its *Gemini Models* limit shows the same quota. |
 | **Usage read was refused** | The tool's command-line program stopped without returning a usage report. | It retries at the next refresh. If it keeps happening, open the tool once in Terminal to check it's signed in and working. |
@@ -185,14 +185,14 @@ A row without numbers always says why. Here is what each message means and what 
 | **Devin** | The quota the Devin CLI reports | The Devin CLI's user status | ⚙︎ › Usage Connections |
 | **OpenCode Go** | Rolling 5-hour, weekly and monthly limits | OpenCode's Go usage endpoint | ⚙︎ › Usage Connections |
 
-A tool is listed when its command-line program is on your `PATH` (or in the usual npm, bun and Volta folders) or its app is in `/Applications` or `~/Applications`. Finding a tool never runs it.
+A tool is listed when its command-line program is on your `PATH` (or in `~/.local/bin`, the usual npm, bun and Volta folders, `/opt/homebrew/bin` or `/usr/local/bin`) or its app is in `/Applications` or `~/Applications`. Finding a tool never runs it.
 
 <details>
 <summary><b>Exactly what each optional connection reads and sends</b></summary>
 
 <br>
 
-Every optional connection reads the tool's own local sign-in, keeps it in memory only, and sends read-only HTTPS requests to one fixed host. Redirects are refused and responses are capped at 1 MiB. Nothing is logged or saved.
+Every optional connection reads the tool's own local sign-in, keeps it in memory only, and sends read-only HTTPS requests to a fixed allowlist — one host per tool, two for Gemini and Antigravity (their quota endpoint plus `oauth2.googleapis.com` for a token refresh). Redirects are refused and responses are capped at 1 MiB. Nothing is logged or saved.
 
 | Tool | Local sign-in it reads | Host it contacts | Notes |
 |---|---|---|---|
@@ -437,7 +437,7 @@ Google no longer offers Gemini CLI quota for individual accounts and moved them 
 <details>
 <summary><b>Is it safe to use while sharing my screen?</b></summary>
 
-Emails are masked everywhere by default, including the menu bar. The saved usage file and `--cli usage` output are always masked, even if you choose **Always Show Emails**.
+Emails are masked everywhere by default, including the menu bar. The saved usage file and `--cli usage` output are always masked, even if you choose **Always Show Emails**. Other CLI output — `--cli status`, `--cli codex status`, `--cli switch` and `--cli capture` — prints the account's raw email.
 
 </details>
 
@@ -487,7 +487,7 @@ Issues and pull requests are welcome. Changes are listed in [CHANGELOG.md](CHANG
 
 ## Acknowledgments
 
-An independent open-source project — not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition or Sourcegraph. Product names belong to their owners.
+An independent open-source project — not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin) or SST (OpenCode). Product names belong to their owners.
 Related community projects: [CodexBar](https://github.com/steipete/CodexBar), [claudepot-app](https://github.com/xiaolai/claudepot-app), [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts), [Swivel](https://github.com/jspanji/Swivel), [claude-graft](https://github.com/aaditya-v-more/claude-graft).
 
 ## License

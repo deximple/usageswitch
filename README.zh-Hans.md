@@ -55,8 +55,8 @@
 | | |
 |---|---|
 | 📊 **所有额度一目了然** | 每个账户的会话、每日、每周、每月额度，以**剩余**比例和重置时间显示。 |
-| 🧭 **只显示你真在用的** | 列表只展示这台 Mac 上已安装的工具和已注册的账户。没有的工具不出现，也不会读取它的任何信息。 |
-| 💡 **只给建议，不做自动驾驶** | 可选的**指南**会根据剩余量建议合适的账户、模型和强度。它绝不自行切换、启动或登录。 |
+| 🧭 **只显示你真在用的** | 列表只展示这台 Mac 上已安装的工具和已注册的账户。没有的工具不出现，也不会读取它的任何信息。Claude 和 Codex 的本地用量日志始终会被读取，用于指南和 API 标签页——这部分无法关闭。 |
+| 💡 **只给建议，不做自动驾驶** | **指南**依据始终读取的本地日志，根据剩余量建议合适的账户、模型和强度。它绝不自行切换、启动或登录。 |
 | 🔁 **一键切换** | 在已保存的账户间更换 Claude Desktop 登录（带校验和自动回滚）；Codex 账户可在独立窗口并行使用。 |
 | 🔒 **隐私优先设计** | 无分析、无遥测、无后台更新。邮箱始终打码。六个可选工具在你逐个开启前保持关闭。 |
 
@@ -159,7 +159,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude auth login`、`codex login`、`cursor-agent login`、`grok login`、`gemini`、`agy`、`devin auth login`、`opencode auth login`。 |
 | **登录被拒绝 · 请在终端运行一次 *`command`*** | 服务商拒绝了已保存的登录——它已被撤销、被其他应用的登录替换，或属于此工具不支持的账户。 | 运行显示的命令，并用你想查看的账户登录。 |
 | **未关联 CLI 配额** | 已保存的 Claude Desktop 账户没有关联的 Claude Code 配置。 | 在**详情**中[关联配置](#3-给已保存的-claude-账户配上它自己的数字可选)。 |
-| **未报告用量** | API 密钥配置——没有订阅额度。 | 无需处理。花费估算见 [API 标签页](#api-标签页)（仅限 Codex API 密钥账户）。 |
+| **未报告用量** | 工具应答了但没有返回用量数字：API 密钥配置（无订阅额度）、已登出的 Codex 主目录，或没有订阅额度的账户。 | 无需处理。花费估算见 [API 标签页](#api-标签页)（仅限 Codex API 密钥账户）。 |
 | **此账户不适用 *X* 用量** | 服务商表示该账户的套餐没有可显示的配额。 | 无需处理。 |
 | **Google 已停止为个人账号提供 Gemini CLI 配额（已迁移到 Antigravity）** | Google 已把个人账户迁移到 Antigravity。 | 开启 **Antigravity**；其 *Gemini Models* 额度显示的正是同一配额。 |
 | **读取用量被拒绝** | 工具的命令行程序在没有返回用量报告的情况下停止了。 | 下次刷新时重试。若持续出现，请在终端中运行一次该工具，确认它已登录且工作正常。 |
@@ -184,14 +184,14 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | **Devin** | Devin CLI 报告的配额 | Devin CLI 的用户状态 | ⚙︎ › 用量连接 |
 | **OpenCode Go** | 滚动 5 小时、每周和每月额度 | OpenCode 的 Go 用量端点 | ⚙︎ › 用量连接 |
 
-当工具的命令行程序位于 `PATH`（或常见的 npm、bun、Volta 目录）中，或其应用位于 `/Applications` 或 `~/Applications` 时，该工具就会被列出。发现工具永远不会去运行它。
+当工具的命令行程序位于 `PATH`（或 `~/.local/bin`、常见的 npm、bun、Volta 目录、`/opt/homebrew/bin`、`/usr/local/bin`）中，或其应用位于 `/Applications` 或 `~/Applications` 时，该工具就会被列出。发现工具永远不会去运行它。
 
 <details>
 <summary><b>每个可选连接具体读取和发送的内容</b></summary>
 
 <br>
 
-每个可选连接都读取该工具自己的本地登录信息，只在内存中保存，并只向一个固定主机发送只读 HTTPS 请求。重定向一律拒绝，响应上限 1 MiB。不记录、不保存任何东西。
+每个可选连接都读取该工具自己的本地登录信息，只在内存中保存，并只向固定的允许列表发送只读 HTTPS 请求——每个工具一个主机，Gemini 和 Antigravity 为两个（其配额端点加上用于令牌刷新的 `oauth2.googleapis.com`）。重定向一律拒绝，响应上限 1 MiB。不记录、不保存任何东西。
 
 | 工具 | 读取的本地登录 | 连接的主机 | 说明 |
 |---|---|---|---|
@@ -255,7 +255,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 
 每个 Codex 账户有独立的 Codex 文件夹并在独立窗口中打开，因此多个账户可以并行运行。
 登录始终走 Codex 自己的 `codex login`（浏览器），登录文件绝不在文件夹间复制。
-**移除**会在本机登出该账户并把文件夹移到废纸篓。**从列表中移除**只是隐藏在此 Mac 上找到的 Codex 主目录中的文件夹。标准的 `~/.codex` 不能被移除。
+**移除**会在本机登出该账户并把文件夹移到废纸篓。**从列表中移除**只是隐藏在此 Mac 上找到的 Codex 主目录。标准的 `~/.codex` 不能被移除。
 
 <p align="center">
   <img src="docs/screenshots/zh-Hans/codex.png" width="640" alt="Codex 标签页:多个 Codex 账户,各自有独立文件夹、套餐和打开/显示按钮">
@@ -283,7 +283,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | 在菜单栏显示用量 | 在图标旁显示最紧张（或已固定）的额度，例如 *每周剩余 25%*。默认开启。 |
 | 用量提醒 · 用量警告阈值 | 某项额度已用超过 70%、80%（默认）或 90% 时发送 macOS 通知。 |
 | 显示指南指示点 | 建议就绪时**指南**旁的小点。 |
-| 用量连接 | 开关每个可选工具。只列出在此 Mac 上找到的 Codex 主目录的工具。 |
+| 用量连接 | 开关每个可选工具。只列出在此 Mac 上找到的工具。 |
 | 清除学习数据 | 删除指南的本地学习文件。 |
 | 在访达中显示数据文件夹 | 打开 `~/Library/Application Support/com.jaysong.usageswitch/`。 |
 | 检查更新… | 在浏览器中打开发布页面。 |
@@ -436,7 +436,7 @@ Google 已停止为个人账号提供 Gemini CLI 配额并将其迁到 Antigravi
 <details>
 <summary><b>共享屏幕时使用安全吗？</b></summary>
 
-邮箱默认在所有位置打码，包括菜单栏。即使开启**始终显示电子邮件**，保存的用量文件和 `--cli usage` 输出也始终打码。
+邮箱默认在所有位置打码，包括菜单栏。即使开启**始终显示电子邮件**，保存的用量文件和 `--cli usage` 输出也始终打码。其他 CLI 输出（`--cli status`、`--cli codex status`、`--cli switch`、`--cli capture`）会原样打印账户的完整邮箱。
 
 </details>
 
@@ -486,7 +486,7 @@ build/UsageSwitch.app/Contents/MacOS/UsageSwitch --ui-fixture usage-seven
 
 ## 致谢
 
-独立开源项目——与 Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition、Sourcegraph 均无隶属或背书关系。产品名称归各自所有者。
+独立开源项目——与 Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、SST（OpenCode）均无隶属或背书关系。产品名称归各自所有者。
 相关社区项目：[CodexBar](https://github.com/steipete/CodexBar)、[claudepot-app](https://github.com/xiaolai/claudepot-app)、[claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts)、[Swivel](https://github.com/jspanji/Swivel)、[claude-graft](https://github.com/aaditya-v-more/claude-graft)。
 
 ## 许可证
