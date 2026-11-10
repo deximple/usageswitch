@@ -4,30 +4,24 @@ import Foundation
 /// every warning. Keys are the opaque pinned-row keys (`codex:m-1a2b3c4d/weekly/`): no label, no email.
 public struct UsageAlertState: Codable, Equatable, Sendable {
     public var threshold: Double
-    public var keys: Set<String>
+    public var marks: [String: UsageAlerts.Mark]
 
-    public init(threshold: Double, keys: Set<String>) {
+    public init(threshold: Double, marks: [String: UsageAlerts.Mark]) {
         self.threshold = threshold
-        self.keys = keys
+        self.marks = marks
     }
 
-    /// The remembered keys, or none when the warning level has changed since they were recorded.
-    public func keys(for threshold: Double) -> Set<String> {
-        self.threshold == threshold ? keys : []
+    /// The remembered marks, or none when the warning level has changed since they were recorded.
+    public func marks(for threshold: Double) -> [String: UsageAlerts.Mark] {
+        self.threshold == threshold ? marks : [:]
     }
 
-    private enum CodingKeys: String, CodingKey { case threshold, keys }
+    private enum CodingKeys: String, CodingKey { case threshold, marks }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         threshold = try container.decode(Double.self, forKey: .threshold)
-        keys = Set(try container.decode([String].self, forKey: .keys))
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(threshold, forKey: .threshold)
-        try container.encode(keys.sorted(), forKey: .keys)
+        marks = try container.decode([String: UsageAlerts.Mark].self, forKey: .marks)
     }
 }
 

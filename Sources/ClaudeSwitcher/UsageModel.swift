@@ -549,7 +549,7 @@ final class UsageModel: ObservableObject {
         previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
         if let state = loadedAlertState() {
             let next = UsageAlertState(threshold: state.threshold,
-                                       keys: state.keys.filter { !$0.hasPrefix(prefix) })
+                                       marks: state.marks.filter { !$0.key.hasPrefix(prefix) })
             if next != state { saveAlertState(next) }
         }
     }
@@ -736,8 +736,8 @@ final class UsageModel: ObservableObject {
         let saved = loadedAlertState()
         let threshold = Double(settings.usageWarnPercent)
         let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
-                                                 alerted: saved?.keys(for: threshold) ?? [], now: now)
-        let next = UsageAlertState(threshold: threshold, keys: alerted)
+                                                 alerted: saved?.marks(for: threshold) ?? [:], now: now)
+        let next = UsageAlertState(threshold: threshold, marks: alerted)
         if next != saved { saveAlertState(next) }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }

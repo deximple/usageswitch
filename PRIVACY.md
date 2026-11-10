@@ -44,7 +44,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 | Displaced sign-ins (`displaced/`) | If an account wasn't saved when you switched away from it, its cookie database and `config.json` (cached tokens removed) are kept here rather than deleted. |
 | `account-names.json` | Names you gave your accounts. |
 | `cli-workdir/` | Two empty folders (`claude/`, `codex/`). UsageSwitch starts the vendor CLIs there when it reads usage, so a CLI that records its working directory records one fixed entry. |
-| `usage-alerts.json` | The usage limits you were already warned about, as opaque row keys (for example `codex:m-1a2b3c4d/weekly/`) with the warning level, so a restart does not repeat a warning. No name or email. |
+| `usage-alerts.json` | The usage limits you were already warned about, as opaque row keys (for example `codex:m-1a2b3c4d/weekly/`) with the warning level and the reset time of each warned limit, so a restart does not repeat a warning. No name or email. |
 | Switch journal and lock | Used to recover an interrupted switch. |
 
 **Codex tab:**
