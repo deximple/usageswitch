@@ -267,7 +267,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 
 - **预算** — 为 Anthropic、OpenAI、Google、xAI 设置预付余额或月度配额（含重置日）。
 - **估算** — 过去 7 天的花费、日均费率和预算大约还能撑几天。仅根据 API 密钥账户的本地 CLI 日志估算，绝不向服务商查询。
-- **API 密钥保险库** — 把密钥存入 macOS 钥匙串，用 Touch ID 或密码保护。*标准*在更改密钥时验证；*严格*在每次读取密钥时验证。密钥绝不会发往任何地方。
+- **API 密钥保险库** — 在应用中添加、显示或删除密钥时会要求 Touch ID 或密码。密钥存放在登录钥匙串，遵循钥匙串自身的访问规则。密钥绝不会发往任何地方。
 
 ## 设置
 
@@ -457,9 +457,10 @@ Google 已停止为个人账号提供 Gemini CLI 配额并将其迁到 Antigravi
 
 ## 卸载
 
-1. 可选：要登出你添加的 Codex 账户，先在 **Codex** 标签页中移除它们。
-2. 关闭 **⚙︎ › 登录时打开**，退出 UsageSwitch，移到废纸篓。
-3. 可选：删除 `~/Library/Application Support/com.jaysong.usageswitch/`。里面保存着你的登录、设置和在 UsageSwitch 中添加的 Codex 文件夹，保留还需要的内容。
+1. 可选：先在 **API** 标签页删除你的 API 密钥——卸载后它们仍留在钥匙串中。
+2. 可选：要登出你添加的 Codex 账户，先在 **Codex** 标签页中移除它们。
+3. 关闭 **⚙︎ › 登录时打开**，退出 UsageSwitch，移到废纸篓。
+4. 可选：删除 `~/Library/Application Support/com.jaysong.usageswitch/`。里面保存着你的登录、设置和在 UsageSwitch 中添加的 Codex 文件夹，保留还需要的内容。
 
 ## 从源码构建
 

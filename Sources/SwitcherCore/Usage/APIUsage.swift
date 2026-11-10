@@ -80,13 +80,18 @@ public struct APIKeyEntry: Codable, Equatable, Identifiable, Sendable {
     public let nickname: String
     public let last4: String
     public let createdAt: Date
+    /// The stored label failed to decode; nickname carries the account ID tail and the entry
+    /// stays deletable (audit B-06).
+    public let isUnreadable: Bool
 
-    public init(id: String, vendor: APIVendor, nickname: String, last4: String, createdAt: Date) {
+    public init(id: String, vendor: APIVendor, nickname: String, last4: String, createdAt: Date,
+                isUnreadable: Bool = false) {
         self.id = id
         self.vendor = vendor
         self.nickname = nickname
         self.last4 = last4
         self.createdAt = createdAt
+        self.isUnreadable = isUnreadable
     }
 }
 
@@ -94,7 +99,6 @@ public protocol APIKeyVault: Sendable {
     func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry
     func list() async throws -> [APIKeyEntry]
     func reveal(id: String) async throws -> String
-    func read(id: String) async throws -> String
     func delete(id: String) async throws
 }
 

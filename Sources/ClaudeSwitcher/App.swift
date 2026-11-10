@@ -136,8 +136,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate()
     }
 
+    static let apiKeysShouldHideNotification = Notification.Name("usageswitch.apiKeysShouldHide")
+
     func windowWillClose(_ notification: Notification) {
         guard let closing = notification.object as? NSWindow else { return }
+        // Revealed API keys must not outlive their window (audit B-06).
+        NotificationCenter.default.post(name: Self.apiKeysShouldHideNotification, object: nil)
         if closing === detailWindow { detailWindow = nil; detailID = nil }
         // only OUR two owned windows decide the policy — menus/alerts never count
         let stillOpen = [window, detailWindow].contains {
