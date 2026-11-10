@@ -768,7 +768,7 @@ struct UsageBarRow: View {
     }
 }
 
-/// Refresh button: spins while a read is in flight, disabled meanwhile; honors Reduce Motion.
+/// Refresh button: a system progress indicator while a read is in flight, disabled meanwhile.
 private struct UsageRefreshButton: View {
     @ObservedObject var model: UsageModel
 
