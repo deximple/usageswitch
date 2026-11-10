@@ -131,7 +131,8 @@ public struct DevinUsageCollector: Sendable {
     private func cliVersion() -> String? {
         guard let cli else { return nil }
         let req = UsageProcessRequest(executable: cli, arguments: ["--version"],
-                                      environment: [:], workingDirectory: home, timeout: 3)
+                                      environment: UsageChildEnvironment.make(for: cli, home: home),
+                                      workingDirectory: home, timeout: 3)
         let out = runner.run(req)
         guard case .exited(0) = out.outcome else { return nil }
         let text = out.lines.first?

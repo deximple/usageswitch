@@ -113,6 +113,8 @@ public struct CodexUsageCollector: Sendable {
     private let status: @Sendable () -> CodexStatus
     private let runner: any UsageProcessRunner
     private let codexCLI: URL
+    /// The app's embedded CLI: it is a real binary, not a script launcher (audit B-05).
+    private let bundledCLI: URL?
     /// The version sent in the initialize `clientInfo` (the app's own version).
     private let clientVersion: String
     /// Must already exist; never created or removed here.
@@ -121,8 +123,8 @@ public struct CodexUsageCollector: Sendable {
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
                 codexCLI: URL, clientVersion: String = "2.0.0", workingDirectory: URL,
-                now: @escaping @Sendable () -> Date = { Date() }) {
-        self.status = status; self.runner = runner; self.codexCLI = codexCLI
+                bundledCLI: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.status = status; self.runner = runner; self.codexCLI = codexCLI; self.bundledCLI = bundledCLI
         self.clientVersion = clientVersion; self.workingDirectory = workingDirectory; self.now = now
     }
 
@@ -156,10 +158,13 @@ public struct CodexUsageCollector: Sendable {
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
+        let env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
+            ? UsageChildEnvironment.make(for: codexCLI, home: URL(fileURLWithPath: account.home))
+            : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
-            environment: SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home)),
+            environment: env,
             workingDirectory: workingDirectory,
             stdinLines: Self.stdinLines(version: clientVersion),
             stopWhen: { CodexRateLimitsParser.isAnswer($0) },

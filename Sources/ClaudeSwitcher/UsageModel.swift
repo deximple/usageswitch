@@ -405,7 +405,8 @@ final class UsageModel: ObservableObject {
                         // App-only Codex falls back to the bundled path -> existing missing state.
                         return CodexUsageCollector(status: { CodexManager().status() },
                             runner: runner, codexCLI: installation.cli ?? env.codexCLI,
-                            clientVersion: version, workingDirectory: codexWorkDir).collect()
+                            clientVersion: version, workingDirectory: codexWorkDir,
+                            bundledCLI: env.codexCLI).collect()
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
                             http: http, home: env.home).collect()
