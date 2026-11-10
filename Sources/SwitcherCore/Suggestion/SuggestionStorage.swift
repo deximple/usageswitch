@@ -46,22 +46,26 @@ public final class SuggestionAccountReference: @unchecked Sendable {
 
         var attributes = stat()
         if lstat(saltFile.path, &attributes) == 0 {
-            guard (attributes.st_mode & S_IFMT) == S_IFREG,
-                  attributes.st_uid == getuid(),
-                  attributes.st_size == 32,
-                  (attributes.st_mode & 0o077) == 0 else { return nil }
-            let descriptor = open(saltFile.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-            guard descriptor >= 0 else { return nil }
-            defer { close(descriptor) }
-            var data = Data(count: 32)
-            let count = data.withUnsafeMutableBytes { bytes in
-                read(descriptor, bytes.baseAddress, bytes.count)
+            if (attributes.st_mode & S_IFMT) == S_IFREG,
+               attributes.st_uid == getuid(),
+               attributes.st_size == 32,
+               (attributes.st_mode & 0o077) == 0 {
+                let descriptor = open(saltFile.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+                guard descriptor >= 0 else { return nil }
+                defer { close(descriptor) }
+                var data = Data(count: 32)
+                let count = data.withUnsafeMutableBytes { bytes in
+                    read(descriptor, bytes.baseAddress, bytes.count)
+                }
+                if count == 32 { cachedSalt = data; return data }
             }
-            guard count == 32 else { return nil }
-            cachedSalt = data
-            return data
+            // An unreadable or malformed salt means the learning files can't be trusted:
+            // reset the folder and reseed below instead of failing every read forever (audit D-4).
+            try? fs.remove(directory)
+            do { try fs.createDirectory(directory) } catch { return nil }
+        } else if errno != ENOENT {
+            return nil
         }
-        guard errno == ENOENT else { return nil }
 
         var generator = SystemRandomNumberGenerator()
         let salt = Data((0..<32).map { _ in UInt8.random(in: 0...255, using: &generator) })
@@ -161,53 +165,20 @@ enum SuggestionStorage {
 
 enum SuggestionRetention {
     private static let lock = NSLock()
-    private static let markerName = "derived-last-computed-day"
     private static let maxArchiveBytes = 64 * 1_048_576
     private static let filename = try? NSRegularExpression(
         pattern: #"^(observations|events|log-usage)-([0-9]{4}-[0-9]{2}-[0-9]{2})(?:-([0-9]+))?\.jsonl$"#)
     private static let archiveFilename = try? NSRegularExpression(
         pattern: #"^(observations|events|log-usage)-([0-9]{4}-[0-9]{2}-[0-9]{2})\.jsonl(?:\.zlib)?$"#)
 
-    struct DerivedRecord: Codable, Equatable {
-        let provider: UsageProvider
-        let accountKey: String
-        let windowKey: String
-        let medianBurnRatePerHour: Double?
-        let p90BurnRatePerHour: Double?
-        let shownCount: Int
-        let acceptedObservedCount: Int
-        let acceptedExplicitCount: Int
-        let dismissedCount: Int
-        let acceptanceRate: Double
-    }
 
-    private struct DerivedFile: Codable {
-        let generatedAt: Date
-        let records: [DerivedRecord]
-    }
-
-    private struct MetricKey: Hashable {
-        let provider: UsageProvider
-        let accountKey: String
-        let windowKey: String
-    }
-
-    private struct Counts {
-        var shown = 0
-        var observed = 0
-        var explicit = 0
-        var dismissed = 0
-    }
-
-    static func prune(directory: URL, fs: SafeFS, now: Date,
-                      reader: BoundedReader = .shared) {
+    static func prune(directory: URL, fs: SafeFS, now: Date) {
         lock.lock()
         defer { lock.unlock() }
         do { try fs.createDirectory(directory) } catch { return }
         archiveRawFiles(directory: directory, fs: fs, now: now)
         compressArchives(directory: directory, fs: fs, now: now)
         expireArchives(directory: directory, fs: fs, now: now)
-        recomputeDerived(directory: directory, fs: fs, now: now, reader: reader)
     }
 
     private static func archiveRawFiles(directory: URL, fs: SafeFS, now: Date) {
@@ -308,96 +279,6 @@ enum SuggestionRetention {
         }
     }
 
-    private static func recomputeDerived(directory: URL, fs: SafeFS, now: Date,
-                                        reader: BoundedReader) {
-        let today = utcDay(now)
-        let marker = directory.appendingPathComponent(markerName)
-        if let data = boundedData(marker, maximum: 32, reader: reader),
-           String(data: data, encoding: .utf8) == today { return }
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil) else { return }
-        let firstDay = utcDay(now.addingTimeInterval(-13 * 86_400))
-        let eventFiles = files.filter { file in
-            guard let match = filename?.firstMatch(
-                in: file.lastPathComponent, range: NSRange(file.lastPathComponent.startIndex..., in: file.lastPathComponent)),
-                  let componentRange = Range(match.range(at: 1), in: file.lastPathComponent),
-                  let dayRange = Range(match.range(at: 2), in: file.lastPathComponent) else { return false }
-            return file.lastPathComponent[componentRange] == "events"
-                && file.lastPathComponent[dayRange] >= firstDay
-        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        var totalBytes = 0
-        var rates: [MetricKey: [Double]] = [:]
-        var counts: [MetricKey: Counts] = [:]
-        var latestCandidate: MetricKey?
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        for file in eventFiles {
-            guard let data = readBounded(file, fs: fs, maximum: maxArchiveBytes - totalBytes) else { return }
-            totalBytes += data.count
-            for line in data.split(separator: 10, omittingEmptySubsequences: true)
-                where line.count <= SuggestionStorage.maximumLineBytes {
-                guard let event = try? decoder.decode(
-                    SuggestionStateEvent.self, from: Data(line)) else { continue }
-                switch event {
-                case .delta(let delta):
-                    guard let provider = delta.provider, delta.seconds > 0,
-                          delta.usedDelta.isFinite else { continue }
-                    let key = MetricKey(provider: provider, accountKey: delta.accountRef,
-                                        windowKey: delta.windowKey)
-                    let rate = delta.usedDelta * 3_600 / delta.seconds
-                    guard rate.isFinite else { continue }
-                    rates[key, default: []].append(rate)
-                case .suggestionShown(let candidate, _):
-                    let key = MetricKey(provider: candidate.provider, accountKey: candidate.accountKey,
-                                        windowKey: "*")
-                    counts[key, default: Counts()].shown += 1
-                    latestCandidate = key
-                case .suggestionAccepted(let observed, _):
-                    guard let latestCandidate else { continue }
-                    if observed { counts[latestCandidate, default: Counts()].observed += 1 }
-                    else { counts[latestCandidate, default: Counts()].explicit += 1 }
-                case .suggestionDismissed:
-                    guard let latestCandidate else { continue }
-                    counts[latestCandidate, default: Counts()].dismissed += 1
-                default:
-                    continue
-                }
-            }
-        }
-        let keys = Set(rates.keys).union(counts.keys).sorted {
-            if $0.provider.rawValue != $1.provider.rawValue { return $0.provider.rawValue < $1.provider.rawValue }
-            if $0.accountKey != $1.accountKey { return $0.accountKey < $1.accountKey }
-            return $0.windowKey < $1.windowKey
-        }
-        let records = keys.prefix(512).map { key -> DerivedRecord in
-            let values = (rates[key] ?? []).sorted()
-            let count = counts[key] ?? Counts()
-            let accepted = count.observed + count.explicit
-            let median: Double?
-            if values.isEmpty { median = nil }
-            else if values.count.isMultiple(of: 2) {
-                median = (values[values.count / 2 - 1] + values[values.count / 2]) / 2
-            } else {
-                median = values[values.count / 2]
-            }
-            let p90 = values.isEmpty ? nil : values[max(0, Int(ceil(Double(values.count) * 0.9)) - 1)]
-            return DerivedRecord(provider: key.provider, accountKey: key.accountKey,
-                windowKey: key.windowKey, medianBurnRatePerHour: median, p90BurnRatePerHour: p90,
-                shownCount: count.shown, acceptedObservedCount: count.observed,
-                acceptedExplicitCount: count.explicit, dismissedCount: count.dismissed,
-                acceptanceRate: count.shown == 0 ? 0 : Double(accepted) / Double(count.shown))
-        }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        do {
-            try fs.write(encoder.encode(DerivedFile(generatedAt: now, records: records)),
-                         to: directory.appendingPathComponent("derived.json"))
-            try fs.write(Data(today.utf8), to: marker)
-        } catch {
-            return
-        }
-    }
 
     private static func readBounded(_ file: URL, fs: SafeFS, maximum: Int) -> Data? {
         guard maximum >= 0, (try? fs.check(file)) != nil,

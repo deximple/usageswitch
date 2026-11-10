@@ -250,67 +250,6 @@ struct SuggestionLifecycleTests {
         #expect(!FileManager.default.fileExists(atPath: secondPart.path))
     }
 
-    @Test("derived burn rates and Guide counts are computed daily and capped at 512 keys")
-    func derivedMetricsAndBounds() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let env = environment(root)
-        let fs = SafeFS(env: env)
-        let directory = env.storeDir.appendingPathComponent("suggestion")
-        try fs.createDirectory(directory)
-        let day = SuggestionRetention.utcDay(start)
-        let metric = candidate()
-        let events: [SuggestionStateEvent] = [
-            .delta(SuggestionDelta(provider: .codex, windowKey: "session:300:*",
-                                   accountRef: metric.accountKey, from: 10, to: 15,
-                                   usedDelta: 5, seconds: 3_600)),
-            .delta(SuggestionDelta(provider: .codex, windowKey: "session:300:*",
-                                   accountRef: metric.accountKey, from: 15, to: 25,
-                                   usedDelta: 10, seconds: 3_600)),
-            .suggestionShown(candidate: metric, at: start),
-            .suggestionShown(candidate: metric, at: start),
-            .suggestionShown(candidate: metric, at: start),
-            .suggestionAccepted(observed: true, at: start),
-            .suggestionAccepted(observed: false, at: start),
-            .suggestionDismissed(at: start),
-        ]
-        try SuggestionStorage.appendLines(events, component: "events", day: day,
-                                         directory: directory, fs: fs)
-        SuggestionRetention.prune(directory: directory, fs: fs, now: start)
-        let derivedFile = directory.appendingPathComponent("derived.json")
-        let original = try Data(contentsOf: derivedFile)
-        struct DerivedContainer: Decodable { let records: [SuggestionRetention.DerivedRecord] }
-        let decoded = try JSONDecoder.iso8601.decode(DerivedContainer.self, from: original)
-        let burnRate = try #require(decoded.records.first { $0.windowKey == "session:300:*" })
-        #expect(burnRate.medianBurnRatePerHour == 7.5)
-        #expect(burnRate.p90BurnRatePerHour == 10)
-        let guideCounts = try #require(decoded.records.first { $0.windowKey == "*" })
-        #expect(guideCounts.shownCount == 3)
-        #expect(guideCounts.acceptedObservedCount == 1)
-        #expect(guideCounts.acceptedExplicitCount == 1)
-        #expect(guideCounts.dismissedCount == 1)
-        #expect(guideCounts.acceptanceRate == 2.0 / 3.0)
-
-        try SuggestionStorage.appendLines(
-            [SuggestionStateEvent.suggestionShown(candidate: candidate("acct-new"), at: start)],
-            component: "events", day: day, directory: directory, fs: fs)
-        SuggestionRetention.prune(directory: directory, fs: fs, now: start)
-        #expect(try Data(contentsOf: derivedFile) == original)
-
-        let many = (0..<513).map { index in
-            SuggestionStateEvent.suggestionShown(
-                candidate: candidate("acct-\(index)"), at: start)
-        }
-        try SuggestionStorage.appendLines(many, component: "events",
-            day: SuggestionRetention.utcDay(start.addingTimeInterval(86_400)),
-            directory: directory, fs: fs)
-        SuggestionRetention.prune(directory: directory, fs: fs,
-                                  now: start.addingTimeInterval(86_400))
-        let bounded = try JSONDecoder.iso8601.decode(DerivedContainer.self,
-            from: Data(contentsOf: derivedFile))
-        #expect(bounded.records.count == 512)
-    }
-
     @Test("flush removes learning artifacts and rotates account-reference salt")
     func flushAndSaltRotation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -92,7 +92,11 @@ struct SuggestionStateTests {
                            accountRef: "jay.song@example.com", toolVersion: "cli.user@example.com")],
                      now: start.addingTimeInterval(120))
         let directory = env.storeDir.appendingPathComponent("suggestion")
-        let file = directory.appendingPathComponent("observations-2023-11-14.jsonl")
+        // D-4: per-day observation JSONL is no longer written; the snapshot below is the
+        // only persisted observation state. Old observations-* files are still pruned.
+        #expect(!FileManager.default.fileExists(atPath:
+            directory.appendingPathComponent("observations-2023-11-14.jsonl").path))
+        let file = directory.appendingPathComponent("last-observations.json")
         let data = try Data(contentsOf: file)
         let text = String(decoding: data, as: UTF8.self)
         #expect(text.contains("private-plan") == false)
@@ -122,13 +126,10 @@ struct SuggestionStateTests {
         }
         let directoryMode = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
         let fileMode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
-        let snapshotMode = try FileManager.default.attributesOfItem(
-            atPath: directory.appendingPathComponent("last-observations.json").path)[.posixPermissions] as? NSNumber
         let saltMode = try FileManager.default.attributesOfItem(
             atPath: directory.appendingPathComponent("salt").path)[.posixPermissions] as? NSNumber
         #expect(directoryMode?.intValue == 0o700)
         #expect(fileMode?.intValue == 0o600)
-        #expect(snapshotMode?.intValue == 0o600)
         #expect(saltMode?.intValue == 0o600)
     }
 
@@ -141,7 +142,7 @@ struct SuggestionStateTests {
         try Data("block".utf8).write(to: env.storeDir.appendingPathComponent("suggestion"))
         SuggestionStateStore(env: env, fs: SafeFS(env: env)).record([usage(20, at: start)], now: start)
         #expect(!FileManager.default.fileExists(atPath:
-            env.storeDir.appendingPathComponent("suggestion/observations-2023-11-14.jsonl").path))
+            env.storeDir.appendingPathComponent("suggestion/events-2023-11-14.jsonl").path))
     }
 
     @Test("account references use stable, distinct HMAC keys and never persist raw identifiers")
@@ -207,8 +208,6 @@ struct SuggestionStateTests {
         let loaded = SuggestionStateStore(env: env, fs: fs).loadLastObservations()
         #expect(loaded.count == 2)
         #expect(Set(loaded.values.map(\.usedPercent)) == Set([20, 30]))
-        #expect(FileManager.default.fileExists(atPath:
-            directory.appendingPathComponent("observations-2023-11-14.jsonl").path))
     }
 
     @Test("daily JSONL rotates over one MiB and expires archives older than 180 days")
@@ -228,7 +227,7 @@ struct SuggestionStateTests {
         let next = start.addingTimeInterval(120)
         store.record([usage(20, at: start, resetsAt: reset)], now: start)
         store.record([usage(25, at: next, resetsAt: reset)], now: next)
-        #expect(FileManager.default.fileExists(atPath:
+        #expect(!FileManager.default.fileExists(atPath:
             directory.appendingPathComponent("observations-2023-11-14-2.jsonl").path))
         #expect(FileManager.default.fileExists(atPath:
             directory.appendingPathComponent("events-2023-11-14-2.jsonl").path))
@@ -273,5 +272,29 @@ struct SuggestionStateTests {
             directory.appendingPathComponent("events-2023-11-14.jsonl").path))
         #expect(!FileManager.default.fileExists(atPath:
             directory.appendingPathComponent("last-observations.json").path))
+    }
+
+    @Test("an invalid salt file resets the learning folder and reseeds")
+    func invalidSaltResets() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let fs = SafeFS(env: env)
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        try fs.createDirectory(directory)
+        // Wrong size: the salt is unusable and so is everything keyed by it.
+        try Data("bad".utf8).write(to: directory.appendingPathComponent("salt"))
+        try Data("x".utf8).write(to: directory.appendingPathComponent("events-2023-11-14.jsonl"))
+        let refs = SuggestionAccountReference(env: env, fs: fs)
+        let key = refs.key(for: "someone@example.com")
+        #expect(key != nil)
+        #expect(key == refs.key(for: "someone@example.com"))
+        // The folder was wiped and reseeded: old files are gone, a valid salt exists.
+        #expect(!FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("events-2023-11-14.jsonl").path))
+        let saltAttrs = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("salt").path)
+        #expect((saltAttrs[.size] as? NSNumber)?.intValue == 32)
+        #expect((saltAttrs[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
 }

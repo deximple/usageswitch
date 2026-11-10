@@ -379,7 +379,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         do { try fs.createDirectory(directory) } catch {
             return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         }
-        SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: boundedReader)
+        SuggestionRetention.prune(directory: directory, fs: fs, now: now)
         var state: FileCursorState
         switch loadCursors() {
         case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
