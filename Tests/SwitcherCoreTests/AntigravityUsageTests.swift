@@ -79,6 +79,60 @@ private final class MutableUsageClock: @unchecked Sendable {
     }
 }
 
+@Suite("Antigravity VT parser hardening (audit B-09)")
+struct AntigravityVTParserTests {
+    private func screen(_ bytes: String, columns: Int = 40, rows: Int = 4) -> AntigravityVTScreenBuffer {
+        var buffer = AntigravityVTScreenBuffer(columns: columns, rows: rows)
+        buffer.feed(Data(bytes.utf8))
+        return buffer
+    }
+
+    @Test func hugeControlParametersAreClamped() {
+        // Int.max parameters must not trap or corrupt the buffer — each value() read clamps
+        // to 10,000 (audit B-09).
+        let max_ = "\u{1b}[9223372036854775807"
+        for final in ["C", "B", "A", "D", "G", "d", "H"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+            buffer.feed(Data(("x" + max_ + final).utf8))
+            _ = buffer.lines
+        }
+        // an unknown final marks the buffer untrusted instead of trusting a half-parsed screen
+        var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+        buffer.feed(Data("\u{1b}[5z".utf8))
+        #expect(buffer.untrusted)
+    }
+
+    @Test func eraseCharacterClearsCells() {
+        // `> /usage` followed by stray text, then cursor back to col 9 + ESC[39X blanks the
+        // trailing cells and the exact `/usage` row returns (audit B-09).
+        var buffer = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        buffer.feed(Data("> /usage garbage\u{1b}[9G\u{1b}[39X".utf8))
+        let row = buffer.lines.first { $0.hasPrefix(">") } ?? ""
+        #expect(row == "> /usage")
+        #expect(buffer.hasUsageInput)
+        // a row that still differs from the exact command stays false
+        var other = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        other.feed(Data("> /usage garbage".utf8))
+        #expect(!other.hasUsageInput)
+    }
+
+    @Test func deleteTabAndReverseIndexWork() {
+        // DCH removes cells in place: "0123" + "6789".
+        var dch = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+        dch.feed(Data("0123456789\u{1b}[5G\u{1b}[2P".utf8))
+        #expect(dch.lines[0].hasPrefix("01236789"))
+        // CBT from column 16 back two tab stops lands at column 0.
+        var cbt = AntigravityVTScreenBuffer(columns: 40, rows: 2)
+        cbt.feed(Data("aaaaaaaaaaaaaaaa\u{1b}[2ZX".utf8))
+        #expect(cbt.lines[0].hasPrefix("X"))
+        // RI at row 0 scrolls the screen content down one line.
+        var ri = AntigravityVTScreenBuffer(columns: 10, rows: 3)
+        ri.feed(Data("top\u{1b}M".utf8))
+        #expect(ri.lines[1].hasPrefix("top"))
+    }
+}
+
+
 @Suite("Antigravity screen parser")
 struct AntigravityScreenTests {
     private var fixture: URL {

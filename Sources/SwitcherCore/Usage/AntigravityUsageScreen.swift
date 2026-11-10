@@ -586,8 +586,12 @@ public struct AntigravityVTScreenBuffer: Sendable {
         }
     }
 
+    /// Set when an unrecognized CSI final was consumed: the screen may be wrong, so prompt and
+    /// input checks refuse to claim anything (audit B-09).
+    private(set) var untrusted = false
+
     var hasMainInputPrompt: Bool {
-        !hasTrustPrompt && lines.contains {
+        !untrusted && !hasTrustPrompt && lines.contains {
             $0.localizedCaseInsensitiveContains("? for shortcuts")
         }
     }
@@ -599,10 +603,10 @@ public struct AntigravityVTScreenBuffer: Sendable {
     }
 
     var hasUsageInput: Bool {
-        guard !hasTrustPrompt else { return false }
+        guard !untrusted, !hasTrustPrompt else { return false }
         return lines.contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.hasPrefix("> /usage") || trimmed.hasPrefix("› /usage")
+            return trimmed == "> /usage" || trimmed == "› /usage"
         }
     }
 
@@ -636,6 +640,15 @@ public struct AntigravityVTScreenBuffer: Sendable {
             case 0x5b: state = .csi("")
             case 0x5d: state = .osc
             case 0x28, 0x29, 0x2a, 0x2b, 0x2d, 0x2e, 0x2f: state = .charset
+            case 0x4d:
+                flushIncompleteUTF8()
+                if row == 0 {
+                    cells.removeLast()
+                    cells.insert(Array(repeating: " ", count: columns), at: 0)
+                } else {
+                    row -= 1
+                }
+                state = .ground
             default: state = .ground
             }
         case .charset:
@@ -707,7 +720,7 @@ public struct AntigravityVTScreenBuffer: Sendable {
         let parameters = raw.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
         func value(_ index: Int, default fallback: Int = 1) -> Int {
             guard index < parameters.count, parameters[index] > 0 else { return fallback }
-            return parameters[index]
+            return min(parameters[index], 10_000)
         }
         switch final {
         case 0x48, 0x66:
@@ -721,8 +734,24 @@ public struct AntigravityVTScreenBuffer: Sendable {
         case 0x64: row = min(rows - 1, max(0, value(0) - 1))
         case 0x4b: eraseLine(value(0, default: 0))
         case 0x4a: eraseDisplay(value(0, default: 0))
-        default: break
+        case 0x58: eraseCharacters(value(0))
+        case 0x50: deleteCharacters(value(0))
+        case 0x5a: column = max(0, ((column / 8) - max(1, value(0))) * 8)
+        default: untrusted = true
         }
+    }
+
+    /// ECH: blank the next n cells from the cursor without moving it.
+    private mutating func eraseCharacters(_ count: Int) {
+        for x in column..<min(columns, column + count) { cells[row][x] = " " }
+    }
+
+    /// DCH: drop n cells at the cursor and shift the rest of the row left.
+    private mutating func deleteCharacters(_ count: Int) {
+        var rowCells = cells[row]
+        let tail = rowCells[min(columns, column + count)...]
+        rowCells.replaceSubrange(column..<columns, with: tail + Array(repeating: " ", count: count))
+        cells[row] = rowCells
     }
 
     private mutating func eraseLine(_ mode: Int) {
