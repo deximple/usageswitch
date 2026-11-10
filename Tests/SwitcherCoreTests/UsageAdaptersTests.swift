@@ -825,7 +825,7 @@ struct SignInReasonTests {
     @Test("noSignIn names the provider; signInExpired names the CLI command")
     func reasons() {
         #expect(UsageText.problem(.noSignIn, provider: .grok)
-            == L10n.string(.usageReasonNoSignIn, language: .en, ["Grok"]))
+            == L10n.string(.usageReasonNoSignIn, language: L10n.language, ["Grok"]))
         #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
         #expect(UsageText.cliCommand(.antigravity) == "agy")
@@ -834,7 +834,7 @@ struct SignInReasonTests {
     @Test("signInRejected names the tool's own login command")
     func signInRejected() {
         #expect(UsageText.problem(.signInRejected, provider: .devin)
-            == L10n.string(.usageReasonSignInRejected, language: .en, ["devin auth login"]))
+            == L10n.string(.usageReasonSignInRejected, language: L10n.language, ["devin auth login"]))
         #expect(UsageText.cliCommand(.claude) == "claude auth login")
         #expect(UsageText.cliCommand(.codex) == "codex login")
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
@@ -1105,8 +1105,8 @@ struct GeminiRetiredTests {
     @Test("reason strings: Gemini-retired vs generic notEligible")
     func text() {
         #expect(UsageText.problem(.notEligible, provider: .gemini)
-            == L10n.string(.usageReasonGeminiRetired, language: .en))
+            == L10n.string(.usageReasonGeminiRetired, language: L10n.language))
         #expect(UsageText.problem(.notEligible, provider: .grok)
-            == L10n.string(.usageReasonNotEligible, language: .en, ["Grok"]))
+            == L10n.string(.usageReasonNotEligible, language: L10n.language, ["Grok"]))
     }
 }

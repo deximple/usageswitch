@@ -114,9 +114,9 @@ struct MenuBarUsageTests {
     @Test("usage title shows the REMAINING share, localized")
     func usageTitle() {
         #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4)
-            == "Weekly " + L10n.string(.usageLeft, language: .en, [25]))
+            == "Weekly " + L10n.string(.usageLeft, language: L10n.language, [25]))
         #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6)
-            == "Session " + L10n.string(.usageLeft, language: .en, [0]))
+            == "Session " + L10n.string(.usageLeft, language: L10n.language, [0]))
     }
 
     @Test("unscoped totals outrank scoped pools on the menu bar")
@@ -131,7 +131,7 @@ struct MenuBarUsageTests {
         #expect(MenuBarTitle.usage(
             windowName: UsageText.name(of: candidates[0], scoped: false),
             usedPercent: candidates[0].usedPercent)
-            == "Monthly " + L10n.string(.usageLeft, language: .en, [60]))
+            == L10n.string(.usageWinMonthly, language: L10n.language) + " " + L10n.string(.usageLeft, language: L10n.language, [60]))
     }
 
     @Test("a pin selects a scoped Cursor pool ahead of its total")
@@ -188,33 +188,33 @@ struct UsageTextTests {
         let weekly = UsageWindow(durationMinutes: 10080, usedPercent: 50, resetsAt: nil)
         let fable = UsageWindow(scope: "Fable", durationMinutes: 10080, usedPercent: 3, resetsAt: nil)
         let session = UsageWindow(durationMinutes: 300, usedPercent: 0, resetsAt: nil)
-        #expect(UsageText.name(of: weekly) == L10n.string(.usageWinWeekly, language: .en))
-        #expect(UsageText.name(of: fable) == L10n.string(.usageWinScope, language: .en, [L10n.string(.usageWinWeekly, language: .en), "Fable"]))
-        #expect(UsageText.name(of: fable, scoped: false) == L10n.string(.usageWinWeekly, language: .en))
-        #expect(UsageText.name(of: session) == L10n.string(.usageWinSession, language: .en))
-        #expect(UsageText.left(weekly) == L10n.string(.usageLeft, language: .en, [50]))
+        #expect(UsageText.name(of: weekly) == L10n.string(.usageWinWeekly, language: L10n.language))
+        #expect(UsageText.name(of: fable) == L10n.string(.usageWinScope, language: L10n.language, [L10n.string(.usageWinWeekly, language: L10n.language), "Fable"]))
+        #expect(UsageText.name(of: fable, scoped: false) == L10n.string(.usageWinWeekly, language: L10n.language))
+        #expect(UsageText.name(of: session) == L10n.string(.usageWinSession, language: L10n.language))
+        #expect(UsageText.left(weekly) == L10n.string(.usageLeft, language: L10n.language, [50]))
     }
 
     @Test("countdown formats")
     func countdown() {
         let now = Date(timeIntervalSince1970: 0)
-        #expect(UsageText.countdown(to: now.addingTimeInterval(2 * 86400 + 4 * 3600), from: now) == L10n.string(.usageDurDH, language: .en, [2, 4]))
-        #expect(UsageText.countdown(to: now.addingTimeInterval(3600 + 13 * 60), from: now) == L10n.string(.usageDurHM, language: .en, [1, 13]))
-        #expect(UsageText.countdown(to: now.addingTimeInterval(5 * 60), from: now) == L10n.string(.usageDurM, language: .en, [5]))
-        #expect(UsageText.countdown(to: now.addingTimeInterval(3600), from: now) == L10n.string(.usageDurH, language: .en, [1]))
-        #expect(UsageText.countdown(to: now.addingTimeInterval(-60), from: now) == L10n.string(.usageNow, language: .en))
-        #expect(UsageText.updatedAgo(readAt: now, now: now.addingTimeInterval(40 * 60)) == L10n.string(.usageUpdatedAgo, language: .en,
-                             [L10n.string(.usageDurM, language: .en, [40])]))
+        #expect(UsageText.countdown(to: now.addingTimeInterval(2 * 86400 + 4 * 3600), from: now) == L10n.string(.usageDurDH, language: L10n.language, [2, 4]))
+        #expect(UsageText.countdown(to: now.addingTimeInterval(3600 + 13 * 60), from: now) == L10n.string(.usageDurHM, language: L10n.language, [1, 13]))
+        #expect(UsageText.countdown(to: now.addingTimeInterval(5 * 60), from: now) == L10n.string(.usageDurM, language: L10n.language, [5]))
+        #expect(UsageText.countdown(to: now.addingTimeInterval(3600), from: now) == L10n.string(.usageDurH, language: L10n.language, [1]))
+        #expect(UsageText.countdown(to: now.addingTimeInterval(-60), from: now) == L10n.string(.usageNow, language: L10n.language))
+        #expect(UsageText.updatedAgo(readAt: now, now: now.addingTimeInterval(40 * 60)) == L10n.string(.usageUpdatedAgo, language: L10n.language,
+                             [L10n.string(.usageDurM, language: L10n.language, [40])]))
     }
 
     @Test("reasons and labels")
     func reasons() {
         #expect(UsageText.reason(.ok, provider: .claude) == nil)
-        #expect(UsageText.reason(.notReporting, provider: .codex) == L10n.string(.usageReasonNotReporting, language: .en))
-        #expect(UsageText.reason(.unavailable(.cliMissing), provider: .claude) == L10n.string(.usageReasonCliMissing, language: .en))
+        #expect(UsageText.reason(.notReporting, provider: .codex) == L10n.string(.usageReasonNotReporting, language: L10n.language))
+        #expect(UsageText.reason(.unavailable(.cliMissing), provider: .claude) == L10n.string(.usageReasonCliMissing, language: L10n.language))
         #expect(UsageText.reason(.unavailable(.schemaChanged), provider: .codex)
-            == L10n.string(.usageReasonSchemaChanged, language: .en, ["Codex"]))
-        #expect(UsageText.reason(.failed(.timeout), provider: .codex) == L10n.string(.usageReasonTimeout, language: .en))
+            == L10n.string(.usageReasonSchemaChanged, language: L10n.language, ["Codex"]))
+        #expect(UsageText.reason(.failed(.timeout), provider: .codex) == L10n.string(.usageReasonTimeout, language: L10n.language))
         #expect(UsageText.planName("prolite") == "Pro Lite")
         #expect(UsageText.planName("unknownplan") == "unknownplan")
         #expect(UsageText.planName(nil) == nil)

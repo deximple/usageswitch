@@ -604,7 +604,7 @@ struct UsageSnapshotTests {
         #expect(snapshot.accounts[0].windows[0].leftPercent == 45)
         #expect(snapshot.accounts[1].state == "unavailable")
         #expect(snapshot.accounts[1].problem == "schemaChanged")
-        #expect(snapshot.accounts[1].label == L10n.string(.usageLabelCLI, language: .en))
+        #expect(snapshot.accounts[1].label == L10n.string(.usageLabelCLI, language: L10n.language))
 
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

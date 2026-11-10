@@ -78,12 +78,11 @@ struct SwapEngineTests {
                 let fresh = SwapEngine(env: snapEnv, fs: SafeFS(env: snapEnv),
                                        isClaudeRunning: { false })
                 try? fresh.resolvePending()
+                // Whole-tree match: recovery must land on the complete before OR the
+                // complete after state — never a per-file mix of the two.
                 let live = fingerprint(snapEnv.claudeUserData, Self.names + extra)
-                for name in Self.names + extra {
-                    let data = live[name] ?? nil
-                    #expect(data == before[name] ?? nil || data == after[name] ?? nil,
-                            "\(label) snap \(i): \(name) is neither before nor after bytes")
-                }
+                #expect(live == before || live == after,
+                        "\(label) snap \(i): recovered tree is neither before nor after state")
                 // Pending work must be fully settled; a snapshot with no journal carries
                 // only preparation leftovers (staging/previous created before the journal
                 // write), which resolvePending rightly leaves alone.
