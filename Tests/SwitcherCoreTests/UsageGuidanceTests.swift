@@ -419,7 +419,7 @@ struct UsageAlertStoreTests {
         let sb = try Sandbox(); defer { sb.remove() }
         let store = UsageAlertStore(env: sb.env, fs: sb.fs)
         #expect(store.load() == nil)
-        let marks: [String: UsageAlerts.Mark] = ["claude:cli/session/": .init(),
+        let marks: [String: UsageAlerts.Mark] = ["claude:cli/session/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000)),
                                                  "codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))]
         let state = UsageAlertState(threshold: 80, marks: marks)
         try store.save(state)
@@ -436,6 +436,42 @@ struct UsageAlertStoreTests {
         #expect(UsageAlertStore(env: sb.env, fs: sb.fs).load() == nil)
         try sb.fs.write(Data(repeating: 0x20, count: UsageAlertStore.maximumBytes + 1), to: sb.env.usageAlertsFile)
         #expect(UsageAlertStore(env: sb.env, fs: sb.fs).load() == nil)
+    }
+
+    @Test func marksWithoutAResetTimeAreNotPersisted() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let store = UsageAlertStore(env: sb.env, fs: sb.fs)
+        let state = UsageAlertState(threshold: 80, marks: [
+            "codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000)),
+            "grok:current/weekly/": .init(),
+        ])
+        try store.save(state)
+        let loaded = try #require(store.load())
+        #expect(loaded.threshold == 80)
+        #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))])
+    }
+
+    @Test func aStoredMarkWithoutAResetTimeIsIgnoredOnLoad() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let json = #"{"marks":{"grok:current/weekly/":{},"codex:m-1a2b3c4d/weekly/":{"resetsAt":800000000}},"threshold":80}"#
+        try sb.fs.createDirectory(sb.env.storeDir)
+        try sb.fs.write(Data(json.utf8), to: sb.env.usageAlertsFile)
+        let loaded = try #require(UsageAlertStore(env: sb.env, fs: sb.fs).load())
+        #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSinceReferenceDate: 800_000_000))])
+    }
+
+    @Test func anotherAccountWithoutResetTimesWarnsAfterARestart() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let store = UsageAlertStore(env: sb.env, fs: sb.fs)
+        let grok = usage([window(10080, used: 90, resetsAt: nil)], id: "grok:current", provider: .grok)
+        let first = UsageAlerts.update(usages: [grok], threshold: 80, alerted: [:], now: epoch)
+        #expect(first.alerts.count == 1)
+        // The mark survives this run (suppression in memory), but is not persisted.
+        try store.save(UsageAlertState(threshold: 80, marks: first.alerted))
+        let loaded = store.load()
+        let again = UsageAlerts.update(usages: [grok], threshold: 80,
+                                       alerted: loaded?.marks(for: 80) ?? [:], now: epoch)
+        #expect(again.alerts.count == 1)
     }
 
     @Test func theFileHoldsOnlyOpaqueKeys() throws {

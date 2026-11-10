@@ -35,17 +35,24 @@ public struct UsageAlertStore: Sendable {
         self.fs = fs
     }
 
-    /// nil when there is no file or it cannot be read: warnings then start from nothing.
+    /// nil when there is no file or it cannot be read: warnings then start from nothing. Marks without
+    /// a reset time are dropped here too, so the file is read by the same rule `save` writes it by.
     public func load() -> UsageAlertState? {
-        guard let data = BoundedReader.readBounded(env.usageAlertsFile.path, limit: Self.maximumBytes, allowBinary: true)
+        guard let data = BoundedReader.readBounded(env.usageAlertsFile.path, limit: Self.maximumBytes, allowBinary: true),
+              let state = try? JSONDecoder().decode(UsageAlertState.self, from: data)
         else { return nil }
-        return try? JSONDecoder().decode(UsageAlertState.self, from: data)
+        return UsageAlertState(threshold: state.threshold, marks: state.marks.filter { $0.value.resetsAt != nil })
     }
 
+    /// Marks without a reset time cannot tell accounts apart across a restart, so they are not
+    /// written: they stay in memory only until the app quits.
     public func save(_ state: UsageAlertState) throws {
         try fs.createDirectory(env.storeDir)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try fs.write(try encoder.encode(state), to: env.usageAlertsFile)
+        let persisted = UsageAlertState(
+            threshold: state.threshold,
+            marks: state.marks.filter { $0.value.resetsAt != nil })
+        try fs.write(try encoder.encode(persisted), to: env.usageAlertsFile)
     }
 }
