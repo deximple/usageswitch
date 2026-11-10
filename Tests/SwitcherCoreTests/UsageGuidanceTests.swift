@@ -40,6 +40,80 @@ struct UsagePaceTests {
         #expect(UsagePace.reading(fresh(epoch, 50), previous: recent, now: epoch, identityKey: "id1") == .unknown)
     }
 
+    @Test func aSingleOnePointTickIsNotAProjection() {
+        // 30 → 31 over 300 s: rising, but no anchored evidence yet (audit B-08).
+        let prev = prev(epoch.addingTimeInterval(-300), 30)
+        #expect(UsagePace.reading(fresh(epoch, 31), previous: prev, now: epoch,
+                                identityKey: "id1") == .unknown)
+    }
+
+    @Test func twoPointsOverTenMinutesProject() throws {
+        // The anchor survives a rising step: 30 at -600 → 31 at -300 → 32 now projects
+        // on a 2-points-per-600-s slope.
+        let first = prev(epoch.addingTimeInterval(-600), 30)
+        let midWindow = fresh(epoch.addingTimeInterval(-300), 31,
+                              reset: epoch.addingTimeInterval(3 * 86400))
+        let midAnchor = try #require(UsagePace.anchor(
+            for: midWindow, previous: first,
+            now: epoch.addingTimeInterval(-300), identityKey: "id1"))
+        let second = UsagePace.Sample(
+            at: epoch.addingTimeInterval(-300), usedPercent: 31, identityKey: "id1",
+            resetsAt: epoch.addingTimeInterval(3 * 86400), durationMinutes: 300,
+            anchorAt: midAnchor.at, anchorPercent: midAnchor.percent)
+        let reading = UsagePace.reading(
+            fresh(epoch, 32, reset: epoch.addingTimeInterval(3 * 86400)),
+            previous: second, now: epoch, identityKey: "id1")
+        // 68 left at 2 points per 600 s → 68/2*600 = 20 400 s
+        #expect(reading == .depleting(at: epoch.addingTimeInterval(20_400)))
+    }
+
+    @Test func theAnchorResetsWhenTheWindowOrIdentityChanges() {
+        // A different reset or login means the earlier anchor cannot be trusted.
+        let prev = prev(epoch.addingTimeInterval(-300), 30)
+        #expect(UsagePace.reading(fresh(epoch, 31, reset: epoch.addingTimeInterval(5 * 86400)),
+                                previous: prev, now: epoch, identityKey: "id1") == .unknown)
+        #expect(UsagePace.reading(fresh(epoch, 31), previous: prev, now: epoch,
+                                identityKey: "other") == .unknown)
+    }
+
+    @Test func aLongPauseDropsTheAnchor() throws {
+        // Samples farther apart than maximumSampleGap lose their anchor: the next rising
+        // sample is a single tick again.
+        let old = prev(epoch.addingTimeInterval(-601), 30)
+        let current = fresh(epoch, 31)
+        let anchor = try #require(UsagePace.anchor(for: current, previous: old,
+                                                   now: epoch, identityKey: "id1"))
+        #expect(anchor.at == epoch)
+        #expect(anchor.percent == 31)
+        #expect(UsagePace.reading(current, previous: old, now: epoch,
+                                identityKey: "id1") == .unknown)
+    }
+
+    @Test func theAnchorIsKeptWhileRisingButCappedAtAnHour() {
+        let prev = UsagePace.Sample(at: epoch.addingTimeInterval(-400), usedPercent: 30,
+                                    identityKey: "id1",
+                                    resetsAt: epoch.addingTimeInterval(3 * 86400),
+                                    durationMinutes: 300,
+                                    anchorAt: epoch.addingTimeInterval(-400), anchorPercent: 30)
+        // rising -> keep the anchor
+        let kept = UsagePace.anchor(for: fresh(epoch, 31), previous: prev,
+                                    now: epoch, identityKey: "id1")
+        #expect(kept?.at == epoch.addingTimeInterval(-400))
+        // flat or falling -> anchor moves to the current sample
+        let flat = UsagePace.anchor(for: fresh(epoch, 30), previous: prev,
+                                    now: epoch, identityKey: "id1")
+        #expect(flat?.at == epoch)
+        // past 60 min the anchor is dropped even when rising
+        let ancient = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 30,
+                                       identityKey: "id1",
+                                       resetsAt: epoch.addingTimeInterval(3 * 86400),
+                                       durationMinutes: 300,
+                                       anchorAt: epoch.addingTimeInterval(-3601), anchorPercent: 10)
+        let dropped = UsagePace.anchor(for: fresh(epoch, 31), previous: ancient,
+                                       now: epoch, identityKey: "id1")
+        #expect(dropped?.at == epoch)
+    }
+
     @Test("flat or falling use is steady")
     func steady() {
         let prev = prev(epoch.addingTimeInterval(-300), 50)
