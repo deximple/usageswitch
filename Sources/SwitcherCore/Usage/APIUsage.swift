@@ -17,6 +17,10 @@ public enum APIVendor: String, CaseIterable, Codable, Identifiable, Sendable {
     public static func matching(_ provider: UsageProvider) -> APIVendor? {
         allCases.first { $0.usageProvider == provider }
     }
+
+    /// Only OpenAI writes priced API-key usage to the local logs (audit B-07, D-5); other vendors'
+    /// log entries are subscription traffic, so spend for them can't be estimated.
+    public var hasLogReader: Bool { self == .openai }
 }
 
 public enum APIBudget: Codable, Equatable, Sendable {
@@ -123,14 +127,17 @@ public struct APIUsageEstimate: Equatable, Sendable {
     public let dailySpend: [APIDailySpend]
     /// No estimate yet because this vendor's logs are still being read (not because a price is unknown).
     public let isReadingLogs: Bool
+    /// Only vendors with a log reader can estimate spend from local logs (audit B-07, D-5).
+    public let isEstimable: Bool
     /// The first UTC day the stored usage is complete from, when known.
     public let coverageStartDay: String?
 
     public init(hasAPIKeyAccounts: Bool, spendIsComplete: Bool, spendLast7DaysUSD: Double?,
                 dailyRateUSD: Double?, medianDailyRate14DaysUSD: Double?,
                 dailySpend: [APIDailySpend], isReadingLogs: Bool = false,
-                coverageStartDay: String? = nil) {
+                isEstimable: Bool = true, coverageStartDay: String? = nil) {
         self.isReadingLogs = isReadingLogs
+        self.isEstimable = isEstimable
         self.coverageStartDay = coverageStartDay
         self.hasAPIKeyAccounts = hasAPIKeyAccounts
         self.spendIsComplete = spendIsComplete
@@ -192,15 +199,23 @@ public enum APIUsageEstimator {
             let sorted = values.sorted()
             let median = (sorted[6] + sorted[7]) / 2
             let sevenDayValue = unknownSevenDayPrice ? nil : sevenDaySpend
+            // The rate divides by the days actually covered, not a flat 7: a fresh reader with
+            // one day of records must not understate the daily spend by seven (audit B-07).
+            let earliestDay = daily.keys.filter { $0 >= firstSeven }.min()
+            let coveredDays = earliestDay
+                .flatMap { dayFormatter.date(from: $0) }
+                .flatMap { calendar.dateComponents([.day], from: $0, to: startOfToday).day }
+                .map { min(7, max(1, $0 + 1)) } ?? 1
             result[vendor] = APIUsageEstimate(
                 hasAPIKeyAccounts: !accounts.isEmpty,
                 spendIsComplete: !unknownBudgetPrice,
                 spendLast7DaysUSD: sevenDayValue,
-                dailyRateUSD: sevenDayValue.map { $0 / 7 },
+                dailyRateUSD: sevenDayValue.map { $0 / Double(coveredDays) },
                 medianDailyRate14DaysUSD: unknownRecentPrice ? nil : median,
                 dailySpend: unknownBudgetPrice ? [] : daily.keys.sorted()
                     .map { APIDailySpend(day: $0, amountUSD: daily[$0] ?? 0) },
-                isReadingLogs: isReadingLogs, coverageStartDay: coverageStartDay)
+                isReadingLogs: isReadingLogs, isEstimable: vendor.hasLogReader,
+                coverageStartDay: coverageStartDay)
         }
         return result
     }
@@ -237,6 +252,15 @@ public enum APIUsageEstimator {
         let amount: Double = inputCost + cachedCost + outputCost
         return amount.isFinite && amount >= 0 ? amount : nil
     }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     private static var utcCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)

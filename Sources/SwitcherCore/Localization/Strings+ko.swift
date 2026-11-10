@@ -84,6 +84,7 @@ extension Strings {
         .uiSetAsideJournalTitle: "미완료 전환 기록을 치울까요?",
         .uiSetAsideJournalBody: "손상된 전환 기록과 기록이 보관한 파일(previous/과 staging/)이 displaced/journal-<날짜>로 옮겨집니다. 아무것도 삭제되지 않습니다. Claude의 현재 파일은 그대로 두며, 이후 Claude에 로그인되어 있지 않으면 Claude에서 다시 로그인하세요.",
         .uiLinkBusy: "다른 작업이 진행되는 동안 전환 링크가 도착했습니다. 작업이 끝나면 다시 시도해 주세요.",
+        .apiNotEstimable: "이 벤더는 로컬 로그로 지출을 추정할 수 없습니다.",
         .reasonSwapAndRollbackFailed: "교체에 실패했고 되돌리기도 실패했습니다(전환 기록 보존, 자동 복구 대기): %@",
         .reasonRolledBack: "되돌렸습니다: %@",
         .reasonSchemaNewer: "쿠키 스키마 %1$d > %2$d",

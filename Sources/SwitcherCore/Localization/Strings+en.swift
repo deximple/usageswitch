@@ -84,6 +84,7 @@ extension Strings {
         .uiSetAsideJournalTitle: "Set aside the pending switch record?",
         .uiSetAsideJournalBody: "The damaged switch record and the files it kept (previous/ and staging/) are moved to displaced/journal-<date>. Nothing is deleted. Claude's current files are left as they are; if Claude isn't signed in afterwards, sign in again in Claude.",
         .uiLinkBusy: "A switch link arrived while another action was in progress. Try again when it finishes.",
+        .apiNotEstimable: "Spend for this vendor can't be estimated from local logs.",
         .reasonSwapAndRollbackFailed: "The swap failed and so did the rollback (switch record kept, waiting for automatic recovery): %@",
         .reasonRolledBack: "Rolled back: %@",
         .reasonSchemaNewer: "cookie schema %1$d > %2$d",

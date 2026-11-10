@@ -84,6 +84,48 @@ struct APITests {
             ], now: asOf.addingTimeInterval(86_400)) == 90)
     }
 
+    @Test func theDailyRateUsesTheDaysCovered() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let model = try #require(catalog.models.first { $0.model == "claude-fable-5-1" })
+        let key = APIKeyAccountKey(provider: .claude, accountKey: "acct-rate")
+        func record(daysAgo: Int, usd: Double) -> SuggestionLogUsage {
+            let day = SuggestionRetention.utcDay(
+                Calendar(identifier: .gregorian).date(byAdding: .day, value: -daysAgo, to: now) ?? now)
+            // one token at $1/token keeps the arithmetic exact
+            let costPerToken = try? model.values.first { $0.code == "inputPricePerMTok" }?.number
+            let tokens = Int64((usd * 1_000_000) / (costPerToken ?? 1))
+            return SuggestionLogUsage(day: day, provider: .claude, accountRef: key.accountKey,
+                model: model.model, effort: "high", turns: 1, inputTokens: tokens,
+                cachedInputTokens: 0, cachedCreationTokens: 0,
+                outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
+        }
+        var e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 14) < 0.01)
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 7),
+            record(daysAgo: 1, usd: 7), record(daysAgo: 2, usd: 7)],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 7) < 0.01)
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
+            record(daysAgo: 6, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 4) < 0.01)
+    }
+
+    @Test func vendorsWithoutALogReaderAreMarkedNotEstimable() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let e = APIUsageEstimator.estimate(records: [], apiKeyAccounts: [
+            APIKeyAccountKey(provider: .claude, accountKey: "a"),
+            APIKeyAccountKey(provider: .gemini, accountKey: "b"),
+            APIKeyAccountKey(provider: .grok, accountKey: "c"),
+            APIKeyAccountKey(provider: .codex, accountKey: "d")],
+            catalog: catalog, now: now)
+        #expect(e[.anthropic]?.isEstimable == false)
+        #expect(e[.google]?.isEstimable == false)
+        #expect(e[.xai]?.isEstimable == false)
+        #expect(e[.openai]?.isEstimable == true)
+    }
+
     @Test("spend estimates include API-key accounts only and hide unknown prices")
     func estimatesUseOnlyPricedAPIKeyUsage() throws {
         let catalog = try SuggestionCatalog.bundled()
@@ -121,7 +163,7 @@ struct APITests {
         let anthropic = try #require(estimates[.anthropic])
         #expect(anthropic.hasAPIKeyAccounts)
         #expect(abs(try #require(anthropic.spendLast7DaysUSD) - expected) < 0.000_001)
-        #expect(abs(try #require(anthropic.dailyRateUSD) - expected / 7) < 0.000_001)
+        #expect(abs(try #require(anthropic.dailyRateUSD) - expected) < 0.000_001)
         #expect(estimates[.openai]?.hasAPIKeyAccounts == false)
 
         let noPrice = SuggestionLogUsage(day: day, provider: .claude, accountRef: key.accountKey,

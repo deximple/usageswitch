@@ -120,7 +120,10 @@ struct APIContent: View {
                 }
             }
             if hasAPIKeyAccount {
-                if let spend = estimate?.spendLast7DaysUSD,
+                if estimate?.isEstimable == false {
+                    Text(L10n.t(.apiNotEstimable))
+                        .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                } else if let spend = estimate?.spendLast7DaysUSD,
                    let dailyRate = estimate?.dailyRateUSD {
                     Text(L10n.t(.apiEstimate, usd(spend)))
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
