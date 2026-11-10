@@ -563,10 +563,36 @@ final class RedirectProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
+        // The 302 is the final answer: after the delegate refuses the redirect the
+        // original request completes at once — no timeout involved (audit B-13).
         let r = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
                                 headerFields: ["Location": "https://evil.example"])!
         client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: "https://evil.example")!),
                             redirectResponse: r)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Serves exactly `bytes` bytes, declared via Content-Length or streamed as chunks
+/// without a declared length (audit B-13).
+final class BodySizeProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) fileprivate static var bytes = 0
+    nonisolated(unsafe) fileprivate static var chunked = false
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let headers: [String: String] = Self.chunked ? [:] : ["Content-Length": "\(Self.bytes)"]
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                       httpVersion: nil, headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        var left = Self.bytes
+        while left > 0 {
+            let chunk = min(65_536, left)
+            client?.urlProtocol(self, didLoad: Data(count: chunk))
+            left -= chunk
+        }
+        client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }
@@ -583,8 +609,28 @@ struct ProviderEdgeTests {
         let t = SystemUsageHTTPTransport(configuration: c)
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
-        #expect(t.send(req) == nil)
+        // The refused redirect completes as the bare 302 response — immediately.
+        #expect(t.send(req)?.status == 302)
         #expect(RedirectProtocol.targetHit.value == false)
+    }
+
+    @Test("the 1 MiB body cap: exactly at the limit returns, one byte over drops")
+    func bodyLimit() {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [BodySizeProtocol.self]
+        let t = SystemUsageHTTPTransport(configuration: c)
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 30)
+        for chunked in [false, true] {
+            BodySizeProtocol.chunked = chunked
+            for (bytes, expectNil) in [(1_048_576, false), (1_048_577, true)] {
+                BodySizeProtocol.bytes = bytes
+                let response = t.send(req)
+                #expect((response == nil) == expectNil,
+                        "chunked=\(chunked) bytes=\(bytes)")
+                if !expectNil { #expect(response?.body.count == bytes) }
+            }
+        }
     }
 
     @Test("grok lookalike auth origin supplies no token")
