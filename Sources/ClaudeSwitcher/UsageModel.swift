@@ -707,11 +707,16 @@ final class UsageModel: ObservableObject {
                 readings[key] = UsagePace.reading(window, previous: previousSamples[key],
                                                   now: usage.readAt, identityKey: usage.identityKey)
                 guard usage.identityKey != nil,
-                      let resetsAt = window.resetsAt, resetsAt > usage.readAt else { continue }
+                      let resetsAt = window.resetsAt, resetsAt > usage.readAt,
+                      let anchor = UsagePace.anchor(for: window, previous: previousSamples[key],
+                                                    now: usage.readAt,
+                                                    identityKey: usage.identityKey) else { continue }
                 nextSamples[key] = UsagePace.Sample(at: usage.readAt, usedPercent: window.usedPercent,
                                                     identityKey: usage.identityKey,
                                                     resetsAt: resetsAt,
-                                                    durationMinutes: window.durationMinutes)
+                                                    durationMinutes: window.durationMinutes,
+                                                    anchorAt: anchor.at,
+                                                    anchorPercent: anchor.percent)
             }
         }
         previousSamples = nextSamples

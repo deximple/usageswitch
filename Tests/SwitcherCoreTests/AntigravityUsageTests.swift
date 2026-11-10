@@ -79,6 +79,124 @@ private final class MutableUsageClock: @unchecked Sendable {
     }
 }
 
+@Suite("Antigravity VT parser hardening (audit B-09)")
+struct AntigravityVTParserTests {
+    private func screen(_ bytes: String, columns: Int = 40, rows: Int = 4) -> AntigravityVTScreenBuffer {
+        var buffer = AntigravityVTScreenBuffer(columns: columns, rows: rows)
+        buffer.feed(Data(bytes.utf8))
+        return buffer
+    }
+
+    @Test func hugeControlParametersAreClamped() {
+        // Int.max parameters must not trap or corrupt the buffer — each value() read clamps
+        // to 10,000 (audit B-09).
+        let max_ = "\u{1b}[9223372036854775807"
+        for final in ["C", "B", "A", "D", "G", "d", "H"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+            buffer.feed(Data(("x" + max_ + final).utf8))
+            _ = buffer.lines
+        }
+        // an unknown final marks the buffer untrusted instead of trusting a half-parsed screen
+        var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+        buffer.feed(Data("\u{1b}[5z".utf8))
+        #expect(buffer.untrusted)
+    }
+
+    @Test("the prompt marker row is seen (audit B-09)")
+    func promptMarkerRow() {
+        var buffer = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        buffer.feed(Data("? for shortcuts\n".utf8))
+        #expect(buffer.hasMainInputPrompt)
+        #expect(!buffer.untrusted)
+    }
+
+    @Test("stage-by-stage capture state (audit B-09)")
+    func captureStages() throws {
+        let data = try Data(contentsOf:
+            URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin"))
+        var stage1 = AntigravityVTScreenBuffer()
+        stage1.feed(data[0..<2980])
+        #expect(!stage1.untrusted)
+        #expect(stage1.hasMainInputPrompt)
+        stage1.feed(data[2980..<3909])
+        #expect(stage1.hasUsageInput)
+        stage1.feed(data[3909..<6809])
+        #expect(stage1.hasQuotaTitle)
+    }
+
+    @Test("the real capture leaves the buffer trusted (audit B-09)")
+    func realCaptureStaysTrusted() throws {
+        var buffer = AntigravityVTScreenBuffer()
+        buffer.feed(try Data(contentsOf:
+            URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin")))
+        #expect(!buffer.untrusted)
+    }
+
+    @Test("safe sequences stay trusted, grid-changing ones do not")
+    func trustedSequenceRules() {
+        // ESC[31m SGR, ESC[>4;1m private, ESC[ q intermediate, ESC[?25l mode: all no-ops.
+        for seq in ["\u{1b}[31m", "\u{1b}[>4;1m", "\u{1b}[ q", "\u{1b}[?25l"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+            buffer.feed(Data(seq.utf8))
+            #expect(!buffer.untrusted, "\(seq.debugDescription) marked untrusted")
+        }
+        // Unimplemented cursor/cell movement marks untrusted.
+        for seq in ["\u{1b}[2L", "\u{1b}[3S"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+            buffer.feed(Data(seq.utf8))
+            #expect(buffer.untrusted, "\(seq.debugDescription) stayed trusted")
+        }
+    }
+
+    @Test func aHugeDeleteKeepsTheRowWidth() {
+        // DCH larger than the rest of the row must not grow it; repeated, it grew without bound.
+        var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+        buffer.feed(Data(("abcdefghij\u{1b}[3G" + String(repeating: "\u{1b}[10000P", count: 5) + "XY").utf8))
+        #expect(buffer.rowWidths.allSatisfy { $0 == 40 })
+        #expect(buffer.lines.first == "abXY")
+        var middle = AntigravityVTScreenBuffer(columns: 10, rows: 1)
+        middle.feed(Data("0123456789\u{1b}[3G\u{1b}[2P".utf8))
+        #expect(middle.lines.first == "01456789")
+        #expect(middle.rowWidths == [10])
+    }
+
+    @Test func eraseCharacterClearsCells() {
+        // `> /usage` followed by stray text, then cursor back to col 9 + ESC[39X blanks the
+        // trailing cells and the exact `/usage` row returns (audit B-09).
+        var buffer = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        buffer.feed(Data("> /usage garbage\u{1b}[9G\u{1b}[39X".utf8))
+        let row = buffer.lines.first { $0.hasPrefix(">") } ?? ""
+        #expect(row == "> /usage")
+        #expect(buffer.hasUsageInput)
+        // the real echo row carries a hint after whitespace — still the /usage command
+        var hint = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        hint.feed(Data("> /usage   View model quota usage".utf8))
+        #expect(hint.hasUsageInput)
+        // a different command sharing the prefix is not a match
+        var other = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        other.feed(Data("> /usage-report".utf8))
+        #expect(!other.hasUsageInput)
+    }
+
+    @Test func deleteTabAndReverseIndexWork() {
+        // DCH removes cells in place: "0123" + "6789".
+        var dch = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+        dch.feed(Data("0123456789\u{1b}[5G\u{1b}[2P".utf8))
+        #expect(dch.lines[0].hasPrefix("01236789"))
+        // CBT from column 16 back two tab stops lands at column 0.
+        var cbt = AntigravityVTScreenBuffer(columns: 40, rows: 2)
+        cbt.feed(Data("aaaaaaaaaaaaaaaa\u{1b}[2ZX".utf8))
+        #expect(cbt.lines[0].hasPrefix("X"))
+        // RI at row 0 scrolls the screen content down one line.
+        var ri = AntigravityVTScreenBuffer(columns: 10, rows: 3)
+        ri.feed(Data("top\u{1b}M".utf8))
+        #expect(ri.lines[1].hasPrefix("top"))
+    }
+}
+
+
 @Suite("Antigravity screen parser")
 struct AntigravityScreenTests {
     private var fixture: URL {
@@ -215,7 +333,7 @@ struct AntigravityUsageTests {
         UsageHTTPResponse(status: 200, body: Data((body ?? Self.summary).utf8))
     }
 
-    private static let summary = #"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","resetTime":"2026-11-15T03:13:50Z","remainingFraction":0.75},{"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","resetTime":"2026-11-08T08:13:50Z","remainingFraction":0.25},{"window":"daily","remainingFraction":0}] }]}"#
+    private static let summary = #"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","resetTime":"2026-11-15T03:13:50Z","remainingFraction":0.75},{"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","resetTime":"2026-11-08T08:13:50Z","remainingFraction":0.25},{"window":"daily","remainingFraction":0}] }]}"#
 
     @Test("disabled does no subprocess, file, or network access")
     func disabled() {
@@ -233,7 +351,7 @@ struct AntigravityUsageTests {
         http.queue = [project(), quota()]
         let row = collector(http, credentials, runner: missingKeychain()).collect().first
         #expect(row?.state == .ok)
-        #expect(row?.windows.map(\.scope) == ["Claude and GPT models", "Claude and GPT models"])
+        #expect(row?.windows.map(\.scope) == ["Claude And Gpt Models", "Claude And Gpt Models"])
         #expect(row?.windows.map(\.durationMinutes) == [10_080, 300])
         #expect(row?.windows.map(\.usedPercent) == [25, 75])
         #expect(row?.windows[0].resetsAt == UsageJSON.resetDateISO("2026-11-15T03:13:50Z"))
@@ -320,10 +438,10 @@ struct AntigravityUsageTests {
         let clock = MutableUsageClock(now)
         http.queue = [
             tokenResponse("access-one"),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
             tokenResponse("access-two"),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
         ]
         let c = collector(http, credentials, runner: runner, cache: AntigravityAccessTokenCache(), clock: clock)
         #expect(c.collect().first?.state == .ok)
@@ -406,8 +524,10 @@ struct AntigravityUsageTests {
         #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
     }
 
-    @Test("a transient Keychain timeout preserves the cached token and screen windows")
-    func keychainTimeoutKeepsCaches() {
+    @Test("a Keychain failure does not publish the cached account (audit B-09)")
+    func aKeychainFailureDoesNotPublishTheCachedAccount() {
+        // An unverified keychain read returns .failed(.timeout): cached token and screen
+        // values are not published — the screen cache itself is kept.
         let http = SpyTransport()
         http.queue = [tokenResponse("cached-access"), project(), quota(), project(), quota()]
         let tokenCache = AntigravityAccessTokenCache()
@@ -424,14 +544,33 @@ struct AntigravityUsageTests {
             .collect().first
 
         #expect(first?.windows == cachedWindows)
-        #expect(second?.windows == cachedWindows)
-        #expect(screen.readCount == 1)
-        #expect(tokenCache.value(at: now)?.accessToken == "cached-access")
+        #expect(second?.state != .ok)
+        #expect(second?.state == .failed(.timeout))
+        #expect(screen.readCount == 1) // the screen cache was not re-read or cleared
         let quotaRequests = http.requests.filter { $0.url.host == "cloudcode-pa.googleapis.com" }
-        #expect(quotaRequests.count == 4)
-        #expect(quotaRequests.allSatisfy {
-            $0.headers["Authorization"] == "Bearer cached-access"
-        })
+        #expect(quotaRequests.count == 2) // no quota call on the unverified read
+    }
+
+    @Test("the same window has one scope on both read paths (audit B-09)")
+    func theSameWindowHasOneScopeOnBothPaths() {
+        // canonical keeps the screen spelling so pins stay valid; API-case variants fold in.
+        #expect(AntigravityScope.canonical("Gemini Models") == "Gemini Models")
+        #expect(AntigravityScope.canonical("gemini models") == "Gemini Models")
+        #expect(AntigravityScope.canonical("GEMINI MODELS") == "Gemini Models")
+        #expect(AntigravityScope.canonical("claude and gpt models") == "Claude And Gpt Models")
+    }
+
+    @Test func pinsSavedUnderTheAPISpellingKeepMatching() {
+        let settings = SwitcherSettings(usagePins: [
+            "antigravity:current/weekly/Claude and GPT models",
+            "antigravity:current/weekly/Claude And Gpt Models",
+            "codex:a/weekly/",
+        ])
+        #expect(settings.effectiveUsagePins == ["antigravity:current/weekly/Claude And Gpt Models", "codex:a/weekly/"])
+        #expect(AntigravityScope.canonicalKey("antigravity:current/weekly/gemini models")
+            == "antigravity:current/weekly/Gemini Models")
+        #expect(AntigravityScope.canonicalKey("antigravity:current/weekly/") == "antigravity:current/weekly/")
+        #expect(AntigravityScope.canonicalKey("cursor:cursor/monthly/Other Models") == "cursor:cursor/monthly/Other Models")
     }
 
     @Test("an expired cache on a transient Keychain failure does not use the legacy file")
@@ -459,7 +598,7 @@ struct AntigravityUsageTests {
         #expect(http.requests.count == requestsAfterRecord)
         #expect(credentials.reads == 0)
         #expect(tokenCache.value(at: clock.now())?.accessToken == nil)
-        #expect(screen.readCount == 2)
+        #expect(screen.readCount == 1) // the unverified read returns before the screen runs
     }
 
     @Test("Keychain item not found clears old account caches when no file token exists")
@@ -520,7 +659,7 @@ struct AntigravityUsageTests {
                                cache: tokenCache, screenCache: screenCache).collect().first
 
         #expect(first?.windows == cachedWindows)
-        #expect(second?.windows.first?.scope == "Claude and GPT models")
+        #expect(second?.windows.first?.scope == "Claude And Gpt Models")
         #expect(second?.windows.first?.usedPercent == 25)
         #expect(http.requests.map { $0.headers["Authorization"] } == [
             "Bearer file-access-a", "Bearer file-access-a",
@@ -821,6 +960,100 @@ struct AntigravityPTYTests {
         var status: Int32 = 0
         #expect(waitpid(pid, &status, WNOHANG) == -1)
         #expect(errno == ECHILD)
+    }
+
+    @Test func enterIsWithheldWhenTheEchoIsNoLongerOnScreen() throws {
+        // The echo is replaced by a modal before Enter is written (audit B-09): the sink
+        // receives the typed command but never 0x0d.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig -icrnl\nprintf '? for shortcuts\n'\n"
+            // The overlay moves up onto the echo row and erases it, so the echo is really gone.
+            + "(sleep 0.05; printf '> /usage\n'; sleep 0.4; printf '\\033[1A\\r\\033[2Kmenu overlay — pick a number: '\n) &\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        var t = timing(promptQuiet: 0.05, promptTimeout: 0.5)
+        t.commandPause = 0.8; t.totalTimeout = 4; t.screenTimeout = 0.3
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x0d))
+        #expect(result.outcome != .completed)
+    }
+
+    @Test func enterNeedsTheExactCommandRow() throws {
+        // `> /usage-report` is not `/usage` — Enter must not go in (audit B-09).
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\nprintf '? for shortcuts\n> /usage-report\n'\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        var t = timing(promptQuiet: 0.05, promptTimeout: 0.5)
+        t.commandPause = 0.3; t.totalTimeout = 3
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .promptNotReady)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x0d))
+    }
+
+    @Test func teardownSendsNoKeysIntoAnUnknownScreen() throws {
+        // No main prompt marker: teardown uses signals only — no ESC or Ctrl-C in the sink.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\ntrap '' INT TERM\n"
+            + "printf 'something entirely else\n'\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        let result = SystemAntigravityPTYRunner(timing: timing()).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x1b))
+        #expect(!received.contains(0x03))
+        _ = result
+    }
+
+    @Test("the real capture completes through the live PTY flow (audit B-09)")
+    func liveCaptureFlow() throws {
+        // The redacted agy capture replayed as a real child: prompt, `/usage` echo and quota
+        // screen all come from the bytes; Enter is written and the screen path wins.
+        let capture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin")
+        // Staged replay: the prompt and /usage echo are emitted plainly (the capture's own
+        // echo frames are transient), then the capture's quota region (bytes 3909-6809,
+        // before the teardown repaint) plays the real screen.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig -icrnl\n"
+            + "printf '? for shortcuts\n'\n"
+            + "dd bs=1 count=6 of=\"$INPUT_FILE\" 2>/dev/null\n"
+            + "printf '> /usage\n'\n"
+            + "dd bs=1 count=1 of=\"$INPUT_FILE\" conv=notrunc 2>/dev/null\n"
+            + "tail -c +3909 \"$CAPTURE_FILE\" | head -c 2900\n"
+            + "dd bs=1 of=/dev/null 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        environment["CAPTURE_FILE"] = capture.path
+        var t = timing(promptQuiet: 0.1, promptTimeout: 2)
+        t.commandPause = 0.5; t.screenTimeout = 1; t.totalTimeout = 8
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .completed)
+        let windows = try #require(AntigravityUsageScreen.parse(result.output, now: Date()))
+        #expect(windows.count == 5)
+        let received = try Data(contentsOf: inputFile)
+        #expect(received.contains(0x0d)) // Enter actually reached the child
     }
 
     @Test("missing input marker never types the usage command")

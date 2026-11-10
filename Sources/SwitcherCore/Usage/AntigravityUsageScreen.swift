@@ -238,17 +238,19 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             var skipInput = skipTerminalInput
             if !skipInput {
                 _ = readAvailable(retainOutput: false)
-                skipInput = terminal.hasTrustPrompt
+                // Keys go only into a screen that still shows the main prompt; an unknown or
+                // modal screen gets signals, never keystrokes (audit B-09).
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput {
                 write([0x1b])
                 _ = pollAndDrain(until: ProcessInfo.processInfo.systemUptime + 0.05)
-                skipInput = terminal.hasTrustPrompt
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput { write([0x03]) }
             if !skipInput && !cancelled {
                 pauseWhileDraining(timing.interruptInterval, retainOutput: false)
-                skipInput = terminal.hasTrustPrompt
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput { write([0x03]) }
             if skipInput {
@@ -295,19 +297,18 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
 
         func waitForUsageInput() -> AntigravityPTYWaitResult {
             let deadline = ProcessInfo.processInfo.systemUptime + max(0, timing.commandPause)
-            var usageInputSeen = terminal.hasUsageInput
+            // No cumulative flag: only the screen at the END of the pause counts — an echo
+            // replaced by a modal before Enter is written is not a go (audit B-09).
             while ProcessInfo.processInfo.systemUptime < deadline {
                 if terminal.hasTrustPrompt { return .trustPrompt }
                 if Task.isCancelled { return .cancelled }
-                usageInputSeen = usageInputSeen || terminal.hasUsageInput
                 guard pollAndDrain(until: deadline) else { return .promptNotReady }
-                usageInputSeen = usageInputSeen || terminal.hasUsageInput
                 if terminal.hasTrustPrompt { return .trustPrompt }
                 if Task.isCancelled { return .cancelled }
-                if updateChildStatus() && !usageInputSeen { return .promptNotReady }
+                if updateChildStatus() && !terminal.hasUsageInput { return .promptNotReady }
             }
             if terminal.hasTrustPrompt { return .trustPrompt }
-            return usageInputSeen || terminal.hasUsageInput ? .ready : .promptNotReady
+            return terminal.hasUsageInput ? .ready : .promptNotReady
         }
 
         func waitForQuotaScreen(until deadline: TimeInterval) -> AntigravityPTYWaitResult {
@@ -353,18 +354,25 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
                     } else if Task.isCancelled {
                         outcome = .cancelled
                     } else {
-                        write([0x0d])
-                        let cleanupReserve = timing.interruptInterval + timing.terminateGrace
-                            + timing.killGrace + 5
-                        let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
-                                                 startedAt + timing.totalTimeout - cleanupReserve)
-                        switch waitForQuotaScreen(until: screenDeadline) {
-                        case .ready: outcome = .completed
-                        case .trustPrompt:
-                            outcome = .trustPrompt
+                        _ = readAvailable(retainOutput: false)
+                        if terminal.hasMainInputPrompt && terminal.hasUsageInput
+                            && !terminal.hasTrustPrompt {
+                            write([0x0d])
+                            let cleanupReserve = timing.interruptInterval + timing.terminateGrace
+                                + timing.killGrace + 5
+                            let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
+                                                     startedAt + timing.totalTimeout - cleanupReserve)
+                            switch waitForQuotaScreen(until: screenDeadline) {
+                            case .ready: outcome = .completed
+                            case .trustPrompt:
+                                outcome = .trustPrompt
+                                skipTerminalInput = true
+                            case .cancelled: outcome = .cancelled
+                            case .timedOut, .promptNotReady: outcome = .timedOut
+                            }
+                        } else {
+                            outcome = .promptNotReady
                             skipTerminalInput = true
-                        case .cancelled: outcome = .cancelled
-                        case .timedOut, .promptNotReady: outcome = .timedOut
                         }
                     }
                 case .trustPrompt:
@@ -489,7 +497,8 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
                let percentageIndex = (index + 1..<end).first(where: { remainingPercent(content[$0]) != nil }),
                let remaining = remainingPercent(content[percentageIndex]) {
                 let reset = (index + 1..<end).compactMap { parseReset(content[$0], now: now) }.first
-                windows.append(UsageWindow(scope: group, durationMinutes: duration,
+                windows.append(UsageWindow(scope: AntigravityScope.canonical(group),
+                                           durationMinutes: duration,
                                            usedPercent: min(100, max(0, 100 - remaining)),
                                            resetsAt: reset))
             }
@@ -586,8 +595,12 @@ public struct AntigravityVTScreenBuffer: Sendable {
         }
     }
 
+    /// Set when an unrecognized CSI final was consumed: the screen may be wrong, so prompt and
+    /// input checks refuse to claim anything (audit B-09).
+    private(set) var untrusted = false
+
     var hasMainInputPrompt: Bool {
-        !hasTrustPrompt && lines.contains {
+        !untrusted && !hasTrustPrompt && lines.contains {
             $0.localizedCaseInsensitiveContains("? for shortcuts")
         }
     }
@@ -599,10 +612,17 @@ public struct AntigravityVTScreenBuffer: Sendable {
     }
 
     var hasUsageInput: Bool {
-        guard !hasTrustPrompt else { return false }
+        guard !untrusted, !hasTrustPrompt else { return false }
+        // The row must carry exactly the `/usage` command: the command ends at whitespace or
+        // end-of-row, so `> /usage-report` and `> /usagex` are not matches, while the real
+        // echo row's trailing hint text still counts (audit B-09).
         return lines.contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.hasPrefix("> /usage") || trimmed.hasPrefix("› /usage")
+            for marker in ["> /usage", "› /usage"] where trimmed.hasPrefix(marker) {
+                let rest = trimmed.dropFirst(marker.count)
+                return rest.isEmpty || rest.first.map(\.isWhitespace) == true
+            }
+            return false
         }
     }
 
@@ -636,6 +656,15 @@ public struct AntigravityVTScreenBuffer: Sendable {
             case 0x5b: state = .csi("")
             case 0x5d: state = .osc
             case 0x28, 0x29, 0x2a, 0x2b, 0x2d, 0x2e, 0x2f: state = .charset
+            case 0x4d:
+                flushIncompleteUTF8()
+                if row == 0 {
+                    cells.removeLast()
+                    cells.insert(Array(repeating: " ", count: columns), at: 0)
+                } else {
+                    row -= 1
+                }
+                state = .ground
             default: state = .ground
             }
         case .charset:
@@ -703,11 +732,14 @@ public struct AntigravityVTScreenBuffer: Sendable {
 
     private mutating func executeCSI(_ raw: String, final: UInt8) {
         if raw == "?1049", final == 0x68 || final == 0x6c { clear(); return }
-        if raw.first == "?" { return }
+        // Private prefixes and any intermediate byte (0x20-0x2F, e.g. " q", "$p") never move
+        // the cursor or cells in ways we model — ignore them wholesale (audit B-09).
+        if let first = raw.first, "?><=".contains(first) { return }
+        if raw.unicodeScalars.contains(where: { (0x20...0x2f).contains($0.value) }) { return }
         let parameters = raw.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
         func value(_ index: Int, default fallback: Int = 1) -> Int {
             guard index < parameters.count, parameters[index] > 0 else { return fallback }
-            return parameters[index]
+            return min(parameters[index], 10_000)
         }
         switch final {
         case 0x48, 0x66:
@@ -721,9 +753,33 @@ public struct AntigravityVTScreenBuffer: Sendable {
         case 0x64: row = min(rows - 1, max(0, value(0) - 1))
         case 0x4b: eraseLine(value(0, default: 0))
         case 0x4a: eraseDisplay(value(0, default: 0))
-        default: break
+        case 0x58: eraseCharacters(value(0))
+        case 0x50: deleteCharacters(value(0))
+        case 0x5a: column = max(0, ((column / 8) - max(1, value(0))) * 8)
+        case 0x6d, 0x6e, 0x63, 0x74, 0x68, 0x6c, 0x71, 0x70, 0x73, 0x75:
+            break // SGR/DSR/DA/window ops/mode/tab clear/save-restore: no grid change
+        default: untrusted = true
         }
     }
+
+    /// ECH: blank the next n cells from the cursor without moving it.
+    private mutating func eraseCharacters(_ count: Int) {
+        for x in column..<min(columns, column + count) { cells[row][x] = " " }
+    }
+
+    /// DCH: drop n cells at the cursor and shift the rest of the row left.
+    private mutating func deleteCharacters(_ count: Int) {
+        guard column < columns else { return }
+        // Never more than what is left of the row, so the row keeps exactly `columns` cells.
+        let deleted = min(count, columns - column)
+        var rowCells = cells[row]
+        let tail = rowCells[(column + deleted)..<columns]
+        rowCells.replaceSubrange(column..<columns, with: tail + Array(repeating: " ", count: deleted))
+        cells[row] = rowCells
+    }
+
+    /// Cell count of every row, for tests: each must stay `columns`.
+    var rowWidths: [Int] { cells.map(\.count) }
 
     private mutating func eraseLine(_ mode: Int) {
         guard (0...2).contains(mode) else { return }

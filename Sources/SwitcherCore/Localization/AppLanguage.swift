@@ -154,6 +154,7 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
                     k = String(k.dropLast(3)) + CursorUsageParser.otherModelsScope
                 }
             }
+            k = AntigravityScope.canonicalKey(k)
             return seen.insert(k).inserted ? k : nil
         }
     }

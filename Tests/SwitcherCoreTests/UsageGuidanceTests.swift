@@ -40,6 +40,80 @@ struct UsagePaceTests {
         #expect(UsagePace.reading(fresh(epoch, 50), previous: recent, now: epoch, identityKey: "id1") == .unknown)
     }
 
+    @Test func aSingleOnePointTickIsNotAProjection() {
+        // 30 → 31 over 300 s: rising, but no anchored evidence yet (audit B-08).
+        let prev = prev(epoch.addingTimeInterval(-300), 30)
+        #expect(UsagePace.reading(fresh(epoch, 31), previous: prev, now: epoch,
+                                identityKey: "id1") == .unknown)
+    }
+
+    @Test func twoPointsOverTenMinutesProject() throws {
+        // The anchor survives a rising step: 30 at -600 → 31 at -300 → 32 now projects
+        // on a 2-points-per-600-s slope.
+        let first = prev(epoch.addingTimeInterval(-600), 30)
+        let midWindow = fresh(epoch.addingTimeInterval(-300), 31,
+                              reset: epoch.addingTimeInterval(3 * 86400))
+        let midAnchor = try #require(UsagePace.anchor(
+            for: midWindow, previous: first,
+            now: epoch.addingTimeInterval(-300), identityKey: "id1"))
+        let second = UsagePace.Sample(
+            at: epoch.addingTimeInterval(-300), usedPercent: 31, identityKey: "id1",
+            resetsAt: epoch.addingTimeInterval(3 * 86400), durationMinutes: 300,
+            anchorAt: midAnchor.at, anchorPercent: midAnchor.percent)
+        let reading = UsagePace.reading(
+            fresh(epoch, 32, reset: epoch.addingTimeInterval(3 * 86400)),
+            previous: second, now: epoch, identityKey: "id1")
+        // 68 left at 2 points per 600 s → 68/2*600 = 20 400 s
+        #expect(reading == .depleting(at: epoch.addingTimeInterval(20_400)))
+    }
+
+    @Test func theAnchorResetsWhenTheWindowOrIdentityChanges() {
+        // A different reset or login means the earlier anchor cannot be trusted.
+        let prev = prev(epoch.addingTimeInterval(-300), 30)
+        #expect(UsagePace.reading(fresh(epoch, 31, reset: epoch.addingTimeInterval(5 * 86400)),
+                                previous: prev, now: epoch, identityKey: "id1") == .unknown)
+        #expect(UsagePace.reading(fresh(epoch, 31), previous: prev, now: epoch,
+                                identityKey: "other") == .unknown)
+    }
+
+    @Test func aLongPauseDropsTheAnchor() throws {
+        // Samples farther apart than maximumSampleGap lose their anchor: the next rising
+        // sample is a single tick again.
+        let old = prev(epoch.addingTimeInterval(-601), 30)
+        let current = fresh(epoch, 31)
+        let anchor = try #require(UsagePace.anchor(for: current, previous: old,
+                                                   now: epoch, identityKey: "id1"))
+        #expect(anchor.at == epoch)
+        #expect(anchor.percent == 31)
+        #expect(UsagePace.reading(current, previous: old, now: epoch,
+                                identityKey: "id1") == .unknown)
+    }
+
+    @Test func theAnchorIsKeptWhileRisingButCappedAtAnHour() {
+        let prev = UsagePace.Sample(at: epoch.addingTimeInterval(-400), usedPercent: 30,
+                                    identityKey: "id1",
+                                    resetsAt: epoch.addingTimeInterval(3 * 86400),
+                                    durationMinutes: 300,
+                                    anchorAt: epoch.addingTimeInterval(-400), anchorPercent: 30)
+        // rising -> keep the anchor
+        let kept = UsagePace.anchor(for: fresh(epoch, 31), previous: prev,
+                                    now: epoch, identityKey: "id1")
+        #expect(kept?.at == epoch.addingTimeInterval(-400))
+        // flat or falling -> anchor moves to the current sample
+        let flat = UsagePace.anchor(for: fresh(epoch, 30), previous: prev,
+                                    now: epoch, identityKey: "id1")
+        #expect(flat?.at == epoch)
+        // past 60 min the anchor is dropped even when rising
+        let ancient = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 30,
+                                       identityKey: "id1",
+                                       resetsAt: epoch.addingTimeInterval(3 * 86400),
+                                       durationMinutes: 300,
+                                       anchorAt: epoch.addingTimeInterval(-3601), anchorPercent: 10)
+        let dropped = UsagePace.anchor(for: fresh(epoch, 31), previous: ancient,
+                                       now: epoch, identityKey: "id1")
+        #expect(dropped?.at == epoch)
+    }
+
     @Test("flat or falling use is steady")
     func steady() {
         let prev = prev(epoch.addingTimeInterval(-300), 50)
@@ -53,6 +127,14 @@ struct UsagePaceTests {
         let prev = prev(epoch.addingTimeInterval(-300), 45)
         let reading = UsagePace.reading(fresh(epoch, 50), previous: prev, now: epoch, identityKey: "id1")
         #expect(reading == .depleting(at: epoch.addingTimeInterval(3000)))
+    }
+
+    @Test func anAnchorOlderThanAnHourIsNotEvidence() {
+        // The streak's anchor is 61 minutes old: `anchor(for:)` would drop it, so no projection from it.
+        let old = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 31, identityKey: "id1",
+                                   resetsAt: epoch.addingTimeInterval(3 * 86400), durationMinutes: 300,
+                                   anchorAt: epoch.addingTimeInterval(-3660), anchorPercent: 10)
+        #expect(UsagePace.reading(fresh(epoch, 32), previous: old, now: epoch, identityKey: "id1") == .unknown)
     }
 
     @Test("anything that breaks the chain is unknown")
@@ -449,6 +531,15 @@ struct UsageAlertStoreTests {
         let loaded = try #require(store.load())
         #expect(loaded.threshold == 80)
         #expect(loaded.marks == ["codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))])
+    }
+
+    @Test func aStoredAntigravityKeyIsReadInTheCanonicalSpelling() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let json = #"{"marks":{"antigravity:current/weekly/Claude and GPT models":{"resetsAt":800000000}},"threshold":80}"#
+        try sb.fs.createDirectory(sb.env.storeDir)
+        try sb.fs.write(Data(json.utf8), to: sb.env.usageAlertsFile)
+        let loaded = try #require(UsageAlertStore(env: sb.env, fs: sb.fs).load())
+        #expect(Array(loaded.marks.keys) == ["antigravity:current/weekly/Claude And Gpt Models"])
     }
 
     @Test func aStoredMarkWithoutAResetTimeIsIgnoredOnLoad() throws {
