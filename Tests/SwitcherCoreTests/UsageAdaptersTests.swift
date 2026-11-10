@@ -31,17 +31,53 @@ private func expectRejectedWithoutRetainedWindows(_ reading: AccountUsage?) {
     #expect(reading.retainingWindows(from: previous).windows.isEmpty)
 }
 
+/// Counts every request the session would send (audit B-13).
+private final class CountingURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var count = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.count += 1
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!,
+            statusCode: 200, httpVersion: nil, headerFields: ["Content-Length": "2"])!,
+            cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("ok".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite("HTTP transport")
 struct UsageTransportTests {
     @Test("non-https and disallowed hosts never reach the network")
     func allowlist() {
-        let t = SystemUsageHTTPTransport()
-        let http = UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!,
-                                    method: .get, timeout: 1)
-        #expect(t.send(http) == nil)
-        let bad = UsageHTTPRequest(url: URL(string: "https://api.test/x")!,
-                                   method: .get, timeout: 1)
-        #expect(t.send(bad) == nil)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CountingURLProtocol.self]
+        CountingURLProtocol.count = 0
+        let t = SystemUsageHTTPTransport(configuration: config)
+        // Exactly the six sanctioned hosts.
+        #expect(SystemUsageHTTPTransport.allowedHosts.count == 6)
+        // Each rejected request must die in the guard — zero URL traffic.
+        let rejections: [UsageHTTPRequest] = [
+            UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api.test/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh.evil.test/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://user:pw@api2.cursor.sh/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh:8443/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get,
+                             headers: ["X-Test": "a\rb"], timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get, timeout: 0),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get,
+                             timeout: .nan),
+        ]
+        for (index, request) in rejections.enumerated() {
+            #expect(t.send(request) == nil, "rejection case \(index) must return nil")
+        }
+        #expect(CountingURLProtocol.count == 0)
+        // An allowed host reaches the session exactly once.
+        _ = t.send(UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                    method: .get, timeout: 2))
+        #expect(CountingURLProtocol.count == 1)
     }
 
     @Test("Google OAuth token endpoint is allowlisted for Antigravity")
