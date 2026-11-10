@@ -102,6 +102,54 @@ struct AntigravityVTParserTests {
         #expect(buffer.untrusted)
     }
 
+    @Test("the prompt marker row is seen (audit B-09)")
+    func promptMarkerRow() {
+        var buffer = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        buffer.feed(Data("? for shortcuts\n".utf8))
+        #expect(buffer.hasMainInputPrompt)
+        #expect(!buffer.untrusted)
+    }
+
+    @Test("stage-by-stage capture state (audit B-09)")
+    func captureStages() throws {
+        let data = try Data(contentsOf:
+            URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin"))
+        var stage1 = AntigravityVTScreenBuffer()
+        stage1.feed(data[0..<2980])
+        #expect(!stage1.untrusted)
+        #expect(stage1.hasMainInputPrompt)
+        stage1.feed(data[2980..<3909])
+        #expect(stage1.hasUsageInput)
+        stage1.feed(data[3909..<6809])
+        #expect(stage1.hasQuotaTitle)
+    }
+
+    @Test("the real capture leaves the buffer trusted (audit B-09)")
+    func realCaptureStaysTrusted() throws {
+        var buffer = AntigravityVTScreenBuffer()
+        buffer.feed(try Data(contentsOf:
+            URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin")))
+        #expect(!buffer.untrusted)
+    }
+
+    @Test("safe sequences stay trusted, grid-changing ones do not")
+    func trustedSequenceRules() {
+        // ESC[31m SGR, ESC[>4;1m private, ESC[ q intermediate, ESC[?25l mode: all no-ops.
+        for seq in ["\u{1b}[31m", "\u{1b}[>4;1m", "\u{1b}[ q", "\u{1b}[?25l"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+            buffer.feed(Data(seq.utf8))
+            #expect(!buffer.untrusted, "\(seq.debugDescription) marked untrusted")
+        }
+        // Unimplemented cursor/cell movement marks untrusted.
+        for seq in ["\u{1b}[2L", "\u{1b}[3S"] {
+            var buffer = AntigravityVTScreenBuffer(columns: 20, rows: 2)
+            buffer.feed(Data(seq.utf8))
+            #expect(buffer.untrusted, "\(seq.debugDescription) stayed trusted")
+        }
+    }
+
     @Test func eraseCharacterClearsCells() {
         // `> /usage` followed by stray text, then cursor back to col 9 + ESC[39X blanks the
         // trailing cells and the exact `/usage` row returns (audit B-09).
@@ -110,9 +158,13 @@ struct AntigravityVTParserTests {
         let row = buffer.lines.first { $0.hasPrefix(">") } ?? ""
         #expect(row == "> /usage")
         #expect(buffer.hasUsageInput)
-        // a row that still differs from the exact command stays false
+        // the real echo row carries a hint after whitespace — still the /usage command
+        var hint = AntigravityVTScreenBuffer(columns: 80, rows: 4)
+        hint.feed(Data("> /usage   View model quota usage".utf8))
+        #expect(hint.hasUsageInput)
+        // a different command sharing the prefix is not a match
         var other = AntigravityVTScreenBuffer(columns: 80, rows: 4)
-        other.feed(Data("> /usage garbage".utf8))
+        other.feed(Data("> /usage-report".utf8))
         #expect(!other.hasUsageInput)
     }
 
@@ -942,6 +994,40 @@ struct AntigravityPTYTests {
         #expect(!received.contains(0x1b))
         #expect(!received.contains(0x03))
         _ = result
+    }
+
+    @Test("the real capture completes through the live PTY flow (audit B-09)")
+    func liveCaptureFlow() throws {
+        // The redacted agy capture replayed as a real child: prompt, `/usage` echo and quota
+        // screen all come from the bytes; Enter is written and the screen path wins.
+        let capture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/Antigravity/agy-usage-raw.bin")
+        // Staged replay: the prompt and /usage echo are emitted plainly (the capture's own
+        // echo frames are transient), then the capture's quota region (bytes 3909-6809,
+        // before the teardown repaint) plays the real screen.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig -icrnl\n"
+            + "printf '? for shortcuts\n'\n"
+            + "dd bs=1 count=6 of=\"$INPUT_FILE\" 2>/dev/null\n"
+            + "printf '> /usage\n'\n"
+            + "dd bs=1 count=1 of=\"$INPUT_FILE\" conv=notrunc 2>/dev/null\n"
+            + "tail -c +3909 \"$CAPTURE_FILE\" | head -c 2900\n"
+            + "dd bs=1 of=/dev/null 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        environment["CAPTURE_FILE"] = capture.path
+        var t = timing(promptQuiet: 0.1, promptTimeout: 2)
+        t.commandPause = 0.5; t.screenTimeout = 1; t.totalTimeout = 8
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .completed)
+        let windows = try #require(AntigravityUsageScreen.parse(result.output, now: Date()))
+        #expect(windows.count == 5)
+        let received = try Data(contentsOf: inputFile)
+        #expect(received.contains(0x0d)) // Enter actually reached the child
     }
 
     @Test("missing input marker never types the usage command")

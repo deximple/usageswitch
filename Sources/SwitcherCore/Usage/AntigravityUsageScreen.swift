@@ -613,9 +613,16 @@ public struct AntigravityVTScreenBuffer: Sendable {
 
     var hasUsageInput: Bool {
         guard !untrusted, !hasTrustPrompt else { return false }
+        // The row must carry exactly the `/usage` command: the command ends at whitespace or
+        // end-of-row, so `> /usage-report` and `> /usagex` are not matches, while the real
+        // echo row's trailing hint text still counts (audit B-09).
         return lines.contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed == "> /usage" || trimmed == "› /usage"
+            for marker in ["> /usage", "› /usage"] where trimmed.hasPrefix(marker) {
+                let rest = trimmed.dropFirst(marker.count)
+                return rest.isEmpty || rest.first.map(\.isWhitespace) == true
+            }
+            return false
         }
     }
 
@@ -725,7 +732,10 @@ public struct AntigravityVTScreenBuffer: Sendable {
 
     private mutating func executeCSI(_ raw: String, final: UInt8) {
         if raw == "?1049", final == 0x68 || final == 0x6c { clear(); return }
-        if raw.first == "?" { return }
+        // Private prefixes and any intermediate byte (0x20-0x2F, e.g. " q", "$p") never move
+        // the cursor or cells in ways we model — ignore them wholesale (audit B-09).
+        if let first = raw.first, "?><=".contains(first) { return }
+        if raw.unicodeScalars.contains(where: { (0x20...0x2f).contains($0.value) }) { return }
         let parameters = raw.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
         func value(_ index: Int, default fallback: Int = 1) -> Int {
             guard index < parameters.count, parameters[index] > 0 else { return fallback }
@@ -746,6 +756,8 @@ public struct AntigravityVTScreenBuffer: Sendable {
         case 0x58: eraseCharacters(value(0))
         case 0x50: deleteCharacters(value(0))
         case 0x5a: column = max(0, ((column / 8) - max(1, value(0))) * 8)
+        case 0x6d, 0x6e, 0x63, 0x74, 0x68, 0x6c, 0x71, 0x70, 0x73, 0x75:
+            break // SGR/DSR/DA/window ops/mode/tab clear/save-restore: no grid change
         default: untrusted = true
         }
     }
