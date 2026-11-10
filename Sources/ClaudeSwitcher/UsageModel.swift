@@ -49,6 +49,8 @@ final class UsageModel: ObservableObject {
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
     /// Limits already warned about. Loaded from the store on first use, saved when it changes.
     private var alertState: UsageAlertState?
+    /// Set when the store write failed; cleared when a later save succeeds.
+    private var alertStateNeedsSave = false
     private var alertStateLoaded = false
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
@@ -725,10 +727,11 @@ final class UsageModel: ObservableObject {
     }
 
     /// Memory and store change together, so a restart never brings back a key that was cleared.
+    /// When a write fails the memory copy still advances, so the retry flag keeps asking for a save.
     private func saveAlertState(_ state: UsageAlertState) {
         alertState = state
         let env = SwitcherEnvironment.live()
-        try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(state)
+        alertStateNeedsSave = (try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(state)) == nil
     }
 
     private func deliverAlerts(now: Date) {
@@ -738,7 +741,7 @@ final class UsageModel: ObservableObject {
         let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
                                                  alerted: saved?.marks(for: threshold) ?? [:], now: now)
         let next = UsageAlertState(threshold: threshold, marks: alerted)
-        if next != saved { saveAlertState(next) }
+        if next != saved || alertStateNeedsSave { saveAlertState(next) }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }
