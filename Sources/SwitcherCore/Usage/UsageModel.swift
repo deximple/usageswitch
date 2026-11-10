@@ -7,17 +7,43 @@ public enum UsageProvider: String, Codable, Sendable, CaseIterable {
     /// Claude and Codex are read through their own vendor CLIs; every other provider
     /// touches local credentials or network and requires an explicit consent grant.
     public var requiresConsent: Bool { self != .claude && self != .codex }
+
+    /// Stored next to the provider in `usageConnections` when its connect dialog was re-described.
+    /// A grant without it was given under the older wording and no longer counts.
+    public var disclosureMarker: String? {
+        switch self {
+        case .antigravity: "antigravity.v2"
+        case .gemini: "gemini.v2"
+        default: nil
+        }
+    }
+
+    /// The connect dialog's explanation: what is read, what is run, and where requests go.
+    public var consentBodyKey: L10nKey? {
+        switch self {
+        case .claude, .codex: nil
+        case .cursor: .usageCursorAlertBody
+        case .grok: .uiConnectGrokBody
+        case .gemini: .uiConnectGeminiBody
+        case .antigravity: .uiConnectAntigravityBody
+        case .devin: .uiConnectDevinBody
+        case .opencode: .uiConnectOpenCodeBody
+        }
+    }
 }
 
 public extension SwitcherSettings {
     /// Effective consent set: known consent-required providers present in
     /// `usageConnections`, plus Cursor when its legacy flag is on. Unknown values
-    /// in `usageConnections` are ignored, never granted.
+    /// in `usageConnections` are ignored, never granted. A provider with a `disclosureMarker`
+    /// is granted only together with that marker.
     var enabledUsageProviders: Set<UsageProvider> {
         // cursorUsageEnabled is Cursor's sole SSOT — a stray "cursor" entry in
         // usageConnections never grants it (nor any non-consent provider).
-        var out = Set((usageConnections ?? []).compactMap { UsageProvider(rawValue: $0) }
-            .filter { $0.requiresConsent && $0 != .cursor })
+        let stored = usageConnections ?? []
+        var out = Set(stored.compactMap { UsageProvider(rawValue: $0) }
+            .filter { $0.requiresConsent && $0 != .cursor }
+            .filter { $0.disclosureMarker.map(stored.contains) ?? true })
         if cursorUsageEnabled == true { out.insert(.cursor) }
         return out
     }

@@ -929,7 +929,7 @@ struct GeminiConsentPairTests {
     @Test("extra entry pairs with the provider; unknown values never enable providers")
     func pair() {
         // grant stores the pair; the extra entry alone can never enable the provider
-        let granted = SwitcherSettings(usageConnections: ["gemini", "gemini.tokenRefresh"])
+        let granted = SwitcherSettings(usageConnections: ["gemini", "gemini.tokenRefresh", "gemini.v2"])
         #expect(granted.geminiTokenRefreshAllowed)
         #expect(granted.enabledUsageProviders.contains(.gemini))
         let extraOnly = SwitcherSettings(usageConnections: ["gemini.tokenRefresh", "bogus.x"])
@@ -948,16 +948,14 @@ struct UsageConnectionsValueTests {
     @Test("gemini grant pairs the refresh entry; unrelated toggles preserve it")
     func builder() {
         #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: true)
-                == ["gemini", "gemini.tokenRefresh"])
+                == ["gemini", "gemini.tokenRefresh", "gemini.v2"])
         #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini, .grok], geminiTokenRefresh: true)
-                == ["gemini", "gemini.tokenRefresh", "grok"])
-        #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: true)
-                == ["gemini", "gemini.tokenRefresh"])
+                == ["gemini", "gemini.tokenRefresh", "gemini.v2", "grok"])
         #expect(SwitcherSettings.usageConnectionsValue(providers: [], geminiTokenRefresh: false) == nil)
         #expect(SwitcherSettings.usageConnectionsValue(providers: [.grok], geminiTokenRefresh: true)
                 == ["grok"])
         #expect(SwitcherSettings.usageConnectionsValue(providers: [.gemini], geminiTokenRefresh: false)
-                == ["gemini"])
+                == ["gemini", "gemini.v2"])
     }
 }
 

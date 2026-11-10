@@ -180,7 +180,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | **Cursor** | 月度总额，外加 *Cursor Models* 和 *Other Models* | Cursor 用量 API，使用 `cursor-agent` 登录 | ⚙︎ › 用量连接 |
 | **Grok** | 每周额度 | Grok CLI 的用量端点 | ⚙︎ › 用量连接 |
 | **Gemini** | 按模型的输入/输出额度 | Gemini Code Assist 配额，使用 Gemini CLI 登录 | ⚙︎ › 用量连接 |
-| **Antigravity** | 模型组额度（例如 *Gemini Models*） | `agy` 的 `/usage` 界面，备用为只读配额 API | ⚙︎ › 用量连接 |
+| **Antigravity** | 模型组额度（例如 *Gemini Models*） | `agy` 的 `/usage` 界面，以及每次刷新时调用的只读配额 API（无法读取界面时显示该数值） | ⚙︎ › 用量连接 |
 | **Devin** | Devin CLI 报告的配额 | Devin CLI 的用户状态 | ⚙︎ › 用量连接 |
 | **OpenCode Go** | 滚动 5 小时、每周和每月额度 | OpenCode 的 Go 用量端点 | ⚙︎ › 用量连接 |
 
@@ -198,7 +198,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | Cursor | Cursor 的钥匙串项，然后 `~/.cursor/auth.json` | `api2.cursor.sh` | 每次刷新一次请求。过期令牌不发送请求。浏览器 `cursor-agent login` 约维持 60 天；API 密钥登录约 1 小时。不读取 Grok Bot 和按需付费。 |
 | Grok | Grok CLI 的登录文件 | `cli-chat-proxy.grok.com` | 实验性。 |
 | Gemini | Gemini CLI 的钥匙串项，然后 `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | 若访问令牌过期，UsageSwitch 用已保存的刷新令牌和已安装 Gemini CLI 自带的登录客户端获取仅保存于内存的临时令牌。不回写任何内容。每次刷新最多三次请求。 |
-| Antigravity | 在隐藏终端中从你的主目录运行的 `agy` 本体（最多每 9 分钟一次）；备用：agy 的钥匙串项 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` 以其正常设置启动，包括你配置的任何 MCP 服务器。UsageSwitch 从不回答 agy 的提示。macOS 可能会弹出一次钥匙串访问授权。 |
+| Antigravity | 在隐藏终端中从你的主目录运行的 `agy` 本体（最多每 9 分钟一次）；agy 的钥匙串项在每次刷新时读取 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` 以其正常设置启动，包括你配置的任何 MCP 服务器。UsageSwitch 从不回答 agy 的提示。macOS 可能会弹出一次钥匙串访问授权。 |
 | Devin | Devin CLI 的凭据和版本 | `server.codeium.com` | 需要受支持的 Devin CLI 版本。 |
 | OpenCode Go | OpenCode `auth.json` 中的 `opencode-go` 条目 | `opencode.ai` | 仅 Go 套餐，不含其他 OpenCode 用量。 |
 

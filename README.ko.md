@@ -181,7 +181,7 @@ UsageSwitch는 읽을 때마다 그 전후로 같은 계정·같은 조직인지
 | **Cursor** | 월간 합계, *Cursor Models*, *Other Models* | `cursor-agent` 로그인을 사용하는 Cursor 사용량 API | ⚙︎ › 사용량 연결 |
 | **Grok** | 주간 한도 | Grok CLI 사용량 엔드포인트 | ⚙︎ › 사용량 연결 |
 | **Gemini** | 모델별 입력·출력 한도 | Gemini CLI 로그인을 사용하는 Gemini Code Assist 할당량 | ⚙︎ › 사용량 연결 |
-| **Antigravity** | 모델 그룹별 한도 (예: *Gemini Models*) | `agy`의 `/usage` 화면, 대체 경로로 읽기 전용 할당량 API | ⚙︎ › 사용량 연결 |
+| **Antigravity** | 모델 그룹별 한도 (예: *Gemini Models*) | `agy`의 `/usage` 화면과, 갱신할 때마다 호출하는 읽기 전용 할당량 API (화면을 읽지 못하면 이 값을 표시) | ⚙︎ › 사용량 연결 |
 | **Devin** | Devin CLI가 알려 주는 할당량 | Devin CLI 사용자 상태 | ⚙︎ › 사용량 연결 |
 | **OpenCode Go** | 5시간 롤링·주간·월간 한도 | OpenCode Go 사용량 엔드포인트 | ⚙︎ › 사용량 연결 |
 
@@ -199,7 +199,7 @@ UsageSwitch는 읽을 때마다 그 전후로 같은 계정·같은 조직인지
 | Cursor | Cursor의 키체인 항목, 없으면 `~/.cursor/auth.json` | `api2.cursor.sh` | 새로 고침마다 요청 1회. 토큰이 만료됐으면 요청을 보내지 않습니다. 브라우저 `cursor-agent login`은 약 60일, API 키 로그인은 약 1시간 유지됩니다. Grok Bot과 온디맨드 요금은 읽지 않습니다. |
 | Grok | Grok CLI 로그인 파일 | `cli-chat-proxy.grok.com` | 실험 기능 |
 | Gemini | Gemini CLI 키체인 항목, 없으면 `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | 액세스 토큰이 만료됐으면 저장된 갱신 토큰과 설치된 Gemini CLI 자체의 로그인 클라이언트로 임시 토큰을 받아 메모리에만 둡니다. 아무것도 다시 쓰지 않습니다. 새로 고침마다 요청은 최대 3회입니다. |
-| Antigravity | 홈 폴더에서 숨겨진 터미널로 실행한 `agy` (최대 9분에 한 번). 대체 경로: agy의 키체인 항목 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy`는 사용자가 설정한 MCP 서버를 포함해 평소 설정으로 시작합니다. UsageSwitch는 agy의 프롬프트에 응답하지 않습니다. macOS가 키체인 접근 허용을 한 번 물을 수 있습니다. |
+| Antigravity | 홈 폴더에서 숨겨진 터미널로 실행한 `agy` (최대 9분에 한 번). agy의 키체인 항목은 갱신할 때마다 읽음 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy`는 사용자가 설정한 MCP 서버를 포함해 평소 설정으로 시작합니다. UsageSwitch는 agy의 프롬프트에 응답하지 않습니다. macOS가 키체인 접근 허용을 한 번 물을 수 있습니다. |
 | Devin | Devin CLI 인증 정보와 버전 | `server.codeium.com` | 지원되는 Devin CLI 버전이 필요합니다. |
 | OpenCode Go | OpenCode `auth.json`의 `opencode-go` 항목 | `opencode.ai` | Go 요금제만 읽습니다. 다른 OpenCode 사용량은 포함하지 않습니다. |
 
