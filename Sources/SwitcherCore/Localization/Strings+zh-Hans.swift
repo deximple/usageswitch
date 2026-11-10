@@ -83,6 +83,7 @@ extension Strings {
         .uiSetAsideJournalDone: "已将切换记录移到 %@。",
         .uiSetAsideJournalTitle: "移出未完成的切换记录？",
         .uiSetAsideJournalBody: "损坏的切换记录及其保留的文件（previous/ 和 staging/）会被移到 displaced/journal-<日期>。不会删除任何内容。Claude 的当前文件保持不变；之后如果 Claude 未登录，请在 Claude 中重新登录。",
+        .uiLinkBusy: "切换链接在另一项操作进行期间到达，请在操作完成后再试。",
         .reasonSwapAndRollbackFailed: "替换失败，回滚也失败（已保留切换记录，等待自动恢复）：%@",
         .reasonRolledBack: "已回滚：%@",
         .reasonSchemaNewer: "Cookie 架构版本 %1$d > %2$d",

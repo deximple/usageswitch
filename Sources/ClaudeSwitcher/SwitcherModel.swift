@@ -209,15 +209,34 @@ final class SwitcherModel: ObservableObject {
 
     /// Entry point for the `<scheme>://switch` URL; waits for the first status load if needed.
     func requestSwitch(id: String, force: Bool) {
-        guard !isDemo, !isBusy, pendingConfirmation == nil, renaming == nil else { return }
+        guard !isDemo else { return }
         Task { @MainActor in
-            for _ in 0..<40 where status == nil { try? await Task.sleep(for: .milliseconds(250)) }
-            // Unknown ids are dropped silently; nothing from the URL is echoed into the UI.
-            guard let account = status?.accounts.first(where: { $0.id == id }), !isBusy, pendingConfirmation == nil else { return }
-            // URL requests can originate from a web page, so they always need an explicit click to proceed.
-            request(.switchTo(account.id, force: force),
-                    title: L10n.t(force ? .uiActionReapply : .uiActionSwitchTo, Self.displayLabel(account)),
-                    alwaysConfirm: true, fromURL: true)
+            // A cold-launch link arrives before recovery/status; poll the shared policy for up to
+            // 10 s so it lands in the confirmation dialog instead of being dropped (audit B-04).
+            for _ in 0..<40 {
+                let working = if case .working = phase { true } else { false }
+                switch SwitchLinkPolicy.decide(
+                    isDemo: isDemo, recovering: recovering, hasStatus: status != nil,
+                    working: working, hasPending: pendingConfirmation != nil,
+                    renaming: renaming != nil,
+                    knownIDs: Set(status?.accounts.map(\.id) ?? []), id: id, force: force) {
+                case .ignore: return
+                case .busy:
+                    banner = .init(kind: .info, text: L10n.t(.uiLinkBusy))
+                    return
+                case .wait:
+                    try? await Task.sleep(for: .milliseconds(250))
+                case .confirm(let id, let force):
+                    // URL requests can originate from a web page, so they always need an explicit
+                    // click; nothing from the URL is echoed into the UI beyond the stored label.
+                    guard let account = status?.accounts.first(where: { $0.id == id }) else { return }
+                    request(.switchTo(account.id, force: force),
+                            title: L10n.t(force ? .uiActionReapply : .uiActionSwitchTo,
+                                          Self.displayLabel(account)),
+                            alwaysConfirm: true, fromURL: true)
+                    return
+                }
+            }
         }
     }
 

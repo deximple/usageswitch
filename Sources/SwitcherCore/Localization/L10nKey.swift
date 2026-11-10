@@ -89,6 +89,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case uiSetAsideJournal = "ui.setAsideJournal"
     case uiSetAsideJournalTitle = "ui.setAsideJournalTitle"
     case uiSetAsideJournalBody = "ui.setAsideJournalBody"
+    case uiLinkBusy = "ui.linkBusy"
     case reasonSwapAndRollbackFailed = "reason.swapAndRollbackFailed"
     case reasonRolledBack = "reason.rolledBack"
     case reasonSchemaNewer = "reason.schemaNewer"
