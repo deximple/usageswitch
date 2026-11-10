@@ -85,13 +85,14 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 - **API tab:** budgets and optional API-key nicknames/creation metadata stay local. API keys are stored only in macOS Keychain; they are never sent anywhere because no verified read-only balance endpoint exists. Spend estimates use token counts from local CLI logs only for accounts marked as API-key authentication, priced from the bundled model snapshot. A Codex session whose log carries a ChatGPT plan marker is excluded, so sessions from before a switch to an API key do not count. They are labeled estimates and do not query providers for balances.
 - **Usage alerts:** when enabled, a trustworthy window crossing the warning level may post a macOS notification with the masked label and percentage. Unknown or stale readings are not presented as healthy quota.
 
+**Switching writes Claude Desktop's own files:** during a switch, UsageSwitch replaces Claude Desktop's `Cookies*` files and `config.json` in its folder with those of the account you switch to, after keeping the outgoing ones (in a saved account, or in `displaced/`). Nothing else in Claude Desktop's folder is written.
+
 ## What UsageSwitch never does
 
 - Decrypt cookies.
 - Read or write the Keychain, except for enabled usage connections (Cursor, Gemini CLI, and Antigravity's agy item) and API keys you store or manage in the API key vault.
 - Print or log usage credentials, or forward them to unrelated services. An enabled usage connection sends its credential only to the corresponding allowlisted provider host.
 - Send API keys anywhere. There is no verified read-only balance endpoint, so API keys are never used for network requests.
-- Replace Claude Desktop's `Cookies*` and `config.json` in its own folder during a switch.
 - Write to `~/.claude`, to Claude CLI profiles, to other apps' data, or to Codex homes it didn't create. Those Codex homes change only when you sign in or out, and Codex's CLI makes the change. For an explicitly connected Claude profile, the official Claude CLI itself may refresh its token or update its own config files as described above.
 - Sign you out on the server.
 
