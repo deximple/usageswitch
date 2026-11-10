@@ -450,7 +450,7 @@ extension Strings {
               enroll [--yes]                 新しいサインインを準備（サインイン画面で再起動）
               rename <アカウント> <名前>|--reset
                                              アカウント名を変更（--reset：既定の名前に戻す）
-              remove <アカウント>            保存済みサインインを削除（使用中のアカウントは不可）
+              remove <アカウント> --yes      保存済みサインインを削除（使用中のアカウントは不可）
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Code タブの CLI のアカウントを確認
               recover                        中断された切り替えを復旧
@@ -461,7 +461,7 @@ extension Strings {
               codex add                      Codex アカウントを追加（ブラウザでサインイン）
               codex adopt <ホーム>           この Mac で見つかった Codex ホームをリストに追加
               codex reauth <アカウント>      Codex アカウントに再サインイン
-              codex remove <アカウント>      Codex アカウントを削除（見つけたホームはリストから外すだけ）
+              codex remove <アカウント> --yes  Codex アカウントを削除（見つけたホームはリストから外すだけ）
               codex rename <アカウント> <名前>|--reset
                                              Codex アカウント名を変更
               codex unhide                   リストから外した Codex ホームを再表示

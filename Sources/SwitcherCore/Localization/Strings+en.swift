@@ -450,7 +450,7 @@ extension Strings {
               enroll [--yes]                 Prepare a new sign-in (relaunch at the sign-in screen)
               rename <account> <name>|--reset
                                              Rename an account (--reset: back to the default name)
-              remove <account>               Remove a saved sign-in (not the account in use)
+              remove <account> --yes         Remove a saved sign-in (not the account in use)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Check the account of a Code-tab CLI
               recover                        Recover an interrupted switch
@@ -461,7 +461,7 @@ extension Strings {
               codex add                      Add a Codex account (sign in in the browser)
               codex adopt <home>             Add a Codex home found on this Mac to the list
               codex reauth <account>         Sign a Codex account in again
-              codex remove <account>         Remove a Codex account (found homes only leave the list)
+              codex remove <account> --yes   Remove a Codex account (found homes only leave the list)
               codex rename <account> <name>|--reset
                                              Rename a Codex account
               codex unhide                   Show removed Codex homes again

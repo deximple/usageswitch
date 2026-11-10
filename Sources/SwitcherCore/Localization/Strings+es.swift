@@ -450,7 +450,7 @@ extension Strings {
               enroll [--yes]                 Preparar un nuevo inicio de sesión (reabrir en la pantalla de inicio de sesión)
               rename <cuenta> <nombre>|--reset
                                              Cambiar el nombre de una cuenta (--reset: volver al nombre predeterminado)
-              remove <cuenta>                Eliminar una sesión guardada (no la de la cuenta en uso)
+              remove <cuenta> --yes          Eliminar una sesión guardada (no la de la cuenta en uso)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Comprobar la cuenta de una CLI de la pestaña Code
               recover                        Recuperar un cambio interrumpido
@@ -461,7 +461,7 @@ extension Strings {
               codex add                      Añadir una cuenta de Codex (inicio de sesión en el navegador)
               codex adopt <carpeta>          Añadir a la lista una carpeta de Codex encontrada en este Mac
               codex reauth <cuenta>          Volver a iniciar sesión en una cuenta de Codex
-              codex remove <cuenta>          Eliminar una cuenta de Codex (las carpetas encontradas solo se quitan de la lista)
+              codex remove <cuenta> --yes    Eliminar una cuenta de Codex (las carpetas encontradas solo se quitan de la lista)
               codex rename <cuenta> <nombre>|--reset
                                              Cambiar el nombre de una cuenta de Codex
               codex unhide                   Volver a mostrar las carpetas de Codex quitadas

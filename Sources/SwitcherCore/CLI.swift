@@ -27,7 +27,10 @@ public enum CLI {
         L10n.language = lang.flatMap(AppLanguage.matching) ?? settings.effectiveLanguage
         guard let command = args.first else { return fail("usage", usage, exit: 64, out: out) }
         let yes = args.contains("--yes")
-        if ["switch", "capture", "enroll", "recover", "remove"].contains(command) {
+        // status/list run pending-switch recovery; codex remove/reauth move folders and sign out.
+        let signalSensitive = ["switch", "capture", "enroll", "recover", "remove", "status", "list"].contains(command)
+            || (command == "codex" && args.count >= 2 && ["remove", "reauth"].contains(args[1]))
+        if signalSensitive {
             // An interrupted session would skip the relauncher restore and could leave files mid-swap.
             signal(SIGINT, SIG_IGN)
             signal(SIGTERM, SIG_IGN)
@@ -58,6 +61,9 @@ public enum CLI {
             case "remove":
                 guard args.count >= 2, !args[1].hasPrefix("--") else { return fail("usage", usage, exit: 64, out: out) }
                 let label = switcher.account(matching: args[1])?.label ?? args[1]
+                guard yes else {
+                    return fail("needs_confirmation", L10n.t(.uiRemoveSavedConfirm, label), exit: 3, out: out)
+                }
                 try switcher.removeSaved(args[1])
                 return emit(["result": L10n.t(.uiRemoveSavedDone, label)], out: out)
             case "rename":
@@ -170,6 +176,9 @@ public enum CLI {
             return emit(try codex.adopt(target), out: out)
         case "remove":
             guard let target else { return fail("usage", usage, exit: 64, out: out) }
+            guard args.contains("--yes") else {
+                return fail("needs_confirmation", L10n.t(.codexConfirmRemove, target), exit: 3, out: out)
+            }
             return emit(try codex.remove(target), out: out)
         case "rename":
             guard let target, args.count >= 3 else { return fail("usage", usage, exit: 64, out: out) }
@@ -203,7 +212,9 @@ public enum CLI {
     }()
 
     static func emit<T: Encodable>(_ value: T, out: @Sendable (String) -> Void) -> Int32 {
-        let data = (try? encoder.encode(Envelope(ok: true, result: value))) ?? Data("{\"ok\":true}".utf8)
+        guard let data = try? encoder.encode(Envelope(ok: true, result: value)) else {
+            return fail("encode_failed", "could not encode the result as JSON", exit: 1, out: out)
+        }
         out(String(decoding: data, as: UTF8.self) + "\n")
         return 0
     }

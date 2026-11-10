@@ -449,7 +449,7 @@ extension Strings {
               capture [--yes]                현재 Claude 로그인 저장
               enroll [--yes]                 새 계정 로그인 준비 (로그인 화면으로 재실행)
               rename <계정> <이름>|--reset   계정 이름 바꾸기 (--reset: 기본 이름으로)
-              remove <계정>                  저장된 로그인 삭제 (사용 중인 계정은 불가)
+              remove <계정> --yes            저장된 로그인 삭제 (사용 중인 계정은 불가)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Code 탭 CLI 의 계정 확인
               recover                        중단된 전환 복구
@@ -460,7 +460,7 @@ extension Strings {
               codex add                      Codex 계정 추가 (브라우저에서 로그인)
               codex adopt <홈>               이 Mac 에서 찾은 Codex 홈을 목록에 추가
               codex reauth <계정>            Codex 계정 재인증
-              codex remove <계정>            Codex 계정 제거 (찾은 홈은 목록에서만 뺌)
+              codex remove <계정> --yes      Codex 계정 제거 (찾은 홈은 목록에서만 뺌)
               codex rename <계정> <이름>|--reset
                                              Codex 계정 이름 바꾸기
               codex unhide                   목록에서 뺀 Codex 홈 다시 보기

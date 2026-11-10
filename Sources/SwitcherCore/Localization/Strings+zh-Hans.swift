@@ -449,7 +449,7 @@ extension Strings {
               capture [--yes]                保存 Claude 当前的登录信息
               enroll [--yes]                 准备新的登录（重新启动并显示登录界面）
               rename <账户> <名称>|--reset   重命名账户（--reset：恢复默认名称）
-              remove <账户>                  移除已保存的登录信息（不能是正在使用的账户）
+              remove <账户> --yes            移除已保存的登录信息（不能是正在使用的账户）
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              检查 Code 标签页 CLI 的账户
               recover                        恢复中断的切换
@@ -460,7 +460,7 @@ extension Strings {
               codex add                      添加 Codex 账户（在浏览器中登录）
               codex adopt <主目录>           将在此 Mac 上找到的 Codex 主目录添加到列表
               codex reauth <账户>            重新登录 Codex 账户
-              codex remove <账户>            移除 Codex 账户（找到的主目录只从列表中移除）
+              codex remove <账户> --yes      移除 Codex 账户（找到的主目录只从列表中移除）
               codex rename <账户> <名称>|--reset
                                              重命名 Codex 账户
               codex unhide                   重新显示已移除的 Codex 主目录
