@@ -609,8 +609,8 @@ struct ProviderEdgeTests {
         let t = SystemUsageHTTPTransport(configuration: c)
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
-        // The refused redirect completes as the bare 302 response — immediately.
-        #expect(t.send(req)?.status == 302)
+        // The refused redirect completes immediately — nil, without the old 5 s wait.
+        #expect(t.send(req) == nil)
         #expect(RedirectProtocol.targetHit.value == false)
     }
 
