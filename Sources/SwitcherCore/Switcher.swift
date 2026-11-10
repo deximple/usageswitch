@@ -364,8 +364,8 @@ public final class Switcher: @unchecked Sendable {
             if !relaunchers.journal().isEmpty { notes.append(L10n.t(.recoverRelaunchersHeld)) }
             return (notes, false, failed)
         }
-        let needsAttention = restoreSuspendedRelaunchers(notes: &notes)
-        return (notes, false, failed || needsAttention)
+        _ = restoreSuspendedRelaunchers(notes: &notes)
+        return (notes, false, failed)
     }
 
     /// The tail recovery runs once no swap journal is left: restore Claude's suspended relaunchers
