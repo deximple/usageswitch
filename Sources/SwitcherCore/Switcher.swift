@@ -450,8 +450,10 @@ public final class Switcher: @unchecked Sendable {
         try withExclusiveSession(confirmed: confirmed, progress: progress) { quit in
             let saved = try recaptureOutgoing(quitClean: quit.clean, accounts: all, emails: emails, progress: progress)
             // Never clear the only copy of a sign-in: proceed only if it was just saved, is already saved, or
-            // the live jar holds no valid sign-in.
-            if !saved, unsavedSignInName(accounts: all) != nil { throw SwitcherError.cannotSaveCurrentLogin }
+            // the live jar holds no valid sign-in. An unreadable jar is refused, not assumed empty (B-02).
+            if !saved, liveSignIn() == .unknown || unsavedSignInName(accounts: all) != nil {
+                throw SwitcherError.cannotSaveCurrentLogin
+            }
             progress(.backingUp)
             try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
             progress(.swapping)
@@ -572,11 +574,27 @@ public final class Switcher: @unchecked Sendable {
 
     // MARK: - Steps
 
+    /// What the live cookie jar says about the sign-in: a valid session, definitely none,
+    /// or unreadable — an unreadable jar is never "signed out" (audit B-02).
+    enum LiveSignIn { case valid, none, unknown }
+
+    func liveSignIn() -> LiveSignIn {
+        guard FileManager.default.fileExists(atPath: env.claudeCookies.path) else { return .none }
+        do {
+            guard let info = try CookieJar.sessionInfo(of: env.claudeCookies) else { return .none }
+            return info.isValid(at: clock.now()) ? .valid : .none
+        } catch { return .unknown }
+    }
+
     /// Non-nil when the live jar still holds a valid sessionKey that has no usable snapshot. "Signed in" is
     /// read from the jar itself, not inferred from logs, so an unknown identity is never treated as signed out.
     /// Returns a directory-safe name for keeping the files aside.
     func unsavedSignInName(accounts: [SwitcherAccount]) -> String? {
-        guard let info = try? CookieJar.sessionInfo(of: env.claudeCookies), info.isValid(at: clock.now()) else { return nil }
+        switch liveSignIn() {
+        case .none: return nil
+        case .unknown: return "unknown"
+        case .valid: break
+        }
         guard let active = activeIdentity() else { return "unknown" }
         let identity = identityFor(account: active.account, org: active.org, among: accounts)
         return store.hasUsableSnapshot(for: identity, now: clock.now()) ? nil : identity.key
@@ -594,7 +612,8 @@ public final class Switcher: @unchecked Sendable {
 
     /// Design D2-5: the live jar must hold a valid sessionKey row and no logout may follow the last sign-in.
     func recaptureGuardPasses() throws -> Bool {
-        guard let info = try? CookieJar.sessionInfo(of: env.claudeCookies), info.isValid(at: clock.now()) else { return false }
+        // An unreadable jar is not recaptured into a snapshot (B-02).
+        guard liveSignIn() == .valid else { return false }
         // Anchored on the last `Initialization succeeded`, not on token lookups (design D2-5).
         return log.signedInSinceLastInit()
     }
