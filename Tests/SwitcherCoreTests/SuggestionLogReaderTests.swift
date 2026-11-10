@@ -297,6 +297,30 @@ struct SuggestionLogReaderTests {
         #expect(logReader.recentRecords(now: now).map(\.inputTokens) == [10]) // counted once
     }
 
+    @Test func anUnfinishedLastLineIsNotABacklog() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        let file = logRoot.directory.appendingPathComponent("projects/project/crashed.jsonl")
+        try write(claudeLine(id: "done", input: 10) + "\n" + #"{"type":"assistant","mess"#, to: file,
+                  modifiedAt: now.addingTimeInterval(-11 * 60))
+        let logReader = reader(root)
+        for _ in 0..<2 {
+            let pass = logReader.read(roots: [logRoot], now: now)
+            #expect(pass.pendingBytes == 0)
+            #expect(pass.pendingAccounts.isEmpty)
+        }
+    }
+
+    @Test func aCursorPathThatIsNotAFileIsSetAsideOnce() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        try FileManager.default.createDirectory(at: cursorFile(root), withIntermediateDirectories: true)
+        let logReader = reader(root)
+        #expect(logReader.read(roots: [logRoot], now: now).records.isEmpty)
+        #expect(logReader.read(roots: [logRoot], now: now).records.map(\.inputTokens) == [10])
+    }
+
     @Test func aMissingCursorFileIsAFreshStart() throws {
         let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)

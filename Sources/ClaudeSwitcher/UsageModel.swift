@@ -548,8 +548,9 @@ final class UsageModel: ObservableObject {
         pace = pace.filter { !$0.key.hasPrefix(prefix) }
         previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
         if let state = loadedAlertState() {
-            alertState = UsageAlertState(threshold: state.threshold,
-                                         keys: state.keys.filter { !$0.hasPrefix(prefix) })
+            let next = UsageAlertState(threshold: state.threshold,
+                                       keys: state.keys.filter { !$0.hasPrefix(prefix) })
+            if next != state { saveAlertState(next) }
         }
     }
 
@@ -723,6 +724,13 @@ final class UsageModel: ObservableObject {
         return alertState
     }
 
+    /// Memory and store change together, so a restart never brings back a key that was cleared.
+    private func saveAlertState(_ state: UsageAlertState) {
+        alertState = state
+        let env = SwitcherEnvironment.live()
+        try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(state)
+    }
+
     private func deliverAlerts(now: Date) {
         guard settings.usageAlertsEnabled, !isDemo else { return }
         let saved = loadedAlertState()
@@ -730,11 +738,7 @@ final class UsageModel: ObservableObject {
         let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
                                                  alerted: saved?.keys(for: threshold) ?? [], now: now)
         let next = UsageAlertState(threshold: threshold, keys: alerted)
-        if next != saved {
-            alertState = next
-            let env = SwitcherEnvironment.live()
-            try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(next)
-        }
+        if next != saved { saveAlertState(next) }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }

@@ -346,6 +346,23 @@ struct RelauncherGuardTests {
         #expect(s.reads.count(s.script.path) == 2)
     }
 
+    @Test func aScanWithAFailedReadIsNotRemembered() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let label = "com.user.claude-flaky"
+        let script = sb.root.appendingPathComponent("flaky.sh")
+        try Data("open -a Claude\n".utf8).write(to: script)
+        try AgentFixture.writePlist(env: sb.env, label: label, plist: ["Label": label, "ProgramArguments": [script.path]])
+        let reads = ReadCounter()
+        // The first read of the script fails although the file is small and readable.
+        let reader = BoundedReader { path in
+            reads.record(path)
+            return path == script.path && reads.count(path) == 1 ? nil : BoundedReader.readSmallText(path)
+        }
+        let guardian = RelauncherGuard(env: sb.env, fs: sb.fs, runner: FakeWorld(env: sb.env), reader: reader)
+        #expect(guardian.discover().isEmpty)
+        #expect(guardian.discover().map(\.label) == [label])
+    }
+
     @Test func suspendAllAlwaysScansFresh() throws {
         let s = try countingSetup(); defer { s.sb.remove() }
         _ = s.guardian.discover()

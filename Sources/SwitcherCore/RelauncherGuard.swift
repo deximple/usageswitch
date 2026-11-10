@@ -60,7 +60,7 @@ public struct RelauncherGuard: Sendable {
         }
         let result = scan()
         // A scan that could not verify something is never remembered.
-        cache.store(result.unverified.isEmpty && plistNames() == names
+        cache.store(result.unverified.isEmpty && !result.readFailed && plistNames() == names
             ? RelauncherScanCache.Entry(plistNames: names, paths: result.inspected.map(\.path),
                                         fingerprints: result.inspected.map(\.fingerprint),
                                         relaunchers: result.relaunchers)
@@ -80,7 +80,16 @@ public struct RelauncherGuard: Sendable {
         return "\(info.st_size):\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec):\(info.st_ino)"
     }
 
-    func scan() -> (relaunchers: [Relauncher], unverified: [String], inspected: [(path: String, fingerprint: String)]) {
+    /// A small regular file should have been readable, so a refused read of one may be a passing
+    /// failure (or a small binary); either way the scan is not worth remembering.
+    private static func shouldHaveBeenReadable(_ path: String, limit: Int) -> Bool {
+        var info = stat()
+        return stat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG && info.st_size < off_t(limit)
+    }
+
+    func scan() -> (relaunchers: [Relauncher], unverified: [String],
+                    inspected: [(path: String, fingerprint: String)], readFailed: Bool) {
+        var readFailed = false
         var relaunchers: [Relauncher] = []
         var unverified: [String] = []
         var inspected: [(path: String, fingerprint: String)] = []
@@ -92,6 +101,7 @@ public struct RelauncherGuard: Sendable {
             case let .data(data):
                 plistData = data
             case .unreadable:
+                if Self.shouldHaveBeenReadable(url.path, limit: Self.plistReadLimit) { readFailed = true }
                 continue
             case .timedOut:
                 unverified.append(name)
@@ -110,6 +120,7 @@ public struct RelauncherGuard: Sendable {
                 case let .data(body):
                     if !body.contains(0) { text += "\n" + String(decoding: body, as: UTF8.self) }
                 case .unreadable:
+                    if Self.shouldHaveBeenReadable(arg, limit: 65_536) { readFailed = true }
                     continue
                 case .timedOut:
                     scriptTimedOut = true
@@ -120,7 +131,7 @@ public struct RelauncherGuard: Sendable {
                 relaunchers.append(Relauncher(label: label, plistPath: url.path))
             }
         }
-        return (relaunchers, unverified, inspected)
+        return (relaunchers, unverified, inspected, readFailed)
     }
 
     /// Lines are pre-filtered with cheap substring checks and length-capped so the regexes stay linear.

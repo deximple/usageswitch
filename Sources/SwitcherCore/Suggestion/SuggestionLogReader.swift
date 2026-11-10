@@ -384,8 +384,10 @@ public final class SuggestionLogReader: @unchecked Sendable {
         case .unreadable:
             // Offsets are lost, so what was already counted is unknown: set the cursor file aside,
             // drop the stored usage and let the next pass count everything once from the start.
-            try? fs.move(cursorFile, to: directory.appendingPathComponent(
-                "log-cursors.json.unreadable-\(Int(now.timeIntervalSince1970))"))
+            // If the file cannot be set aside nothing is removed: the pass is skipped and tried again.
+            guard (try? fs.move(cursorFile, to: directory.appendingPathComponent(
+                "log-cursors.json.unreadable-\(Int(now.timeIntervalSince1970))"))) != nil
+            else { return SuggestionLogPass(records: [], bytesRead: 0) }
             usageStore.removeAll()
             return SuggestionLogPass(records: [], bytesRead: 0)
         }
@@ -447,7 +449,9 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 continue
             }
             cursors[pathKey] = nextCursor
-            unread[unreadKey]?.bytes = info.size > nextCursor.offset ? info.size - nextCursor.offset : 0
+            // Read to the end: whatever is left is an unfinished last line, not a backlog.
+            let reachedEnd = UInt64(data.count) == info.size - cursor.offset
+            unread[unreadKey]?.bytes = reachedEnd || info.size <= nextCursor.offset ? 0 : info.size - nextCursor.offset
             for parsedUsage in parsed {
                 accumulate(parsedUsage, into: &totals)
             }
@@ -499,12 +503,15 @@ public final class SuggestionLogReader: @unchecked Sendable {
 
     private func loadCursors() -> CursorLoad {
         var attributes = stat()
-        if lstat(cursorFile.path, &attributes) != 0, errno == ENOENT { return .missing }
+        guard lstat(cursorFile.path, &attributes) == 0 else { return errno == ENOENT ? .missing : .stalled }
+        // Only what is certain counts as unreadable: not a regular file, too large, or not decodable.
+        // A read that merely failed this time is retried on the next pass.
+        guard attributes.st_mode & S_IFMT == S_IFREG, attributes.st_size <= off_t(Self.maximumCursorFileBytes)
+        else { return .unreadable }
         switch boundedReader.read(atPath: cursorFile.path, using: { path in
             BoundedReader.readBounded(path, limit: Self.maximumCursorFileBytes + 1, allowBinary: true)
         }) {
-        case .timedOut: return .stalled
-        case .unreadable: return .unreadable
+        case .timedOut, .unreadable: return .stalled
         case .data(let data):
             guard let state = try? JSONDecoder().decode(FileCursorState.self, from: data) else { return .unreadable }
             return .loaded(state)
