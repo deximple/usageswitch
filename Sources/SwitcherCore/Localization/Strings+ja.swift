@@ -432,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "オンにする",
         .usageRefreshHelp: "今すぐ使用量を読み直す",
         .usageRunsOut: "このペースなら%@で枯渇",
+        .usageRunsOutSoon: "このペースなら1分以内に枯渇",
         .usageGuideExpandedA11y: "展開中",
         .usageGuideCollapsedA11y: "折りたたみ",
         .usageStaleA11y: "使用量の更新が必要です",

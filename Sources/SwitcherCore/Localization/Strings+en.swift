@@ -432,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "Turn On",
         .usageRefreshHelp: "Read usage again now",
         .usageRunsOut: "may run out in %@",
+        .usageRunsOutSoon: "may run out within a minute",
         .usageGuideExpandedA11y: "Expanded",
         .usageGuideCollapsedA11y: "Collapsed",
         .usageStaleA11y: "Usage needs refresh",

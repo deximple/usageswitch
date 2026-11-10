@@ -432,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "켜기",
         .usageRefreshHelp: "지금 사용량 다시 읽기",
         .usageRunsOut: "이 속도면 %@ 후 소진",
+        .usageRunsOutSoon: "이 속도면 1분 안에 소진",
         .usageGuideExpandedA11y: "펼쳐짐",
         .usageGuideCollapsedA11y: "접힘",
         .usageStaleA11y: "갱신이 필요한 사용량",

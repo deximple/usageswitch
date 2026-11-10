@@ -81,10 +81,12 @@ public enum AccountNames {
     public static func validated(_ raw: String?) throws -> String? {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.count <= maxLength, !hasForbiddenScalar(in: trimmed) else {
+        // Checked after NFKC, so a compatibility character that expands can't exceed the limit.
+        let normalized = trimmed.precomposedStringWithCompatibilityMapping
+        guard normalized.count <= maxLength, !hasForbiddenScalar(in: normalized) else {
             throw SwitcherError.invalidAccountName(maxLength: maxLength)
         }
-        return trimmed.precomposedStringWithCompatibilityMapping
+        return normalized
     }
 
     /// U+200D (ZWJ) is allowed only between emoji scalars; every other forbidden scalar
@@ -93,7 +95,11 @@ public enum AccountNames {
         let scalars = Array(name.unicodeScalars)
         for (index, scalar) in scalars.enumerated() {
             if scalar.value == 0x200D {
-                let left = index > 0 ? scalars[index - 1] : nil
+                // Variation selectors and skin-tone modifiers belong to the emoji before them
+                // (`❤️‍🔥`, `🏳️‍🌈`, `👩🏽‍💻`), so look past them for the base emoji.
+                var leftIndex = index - 1
+                while leftIndex >= 0, Self.isEmojiPresentationModifier(scalars[leftIndex]) { leftIndex -= 1 }
+                let left = leftIndex >= 0 ? scalars[leftIndex] : nil
                 let right = index + 1 < scalars.count ? scalars[index + 1] : nil
                 let emoji = { (s: Unicode.Scalar?) -> Bool in
                     guard let s else { return false }
@@ -105,6 +111,10 @@ public enum AccountNames {
             if isForbidden(scalar) { return true }
         }
         return false
+    }
+
+    static func isEmojiPresentationModifier(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value == 0xFE0E || scalar.value == 0xFE0F || (0x1F3FB...0x1F3FF).contains(scalar.value)
     }
 
     /// Format characters such as emoji joiners are fine; bidi overrides, invisible width/zero-space

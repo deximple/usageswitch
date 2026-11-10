@@ -432,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "开启",
         .usageRefreshHelp: "立即重新读取用量",
         .usageRunsOut: "按此速度 %@ 后耗尽",
+        .usageRunsOutSoon: "按此速度 1 分钟内耗尽",
         .usageGuideExpandedA11y: "已展开",
         .usageGuideCollapsedA11y: "已折叠",
         .usageStaleA11y: "用量需要刷新",

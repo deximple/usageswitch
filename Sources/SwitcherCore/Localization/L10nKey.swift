@@ -453,6 +453,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageBillingConsole = "usage.billingConsole"
     case usagePlanLabel = "usage.planLabel"
     case usageRunsOut = "usage.runsOut"
+    case usageRunsOutSoon = "usage.runsOutSoon"
     case usageGuideExpandedA11y = "usage.a11y.guideExpanded"
     case usageGuideCollapsedA11y = "usage.a11y.guideCollapsed"
     case usageStaleA11y = "usage.a11y.stale"

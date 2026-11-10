@@ -11,6 +11,15 @@ struct AccountNamesTests {
         }
         #expect(throws: Never.self) { try AccountNames.validated("plain name") }
         #expect(throws: Never.self) { try AccountNames.validated("👩‍💻 Work") }
+        // Variation selectors and skin tones inside an emoji ZWJ sequence are part of the emoji.
+        for name in ["\u{2764}\u{FE0F}\u{200D}\u{1F525} Fire", "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308} Pride",
+                     "\u{1F469}\u{1F3FD}\u{200D}\u{1F4BB} Dev"] {
+            #expect(throws: Never.self) { try AccountNames.validated(name) }
+        }
+        // A joiner after a lone variation selector is still refused.
+        #expect(throws: SwitcherError.self) { try AccountNames.validated("a\u{FE0F}\u{200D}b") }
+        // The length limit applies after NFKC: 20 × "ﬃ" becomes 60 characters.
+        #expect(throws: SwitcherError.self) { try AccountNames.validated(String(repeating: "\u{FB03}", count: 20)) }
         #expect(throws: SwitcherError.self) { try AccountNames.validated("a\u{200D}b") }
         #expect(throws: SwitcherError.self) { try AccountNames.validated("#\u{200D}1") }
         #expect(throws: SwitcherError.self) { try AccountNames.validated("x\u{200D}") }

@@ -668,7 +668,7 @@ struct UsageBarRow: View {
     /// Estimated run-out in the full localized form, for help and accessibility.
     private var runOutText: String? {
         earlyRunOut.map {
-            $0.timeIntervalSince(now) < 60 ? L10n.t(.usageRefreshingSoon)
+            $0.timeIntervalSince(now) < 60 ? L10n.t(.usageRunsOutSoon)
                 : L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now))
         }
     }
