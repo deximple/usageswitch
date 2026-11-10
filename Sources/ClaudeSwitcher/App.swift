@@ -346,9 +346,9 @@ struct ClaudeSwitcherApp: App {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.isBusy ? "arrow.triangle.2.circlepath" : "person.2.circle")
-                TimelineView(.periodic(from: .now, by: 60)) { _ in
-                    if let title = barTitle { Text(title) }
-                }
+                // No TimelineView here: inside a MenuBarExtra label it re-rendered the status
+                // button image without end (2.2.0 pegged a core and grew memory at launch).
+                if let title = barTitle { Text(title) }
             }
             .accessibilityLabel(barTitle.map { "\(ProductInfo.name), \($0)" } ?? ProductInfo.name)
         }

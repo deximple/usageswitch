@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.1 — fixes 2.2.0 hanging at launch
+
+- 2.2.0 used a full CPU core right after launch and kept growing in memory, and its menu
+  never opened. The menu bar title was wrapped in a periodic timeline, which made macOS
+  redraw the status item without end. The title is back to how 2.1.6 drew it.
+- Everything else from 2.2.0 is unchanged.
+
 ## 2.2.0 — finishing the 2026-11 audit
 
 **Breaking (command line):**
