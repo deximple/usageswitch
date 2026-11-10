@@ -394,7 +394,7 @@ struct MainView: View {
                         VStack(alignment: .leading, spacing: Theme.gapRow) {
                             if let banner = model.banner { BannerView(banner: banner) }
                             ForEach(status.warnings, id: \.self) { BannerView(banner: .init(kind: .info, text: $0)) }
-                            if status.pendingJournal {
+                            if status.journalUnreadable {
                                 Button(L10n.t(.uiSetAsideJournal)) {
                                     let alert = NSAlert()
                                     alert.messageText = L10n.t(.uiSetAsideJournalTitle)

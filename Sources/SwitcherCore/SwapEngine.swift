@@ -231,7 +231,7 @@ public struct SwapEngine: Sendable {
     }
 
     /// Displaced copies of Claude's config.json must not keep token caches (audit B-01).
-    private func stripDisplacedTokenCaches() {
+    func stripDisplacedTokenCaches() {
         let dirs = (try? FileManager.default.contentsOfDirectory(
             at: env.displacedDir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         for dir in dirs {

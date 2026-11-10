@@ -140,7 +140,7 @@ final class SwitcherModel: ObservableObject {
     func setAsidePendingJournal() {
         do {
             let destination = try switcher.setAsidePendingJournal()
-            banner = .init(kind: .success, text: destination.path)
+            banner = .init(kind: .success, text: L10n.t(.uiSetAsideJournalDone, destination.path))
             refresh()
         } catch let e as SwitcherError {
             banner = .init(kind: .error, text: e.description)

@@ -286,24 +286,21 @@ public final class Switcher: @unchecked Sendable {
     @discardableResult
     public func recoverIfNeeded() -> [String] { runRecovery().notes }
 
-    /// Token caches must not survive in displaced copies (audit B-01).
-    private func stripDisplacedTokenCaches() {
-        let dirs = (try? FileManager.default.contentsOfDirectory(
-            at: env.displacedDir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        for dir in dirs { store.stripTokenCaches(inConfigAt: dir.appendingPathComponent(SnapshotItems.config)) }
-    }
-
     /// Moves an unresolved swap journal and its `previous/` copy out of the way (audit B-03 follow-up):
     /// nothing is deleted, so the kept files can still be inspected or restored by hand.
     /// Refused while Claude runs (the files may be in use) or another session holds the lock.
     @discardableResult
     public func setAsidePendingJournal() throws -> URL {
+        try acquireLock()
+        defer { releaseLock() }
         guard processes.mainProcess() == nil else {
             throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
         }
-        try acquireLock()
-        defer { releaseLock() }
-        guard swapper.journalPresent else { throw SwitcherError.swapFailed(L10n.t(.reasonNoPendingJournal)) }
+        // Only a damaged journal may be set aside: a readable one is settled by normal
+        // recovery — rolling it back or committing it — never silently skipped.
+        guard swapper.journalIsUnreadable() else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonJournalReadable))
+        }
         let destination = env.displacedDir.appendingPathComponent(
             "journal-\(Int(clock.now().timeIntervalSince1970))")
         try fs.createDirectory(env.displacedDir)
@@ -348,7 +345,7 @@ public final class Switcher: @unchecked Sendable {
                 case .rolledBack: notes.append(L10n.t(.recoverRolledBack))
                 case .committed:
                     notes.append(L10n.t(.recoverCommitted))
-                    stripDisplacedTokenCaches()
+                    swapper.stripDisplacedTokenCaches()
                 case nil: break
                 }
             } catch {

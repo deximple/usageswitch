@@ -53,14 +53,18 @@ public struct SwitcherStatus: Codable, Equatable, Sendable {
     public let suspendedRelaunchers: [String]
     public let originalBackup: String?
     public let pendingJournal: Bool
+    /// A journal that exists but cannot be decoded: only this kind can be set aside (audit B-03).
+    public let journalUnreadable: Bool
     public let nativeMultiAccount: Bool
     public let warnings: [String]
 
     public init(claude: ClaudeStatus, accounts: [AccountStatus], relaunchers: [String], suspendedRelaunchers: [String],
-                originalBackup: String?, pendingJournal: Bool, nativeMultiAccount: Bool, warnings: [String]) {
+                originalBackup: String?, pendingJournal: Bool, journalUnreadable: Bool = false,
+                nativeMultiAccount: Bool, warnings: [String]) {
         self.claude = claude; self.accounts = accounts; self.relaunchers = relaunchers
         self.suspendedRelaunchers = suspendedRelaunchers; self.originalBackup = originalBackup
-        self.pendingJournal = pendingJournal; self.nativeMultiAccount = nativeMultiAccount; self.warnings = warnings
+        self.pendingJournal = pendingJournal; self.journalUnreadable = journalUnreadable
+        self.nativeMultiAccount = nativeMultiAccount; self.warnings = warnings
     }
 
     public var activeAccount: AccountStatus? { accounts.first(where: \.isActive) }
@@ -132,6 +136,7 @@ extension Switcher {
         return SwitcherStatus(
             claude: claude, accounts: rows, relaunchers: relaunchers.discover().map(\.label),
             suspendedRelaunchers: relaunchers.journal().map(\.label), originalBackup: store.originalBackup()?.path,
-            pendingJournal: swapper.pendingJournal() != nil, nativeMultiAccount: native, warnings: warnings)
+            pendingJournal: swapper.pendingJournal() != nil,
+            journalUnreadable: swapper.journalIsUnreadable(), nativeMultiAccount: native, warnings: warnings)
     }
 }
