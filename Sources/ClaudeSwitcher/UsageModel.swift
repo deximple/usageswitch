@@ -36,7 +36,7 @@ final class UsageModel: ObservableObject {
     private var suggestionStateTask: Task<Void, Never>?
     private var suggestionLogReader: SuggestionLogReader?
     private var suggestionLogTask: Task<Void, Never>?
-    private var lastSuggestionLogReadAt: Date?
+    private var logReadGate = SuggestionLogReadGate()
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
     private(set) var claudeBindings: [ClaudeProfileBinding]
@@ -47,7 +47,9 @@ final class UsageModel: ObservableObject {
     /// Last ok sample per window key, for pace. Session-scoped: a restart starts over.
     private var previousSamples: [String: UsagePace.Sample] = [:]
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
-    private var alertedKeys: Set<String> = []
+    /// Limits already warned about. Loaded from the store on first use, saved when it changes.
+    private var alertState: UsageAlertState?
+    private var alertStateLoaded = false
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
     private let geminiClientFinder = GeminiOAuthClientFinder()
@@ -218,12 +220,11 @@ final class UsageModel: ObservableObject {
         suggestionStateTask = nil
         suggestionLogTask = nil
         suggestionLogReader = nil
-        lastSuggestionLogReadAt = nil
+        logReadGate.invalidate()
         suggestionLogHints = [:]
         apiUsageEstimates = [:]
         pace = [:]
         previousSamples = [:]
-        alertedKeys = []
     }
 
     private func stateStore(env: SwitcherEnvironment = .live()) -> SuggestionStateStore {
@@ -475,6 +476,7 @@ final class UsageModel: ObservableObject {
         abandonCurrentRefresh()
         generation += 1
         suggestionLogTask?.cancel()
+        logReadGate.invalidate()
         suggestionStore?.invalidateBefore(generation)
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
         if !enabled.contains(.gemini) { geminiTokenCache.clear() }
@@ -495,6 +497,7 @@ final class UsageModel: ObservableObject {
         abandonCurrentRefresh()
         generation += 1
         suggestionLogTask?.cancel()
+        logReadGate.invalidate()
         suggestionStore?.invalidateBefore(generation)
         let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
         for old in claudeBindings where next[old.accountId] != old {
@@ -543,7 +546,10 @@ final class UsageModel: ObservableObject {
         let prefix = rowID + "/"
         pace = pace.filter { !$0.key.hasPrefix(prefix) }
         previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
-        alertedKeys = alertedKeys.filter { !$0.hasPrefix(prefix) }
+        if let state = loadedAlertState() {
+            alertState = UsageAlertState(threshold: state.threshold,
+                                         keys: state.keys.filter { !$0.hasPrefix(prefix) })
+        }
     }
 
     private func publishInventory(_ installed: [UsageInstallation], generation: Int) {
@@ -576,7 +582,7 @@ final class UsageModel: ObservableObject {
             guard !Task.isCancelled else { return }
             store.record(fresh, now: now, generation: generation)
         }
-        scheduleSuggestionLogRead(now: now, generation: generation, env: env)
+        scheduleSuggestionLogRead(now: now, env: env)
         // The `--cli usage` file: display-safe identity, authentication and window
         // data only — labels always email-masked, never credentials or raw emails.
         if AppModel.shared.status != nil {
@@ -596,16 +602,12 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    private func scheduleSuggestionLogRead(now: Date, generation: Int,
-                                           env: SwitcherEnvironment) {
-        if let lastSuggestionLogReadAt,
-           now.timeIntervalSince(lastSuggestionLogReadAt) < 10 * 60 {
-            return
-        }
+    private func scheduleSuggestionLogRead(now: Date, env: SwitcherEnvironment) {
+        guard logReadGate.shouldStart(now: now) else { return }
+        let token = logReadGate.begin()
         let reader = suggestionLogReader ?? SuggestionLogReader(
             env: env, fs: SafeFS(env: env), catalog: Self.suggestionCatalog)
         suggestionLogReader = reader
-        lastSuggestionLogReadAt = now
         let roots = suggestionLogRoots(env: env)
         let apiKeyAccounts = Set(usages.compactMap { usage -> APIKeyAccountKey? in
             guard usage.authentication == .apiKey,
@@ -636,7 +638,8 @@ final class UsageModel: ObservableObject {
             }, onCancel: {
                 backgroundTask.cancel()
             })
-            guard let self, self.generation == generation else { return }
+            // A usage refresh that started meanwhile does not make this result stale.
+            guard let self, self.logReadGate.finish(token: token, now: Date()) else { return }
             self.suggestionLogHints = result.0
             self.apiUsageEstimates = result.1
         }
@@ -702,12 +705,29 @@ final class UsageModel: ObservableObject {
         pace = readings
     }
 
+    /// The remembered warnings, read from the store the first time they are needed.
+    private func loadedAlertState() -> UsageAlertState? {
+        guard !isDemo else { return nil }
+        if !alertStateLoaded {
+            alertStateLoaded = true
+            let env = SwitcherEnvironment.live()
+            alertState = UsageAlertStore(env: env, fs: SafeFS(env: env)).load()
+        }
+        return alertState
+    }
+
     private func deliverAlerts(now: Date) {
-        guard settings.usageAlertsEnabled else { return }
-        let (alerts, alerted) = UsageAlerts.update(usages: usages,
-                                                 threshold: Double(settings.usageWarnPercent),
-                                                 alerted: alertedKeys, now: now)
-        alertedKeys = alerted
+        guard settings.usageAlertsEnabled, !isDemo else { return }
+        let saved = loadedAlertState()
+        let threshold = Double(settings.usageWarnPercent)
+        let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
+                                                 alerted: saved?.keys(for: threshold) ?? [], now: now)
+        let next = UsageAlertState(threshold: threshold, keys: alerted)
+        if next != saved {
+            alertState = next
+            let env = SwitcherEnvironment.live()
+            try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(next)
+        }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }

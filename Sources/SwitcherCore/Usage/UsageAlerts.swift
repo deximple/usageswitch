@@ -1,8 +1,9 @@
 import Foundation
 
 /// Which windows just crossed the warning threshold. Pure state transitions — the app layer
-/// decides how to deliver them. Memory-only dedup: a key leaves the set once the window drops
-/// back under `threshold - hysteresis` or goes stale, so a refill arms the alert again.
+/// decides how to deliver them. A key leaves the dedup set once the window drops back under
+/// `threshold - hysteresis` or goes stale, so a refill arms the alert again. A read that fails
+/// says nothing about the window, so it leaves that account's keys as they are.
 public enum UsageAlerts {
     /// Five points below the threshold re-arms an alert, so a tiny refill doesn't re-fire it.
     public static let hysteresis = 5.0
@@ -21,6 +22,10 @@ public enum UsageAlerts {
                               now: Date) -> (alerts: [Alert], alerted: Set<String>) {
         var next = Set<String>()
         var alerts: [Alert] = []
+        for usage in usages where usage.state != .ok {
+            let prefix = usage.id + "/"
+            next.formUnion(alerted.filter { $0.hasPrefix(prefix) })
+        }
         for usage in usages where usage.state == .ok {
             for window in usage.windows where !window.isStale(now: now) {
                 let key = UsagePriority.key(usage, window)

@@ -43,6 +43,8 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 | Original backup (`backups/`) | A one-time copy, made before the first switch and never restored automatically, of: <ul><li>Claude's cookie database;</li><li>`config.json`, with cached tokens removed;</li><li>its web storage folders (`Local Storage`, `Session Storage`, `IndexedDB`, `WebStorage`);</li><li>its settings files: `claude_desktop_config.json` (your MCP server settings, including any API keys you put there), `ccd-session-presets.json`, `bridge-state.json`, `ant-device-registry.json` and `mcp-user-tool-toggles.json`.</li></ul> |
 | Displaced sign-ins (`displaced/`) | If an account wasn't saved when you switched away from it, its cookie database and `config.json` (cached tokens removed) are kept here rather than deleted. |
 | `account-names.json` | Names you gave your accounts. |
+| `cli-workdir/` | Two empty folders (`claude/`, `codex/`). UsageSwitch starts the vendor CLIs there when it reads usage, so a CLI that records its working directory records one fixed entry. |
+| `usage-alerts.json` | The usage limits you were already warned about, as opaque row keys (for example `codex:m-1a2b3c4d/weekly/`) with the warning level, so a restart does not repeat a warning. No name or email. |
 | Switch journal and lock | Used to recover an interrupted switch. |
 
 **Codex tab:**
@@ -51,7 +53,6 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`, with
 |---|---|
 | `codex/` | One folder per account added with **Add Codex account**. Each holds: <ul><li>`home`, its Codex home. Codex's own CLI writes the account's `auth.json` there, as it does in `~/.codex`.</li><li>`app-data`, the Codex app's data for that account.</li></ul> |
 | `codex-app-data/` | The Codex app's data for homes added from **Found on this Mac**. A home that already has its own Codex app-data folder in `~/Library/Application Support` keeps using that one instead. |
-| `cli-workdir/` | Two empty folders (`claude/`, `codex/`). UsageSwitch starts the vendor CLIs there when it reads usage, so a CLI that records its working directory records one fixed entry. |
 | `codex-accounts.json` | Names, the homes you added from this Mac, and the homes you hid. |
 
 **Settings:** `settings.json` holds the language, display options, usage-connection grants, and any explicitly enabled saved-Claude-account profile bindings (account/organization IDs and the canonical profile path), not provider tokens. The profile path is not included in the usage snapshot. The window position and a few launch details are kept in macOS preferences (`com.jaysong.usageswitch`).
