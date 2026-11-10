@@ -61,4 +61,6 @@ xcrun stapler staple "$DMG"
 xcrun stapler validate "$DMG"
 spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
 
-shasum -a 256 "$ZIP" "$DMG"
+# Checksums for the release notes: bare filenames, dmg before zip, written by this script.
+(cd build && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")") > build/SHA256SUMS.txt
+cat build/SHA256SUMS.txt

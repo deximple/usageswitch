@@ -127,7 +127,7 @@ public struct CursorUsageCollector: Sendable {
     /// process call; this reader only bounds the file fallback.
     private let credentials: any UsageCredentialReading
 
-    /// `endpoint` defaults to the `CURSOR_API_ENDPOINT` environment variable or Cursor's API host.
+    /// `endpoint` defaults to Cursor's fixed API host; tests inject their own.
     public init(enabled: Bool, runner: any UsageProcessRunner, http: any UsageHTTP,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 endpoint: URL? = nil,
@@ -135,8 +135,7 @@ public struct CursorUsageCollector: Sendable {
                 credentials: any UsageCredentialReading = UsageFileCredentialReader()) {
         self.enabled = enabled; self.runner = runner; self.http = http; self.home = home
         self.credentials = credentials
-        self.endpoint = endpoint ?? ProcessInfo.processInfo.environment["CURSOR_API_ENDPOINT"]
-            .flatMap(URL.init(string:)) ?? URL(string: "https://api2.cursor.sh")!
+        self.endpoint = endpoint ?? URL(string: "https://api2.cursor.sh")!
         self.now = now
     }
 
