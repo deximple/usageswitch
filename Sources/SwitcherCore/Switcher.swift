@@ -615,7 +615,7 @@ public final class Switcher: @unchecked Sendable {
         progress: @escaping (SwitchStep) -> Void
     ) throws {
         progress(.launching)
-        let cursor = ClaudeLog.Cursor(log: log)
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
         do {
             try app.launch(appURL: env.claudeAppURL)
             progress(.verifying)
@@ -688,7 +688,7 @@ public final class Switcher: @unchecked Sendable {
             } catch { return .failed }
         }
         do { try swapper.rollback() } catch { return .failed }
-        let cursor = ClaudeLog.Cursor(log: log)
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
         do { try app.launch(appURL: env.claudeAppURL) } catch { return .unverified }
         guard let previous else { return .unverified }
         progress(.verifying)
@@ -703,7 +703,7 @@ public final class Switcher: @unchecked Sendable {
             return QuitOutcome(clean: !processes.anyClaudeNamedProcess())
         }
         let tree = [main] + processes.descendants(of: main.pid, in: procs)
-        let cursor = ClaudeLog.Cursor(log: log)
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
         let t0 = clock.now()
         _ = app.requestQuit(pid: main.pid)
         var sigtermSent = false

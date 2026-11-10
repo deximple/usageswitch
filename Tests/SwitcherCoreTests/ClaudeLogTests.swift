@@ -32,8 +32,25 @@ struct ClaudeLogTests {
 
     @Test func parseTimestampUsesLocalTime() throws {
         let date = try #require(ClaudeLog.parseTimestamp("2026-10-17 09:30:15 [info] x"))
-        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = TimeZone.current
+        let c = gregorian.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
         #expect([c.year, c.month, c.day, c.hour, c.minute, c.second] == [2026, 10, 17, 9, 30, 15])
+    }
+
+    @Test func logCalendarIsGregorian() {
+        #expect(ClaudeLog.logCalendar.identifier == .gregorian)
+    }
+
+    @Test func cursorStampsNewLinesWithTheInjectedClock() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let main = sb.env.claudeLogsDir.appendingPathComponent("main.log")
+        let observed = at(500)
+        let cursor = ClaudeLog.Cursor(log: ClaudeLog(logsDir: sb.env.claudeLogsDir), now: { observed })
+        try LogFixture.appendLines(main, [(at(0), "fresh")])
+        let lines = cursor.poll()
+        #expect(lines.map(\.timestamp) == [at(0)])
+        #expect(lines.map(\.observedAt) == [observed])
     }
 
     @Test func linesSinceSpansRotatedFile() throws {
@@ -238,6 +255,32 @@ struct LaunchVerdictTests {
         let ok: [(TimeInterval, String)] = [(0, LogFixture.startText), (2, LogFixture.initLine(target))]
         #expect(verdict(ok, now: 21.9) == .pending)
         #expect(verdict(ok, now: 22) == .success(initAt: Self.t0.addingTimeInterval(2)))
+    }
+
+    /// The settle wait must not depend on what calendar year the log line claims (audit A-01).
+    func skewed(_ skew: TimeInterval) -> [ClaudeLog.Line] {
+        let wrong = Self.t0.addingTimeInterval(skew)
+        return [
+            ClaudeLog.Line(timestamp: wrong, text: LogFixture.line(wrong, LogFixture.startText), observedAt: Self.t0),
+            ClaudeLog.Line(timestamp: wrong, text: LogFixture.line(wrong, LogFixture.initLine(target)), observedAt: Self.t0),
+        ]
+    }
+
+    func verdict(skew: TimeInterval, now: TimeInterval) -> LaunchVerdict {
+        LaunchVerdict.evaluate(lines: skewed(skew), targetAccount: target.account, targetOrg: target.org,
+                               now: Self.t0.addingTimeInterval(now), settle: 20)
+    }
+
+    @Test func settleCountsFromObservationNotFromTheLogTimestamp() {
+        let twoThousandYears: TimeInterval = 2000 * 365.25 * 86400
+        #expect(verdict(skew: twoThousandYears, now: 5) == .pending)
+        #expect(verdict(skew: twoThousandYears, now: 25) == .success(initAt: Self.t0.addingTimeInterval(twoThousandYears)))
+    }
+
+    @Test func aTimestampFarInThePastStillWaitsForSettle() {
+        let fiveHundredYearsAgo: TimeInterval = -500 * 365.25 * 86400
+        #expect(verdict(skew: fiveHundredYearsAgo, now: 5) == .pending)
+        #expect(verdict(skew: fiveHundredYearsAgo, now: 25) == .success(initAt: Self.t0.addingTimeInterval(fiveHundredYearsAgo)))
     }
 
     @Test func wrongAccountOrOrgFails() {

@@ -7,9 +7,12 @@ public struct ClaudeLog: Sendable {
     public struct Line: Equatable, Sendable {
         public let timestamp: Date
         public let text: String
-        public init(timestamp: Date, text: String) {
+        /// When a `Cursor` read the line. Unlike `timestamp` it does not depend on parsing the log's wall clock.
+        public let observedAt: Date?
+        public init(timestamp: Date, text: String, observedAt: Date? = nil) {
             self.timestamp = timestamp
             self.text = text
+            self.observedAt = observedAt
         }
     }
 
@@ -29,6 +32,13 @@ public struct ClaudeLog: Sendable {
 
     // MARK: - Parsing
 
+    /// Claude writes local wall-clock time in the Gregorian calendar, whatever calendar the user picked.
+    static let logCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
+
     static func parseTimestamp(_ line: Substring) -> Date? {
         let u = Array(line.utf8.prefix(19))
         guard u.count == 19, u[4] == 45, u[7] == 45, u[10] == 32, u[13] == 58, u[16] == 58 else { return nil }
@@ -41,7 +51,7 @@ public struct ClaudeLog: Sendable {
               let h = num(11..<13), let mi = num(14..<16), let s = num(17..<19) else { return nil }
         var comps = DateComponents()
         comps.year = y; comps.month = mo; comps.day = d; comps.hour = h; comps.minute = mi; comps.second = s
-        return Calendar.current.date(from: comps)
+        return logCalendar.date(from: comps)
     }
 
     /// Splits text into lines; continuation lines (no timestamp) inherit the previous timestamp.
@@ -172,10 +182,12 @@ public struct ClaudeLog: Sendable {
         private var inode: ino_t = 0
         private var offset: UInt64 = 0
         private var lastTimestamp: Date?
+        private let now: @Sendable () -> Date
         public private(set) var collected: [Line] = []
 
-        public init(log: ClaudeLog) {
+        public init(log: ClaudeLog, now: @escaping @Sendable () -> Date = { Date() }) {
             self.log = log
+            self.now = now
             let url = log.logsDir.appendingPathComponent("main.log")
             var st = stat()
             if stat(url.path, &st) == 0 {
@@ -209,7 +221,9 @@ public struct ClaudeLog: Sendable {
                     offset = 0
                 }
             }
+            let observedAt = now()
             let lines = ClaudeLog.parse(newText, initialTimestamp: lastTimestamp)
+                .map { Line(timestamp: $0.timestamp, text: $0.text, observedAt: observedAt) }
             if let last = lines.last { lastTimestamp = last.timestamp }
             collected += lines
             return lines
@@ -257,7 +271,7 @@ public enum LaunchVerdict: Equatable, Sendable {
                 reason: L10n.t(.reasonWrongAccount, String(first.account.prefix(8)), String(first.org.prefix(8))),
                 needsRelogin: false)
         }
-        if now.timeIntervalSince(firstLine.timestamp) < settle { return .pending }
+        if now.timeIntervalSince(firstLine.observedAt ?? firstLine.timestamp) < settle { return .pending }
         return .success(initAt: firstLine.timestamp)
     }
 }
