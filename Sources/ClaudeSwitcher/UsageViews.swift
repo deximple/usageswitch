@@ -769,26 +769,25 @@ struct UsageBarRow: View {
 /// Refresh button: spins while a read is in flight, disabled meanwhile; honors Reduce Motion.
 private struct UsageRefreshButton: View {
     @ObservedObject var model: UsageModel
-    @State private var turns = 0.0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button { model.refresh() } label: {
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.inkMuted)
-                .rotationEffect(.degrees(turns))
+            // A ProgressView instead of a repeatForever rotation: endless value animations
+            // are not reliably cancelled by assigning the model value back.
+            Group {
+                if model.isRefreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.inkMuted)
+                }
+            }
+            .frame(width: 16, height: 16)
         }
         .buttonStyle(.plain)
         .disabled(model.isRefreshing)
         .help(L10n.t(.usageRefreshHelp))
         .accessibilityLabel(L10n.t(.uiRefresh))
-        .onChange(of: model.isRefreshing) { _, refreshing in
-            if refreshing, !reduceMotion {
-                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) { turns += 360 }
-            } else {
-                turns = turns.truncatingRemainder(dividingBy: 360)
-            }
-        }
     }
 }
