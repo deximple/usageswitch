@@ -99,13 +99,23 @@ struct APITests {
                 cachedInputTokens: 0, cachedCreationTokens: 0,
                 outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
         }
+        func day(_ daysAgo: Int) -> String {
+            SuggestionRetention.utcDay(Calendar(identifier: .gregorian).date(byAdding: .day, value: -daysAgo, to: now) ?? now)
+        }
+        // Coverage started today: one covered day.
         var e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
-            apiKeyAccounts: [key], catalog: catalog, now: now)
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(0))
         #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 14) < 0.01)
+        // Three covered days.
         e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 7),
             record(daysAgo: 1, usd: 7), record(daysAgo: 2, usd: 7)],
-            apiKeyAccounts: [key], catalog: catalog, now: now)
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(2))
         #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 7) < 0.01)
+        // Covered zero-spend days count: $14 today after six covered days without spend.
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
+            apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(13))
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01)
+        // Unknown coverage keeps the full 7-day window.
         e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
             record(daysAgo: 6, usd: 14)],
             apiKeyAccounts: [key], catalog: catalog, now: now)
@@ -163,7 +173,8 @@ struct APITests {
         let anthropic = try #require(estimates[.anthropic])
         #expect(anthropic.hasAPIKeyAccounts)
         #expect(abs(try #require(anthropic.spendLast7DaysUSD) - expected) < 0.000_001)
-        #expect(abs(try #require(anthropic.dailyRateUSD) - expected) < 0.000_001)
+        // Coverage unknown here: the full 7-day window.
+        #expect(abs(try #require(anthropic.dailyRateUSD) - expected / 7) < 0.000_001)
         #expect(estimates[.openai]?.hasAPIKeyAccounts == false)
 
         let noPrice = SuggestionLogUsage(day: day, provider: .claude, accountRef: key.accountKey,

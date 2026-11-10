@@ -203,13 +203,13 @@ public enum APIUsageEstimator {
             let sorted = values.sorted()
             let median = (sorted[6] + sorted[7]) / 2
             let sevenDayValue = unknownSevenDayPrice ? nil : sevenDaySpend
-            // The rate divides by the days actually covered, not a flat 7: a fresh reader with
-            // one day of records must not understate the daily spend by seven (audit B-07).
-            let earliestDay = daily.keys.filter { $0 >= firstSeven }.min()
-            let coveredDays = earliestDay
+            // The rate divides by the days the logs actually cover inside the 7-day window, zero-spend
+            // days included, not a flat 7 (audit B-07). Unknown coverage keeps the full window.
+            let coveredDays = coverageStartDay
+                .map { max($0, firstSeven) }
                 .flatMap { SuggestionRetention.date(utcDay: $0) }
                 .flatMap { calendar.dateComponents([.day], from: $0, to: startOfToday).day }
-                .map { min(7, max(1, $0 + 1)) } ?? 1
+                .map { min(7, max(1, $0 + 1)) } ?? 7
             result[vendor] = APIUsageEstimate(
                 hasAPIKeyAccounts: !accounts.isEmpty,
                 spendIsComplete: !unknownBudgetPrice,
