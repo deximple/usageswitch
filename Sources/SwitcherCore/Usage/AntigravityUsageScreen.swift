@@ -497,7 +497,8 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
                let percentageIndex = (index + 1..<end).first(where: { remainingPercent(content[$0]) != nil }),
                let remaining = remainingPercent(content[percentageIndex]) {
                 let reset = (index + 1..<end).compactMap { parseReset(content[$0], now: now) }.first
-                windows.append(UsageWindow(scope: group, durationMinutes: duration,
+                windows.append(UsageWindow(scope: AntigravityScope.canonical(group),
+                                           durationMinutes: duration,
                                            usedPercent: min(100, max(0, 100 - remaining)),
                                            resetsAt: reset))
             }

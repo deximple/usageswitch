@@ -66,9 +66,13 @@ public struct AntigravityUsageCollector: Sendable {
             let fingerprint = Data(SHA256.hash(data: Data(identity.utf8)))
             tokenCache.updateAccountFingerprint(fingerprint, screenCache: screenCache)
             legacyTokenRead = read
-        case .refused, .schemaChanged, .unavailable:
+        case .refused, .schemaChanged:
             legacyTokenRead = nil
             break
+        case .unavailable:
+            // The Keychain read itself failed: publishing cached token or screen values would
+            // assert an unverified account. Fail closed; the screen cache stays (audit B-09).
+            return [finish(.failed(.timeout))]
         }
         let screenResult: AntigravityScreenResult
         let screenReadAt: Date?
@@ -236,13 +240,36 @@ public struct AntigravityUsageCollector: Sendable {
                       let reset = UsageJSON.resetDateISO(bucket["resetTime"]) else {
                     return .failure(.unavailable(.schemaChanged))
                 }
-                windows.append(UsageWindow(scope: rawScope, durationMinutes: duration,
+                windows.append(UsageWindow(scope: AntigravityScope.canonical(rawScope),
+                                           durationMinutes: duration,
                                            usedPercent: (1 - remaining) * 100, resetsAt: reset))
             }
         }
         return windows.isEmpty ? .failure(.unavailable(.schemaChanged)) : .success(windows)
     }
 
+}
+
+/// One spelling for quota-group names, used by the screen and API read paths so pins and
+/// alerts key the same window identically (audit B-09). The screen path's words-capitalized
+/// spelling is the reference, so existing pins stay valid.
+public enum AntigravityScope {
+    /// Lowercases, then capitalizes the first letter of each word: "GEMINI MODELS" and
+    /// "gemini models" both become "Gemini Models".
+    public static func canonical(_ scope: String) -> String {
+        scope.lowercased()
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .map { word in
+                var scalars = String(word)
+                scalars.replaceSubrange(...scalars.startIndex,
+                                        with: scalars.prefix(1).uppercased())
+                return scalars
+            }
+            .joined(separator: " ")
+    }
+}
+
+extension AntigravityUsageCollector {
     private static func validAPIScope(_ scope: String) -> Bool {
         (1...40).contains(scope.count) && scope.unicodeScalars.allSatisfy { scalar in
             (65...90).contains(scalar.value) || (97...122).contains(scalar.value)

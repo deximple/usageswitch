@@ -269,7 +269,7 @@ struct AntigravityUsageTests {
         UsageHTTPResponse(status: 200, body: Data((body ?? Self.summary).utf8))
     }
 
-    private static let summary = #"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","resetTime":"2026-11-15T03:13:50Z","remainingFraction":0.75},{"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","resetTime":"2026-11-08T08:13:50Z","remainingFraction":0.25},{"window":"daily","remainingFraction":0}] }]}"#
+    private static let summary = #"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","resetTime":"2026-11-15T03:13:50Z","remainingFraction":0.75},{"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","resetTime":"2026-11-08T08:13:50Z","remainingFraction":0.25},{"window":"daily","remainingFraction":0}] }]}"#
 
     @Test("disabled does no subprocess, file, or network access")
     func disabled() {
@@ -287,7 +287,7 @@ struct AntigravityUsageTests {
         http.queue = [project(), quota()]
         let row = collector(http, credentials, runner: missingKeychain()).collect().first
         #expect(row?.state == .ok)
-        #expect(row?.windows.map(\.scope) == ["Claude and GPT models", "Claude and GPT models"])
+        #expect(row?.windows.map(\.scope) == ["Claude And Gpt Models", "Claude And Gpt Models"])
         #expect(row?.windows.map(\.durationMinutes) == [10_080, 300])
         #expect(row?.windows.map(\.usedPercent) == [25, 75])
         #expect(row?.windows[0].resetsAt == UsageJSON.resetDateISO("2026-11-15T03:13:50Z"))
@@ -374,10 +374,10 @@ struct AntigravityUsageTests {
         let clock = MutableUsageClock(now)
         http.queue = [
             tokenResponse("access-one"),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
             tokenResponse("access-two"),
-            project(), quota(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
+            project(), quota(#"{"groups":[{"displayName":"Claude And Gpt Models","buckets":[{"window":"weekly","remainingFraction":1,"resetTime":"2026-11-15T03:13:50Z"}]}]}"#),
         ]
         let c = collector(http, credentials, runner: runner, cache: AntigravityAccessTokenCache(), clock: clock)
         #expect(c.collect().first?.state == .ok)
@@ -460,8 +460,10 @@ struct AntigravityUsageTests {
         #expect(http.requests.allSatisfy { $0.headers["Authorization"] == "Bearer cached-access" })
     }
 
-    @Test("a transient Keychain timeout preserves the cached token and screen windows")
-    func keychainTimeoutKeepsCaches() {
+    @Test("a Keychain failure does not publish the cached account (audit B-09)")
+    func aKeychainFailureDoesNotPublishTheCachedAccount() {
+        // An unverified keychain read returns .failed(.timeout): cached token and screen
+        // values are not published — the screen cache itself is kept.
         let http = SpyTransport()
         http.queue = [tokenResponse("cached-access"), project(), quota(), project(), quota()]
         let tokenCache = AntigravityAccessTokenCache()
@@ -478,14 +480,20 @@ struct AntigravityUsageTests {
             .collect().first
 
         #expect(first?.windows == cachedWindows)
-        #expect(second?.windows == cachedWindows)
-        #expect(screen.readCount == 1)
-        #expect(tokenCache.value(at: now)?.accessToken == "cached-access")
+        #expect(second?.state != .ok)
+        #expect(second?.state == .failed(.timeout))
+        #expect(screen.readCount == 1) // the screen cache was not re-read or cleared
         let quotaRequests = http.requests.filter { $0.url.host == "cloudcode-pa.googleapis.com" }
-        #expect(quotaRequests.count == 4)
-        #expect(quotaRequests.allSatisfy {
-            $0.headers["Authorization"] == "Bearer cached-access"
-        })
+        #expect(quotaRequests.count == 2) // no quota call on the unverified read
+    }
+
+    @Test("the same window has one scope on both read paths (audit B-09)")
+    func theSameWindowHasOneScopeOnBothPaths() {
+        // canonical keeps the screen spelling so pins stay valid; API-case variants fold in.
+        #expect(AntigravityScope.canonical("Gemini Models") == "Gemini Models")
+        #expect(AntigravityScope.canonical("gemini models") == "Gemini Models")
+        #expect(AntigravityScope.canonical("GEMINI MODELS") == "Gemini Models")
+        #expect(AntigravityScope.canonical("claude and gpt models") == "Claude And Gpt Models")
     }
 
     @Test("an expired cache on a transient Keychain failure does not use the legacy file")
@@ -513,7 +521,7 @@ struct AntigravityUsageTests {
         #expect(http.requests.count == requestsAfterRecord)
         #expect(credentials.reads == 0)
         #expect(tokenCache.value(at: clock.now())?.accessToken == nil)
-        #expect(screen.readCount == 2)
+        #expect(screen.readCount == 1) // the unverified read returns before the screen runs
     }
 
     @Test("Keychain item not found clears old account caches when no file token exists")
@@ -574,7 +582,7 @@ struct AntigravityUsageTests {
                                cache: tokenCache, screenCache: screenCache).collect().first
 
         #expect(first?.windows == cachedWindows)
-        #expect(second?.windows.first?.scope == "Claude and GPT models")
+        #expect(second?.windows.first?.scope == "Claude And Gpt Models")
         #expect(second?.windows.first?.usedPercent == 25)
         #expect(http.requests.map { $0.headers["Authorization"] } == [
             "Bearer file-access-a", "Bearer file-access-a",
