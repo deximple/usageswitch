@@ -111,9 +111,11 @@ struct UsageContent: View {
         .onChange(of: model.guideExpanded) { _, expanded in
             if expanded { model.recordSuggestionShownIfNeeded() }
         }
-        .onChange(of: model.suggestionCandidate(now: Date())) { _, _ in
-            model.recordSuggestionShownIfNeeded()
-        }
+        // Data-driven keys only: a Date()-computed key ran the suggestion engine on every body pass.
+        .onChange(of: model.usages) { _, _ in model.recordSuggestionShownIfNeeded() }
+        .onChange(of: model.pace) { _, _ in model.recordSuggestionShownIfNeeded() }
+        .onChange(of: settings.suggestionMode) { _, _ in model.recordSuggestionShownIfNeeded() }
+        .onChange(of: settings.suggestionTask) { _, _ in model.recordSuggestionShownIfNeeded() }
         .alert(L10n.t(.suggestionUrgentTitle), isPresented: $confirmingUrgentMode) {
             Button(L10n.t(.uiCancel), role: .cancel) {}
             Button(L10n.t(.suggestionUrgentConfirm)) {
