@@ -39,11 +39,15 @@ public struct RelauncherGuard: Sendable {
     let fs: SafeFS
     let runner: CommandRunner
     let reader: BoundedReader
+
+    /// Script arguments are read binary-aware so a small binary returns `.data` — only a real
+    /// read failure counts as `.unreadable` (its content is still skipped on the NUL check).
+    public static let argReader = BoundedReader { BoundedReader.readBounded($0, limit: 65_536, allowBinary: true) }
     let cache: RelauncherScanCache
     static let launchctl = "/bin/launchctl"
     static let plistReadLimit = 1_048_576
 
-    public init(env: SwitcherEnvironment, fs: SafeFS, runner: CommandRunner, reader: BoundedReader = .shared) {
+    public init(env: SwitcherEnvironment, fs: SafeFS, runner: CommandRunner, reader: BoundedReader = RelauncherGuard.argReader) {
         self.env = env
         self.fs = fs
         self.runner = runner

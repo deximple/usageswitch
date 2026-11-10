@@ -319,6 +319,31 @@ struct RelauncherGuardTests {
         #expect(s.reads.count(s.script.path) == 1)
     }
 
+    @Test func aSmallBinaryArgumentStillLetsTheScanBeCached() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let label = "com.user.claude-binary"
+        let binary = sb.root.appendingPathComponent("helper.bin")
+        var payload = Data("helper\u{0}bytes".utf8)
+        payload.append(Data(count: 1024 - payload.count))
+        try payload.write(to: binary)
+        try AgentFixture.writePlist(env: sb.env, label: label, plist: [
+            "Label": label, "ProgramArguments": [binary.path],
+        ])
+        let world = FakeWorld(env: sb.env)
+        world.addAgent(label: label, plist: binary, loaded: true)
+        let reads = ReadCounter()
+        let reader = BoundedReader { path in
+            reads.record(path)
+            return BoundedReader.readBounded(path, limit: 65_536, allowBinary: true)
+        }
+        let guardian = RelauncherGuard(env: sb.env, fs: sb.fs, runner: world, reader: reader)
+        // A binary arg is read as data, skipped on content, and is not a Claude relauncher —
+        // so the scan succeeds and is cached like any clean scan.
+        #expect(guardian.discover().isEmpty)
+        #expect(guardian.discover().isEmpty)
+        #expect(reads.count(binary.path) == 1)
+    }
+
     @Test func discoverRescansWhenAPlistChanges() throws {
         let s = try countingSetup(); defer { s.sb.remove() }
         _ = s.guardian.discover()
