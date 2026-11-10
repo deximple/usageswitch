@@ -396,7 +396,10 @@ final class UsageModel: ObservableObject {
                         let excludedRoots = [env.claudeUserData, env.storeDir]
                         for binding in activeBindings {
                             if Task.isCancelled { break }
+                            let expectedEmail = await AppModel.shared.status?.accounts
+                                .first { $0.id == binding.accountId }?.email
                             if let row = ClaudeProfileUsageCollector(binding: binding, runner: runner,
+                                expectedEmail: expectedEmail,
                                 home: env.home, managed: .system, binaryPaths: binaryPaths,
                                 excludedRoots: excludedRoots, workingDirectory: claudeWorkDir).collect() {
                                 rows.append(row)
@@ -450,6 +453,18 @@ final class UsageModel: ObservableObject {
         }
     }
 
+    /// The `--cli usage` file: display-safe identity, authentication and window data only —
+    /// labels always email-masked, never credentials or raw emails.
+    private func writeUsageSnapshotFile(now: Date) {
+        if AppModel.shared.status != nil {
+            try? UsageSnapshot(presentations: presentations(claude: settings.status,
+                                                            codex: AppModel.codex.status,
+                                                            now: now),
+                               generatedAt: now)
+                .write(env: SwitcherEnvironment.live(), fs: SafeFS(env: SwitcherEnvironment.live()))
+        }
+    }
+
     func requestRefresh() {
         guard !isDemo else { return }
         if isRefreshing {
@@ -494,6 +509,18 @@ final class UsageModel: ObservableObject {
                 ? [UsageCollection.connectionRequired(provider)] : []
             usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
             clearPace(provider)
+        }
+        // Persist the swapped rows at once — a crash between the swap and the next refresh
+        // must not resurrect a revoked provider's data (audit B-11). Before the first status
+        // arrives the full snapshot can't be rebuilt, so the revoked rows are cut from the file.
+        if AppModel.shared.status != nil {
+            writeUsageSnapshotFile(now: Date())
+        } else {
+            let env = SwitcherEnvironment.live()
+            let revoked = Set(UsageProvider.allCases.filter { $0.requiresConsent && !enabled.contains($0) })
+            if let previous = UsageSnapshot.load(env: env) {
+                try? previous.removing(providers: revoked).write(env: env, fs: SafeFS(env: env))
+            }
         }
         refresh()
     }
@@ -590,15 +617,7 @@ final class UsageModel: ObservableObject {
             store.record(fresh, now: now, generation: generation)
         }
         scheduleSuggestionLogRead(now: now, env: env)
-        // The `--cli usage` file: display-safe identity, authentication and window
-        // data only — labels always email-masked, never credentials or raw emails.
-        if AppModel.shared.status != nil {
-            try? UsageSnapshot(presentations: presentations(claude: settings.status,
-                                                            codex: AppModel.codex.status,
-                                                            now: now),
-                               generatedAt: now)
-                .write(env: env, fs: SafeFS(env: env))
-        }
+        writeUsageSnapshotFile(now: now)
         deliverAlerts(now: now)
         isRefreshing = false
         refreshStartedAt = nil
@@ -659,40 +678,11 @@ final class UsageModel: ObservableObject {
     }
 
     private func suggestionLogRoots(env: SwitcherEnvironment) -> [SuggestionLogRoot] {
-        var roots: [SuggestionLogRoot] = []
-        var seen = Set<String>()
-        func append(_ provider: UsageProvider, _ accountRef: String, _ directory: URL) {
-            let identity = "\(provider.rawValue)\u{0}\(accountRef)\u{0}\(directory.standardizedFileURL.path)"
-            guard seen.insert(identity).inserted else { return }
-            roots.append(SuggestionLogRoot(provider: provider, accountRef: accountRef,
-                                           directory: directory))
-        }
-
-        append(.claude, "cli", env.home.appendingPathComponent(".claude", isDirectory: true))
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
-        for binding in claudeBindings where registeredClaudeIds.contains(binding.accountId) {
-            let accountRef = "app:\(binding.accountId)"
-            guard SuggestionLogRootPolicy.includes(provider: .claude,
-                                                    accountRef: accountRef, usages: usages) else {
-                continue
-            }
-            append(.claude, accountRef,
-                   URL(fileURLWithPath: binding.profilePath, isDirectory: true))
-        }
-
-        if SuggestionLogRootPolicy.includes(provider: .codex, accountRef: "standard", usages: usages) {
-            append(.codex, "standard", env.codexStandardHome)
-        }
-        if let codex = AppModel.codex.status {
-            for account in codex.accounts + codex.found {
-                guard SuggestionLogRootPolicy.includes(provider: .codex,
-                                                        accountRef: account.id, usages: usages) else {
-                    continue
-                }
-                append(.codex, account.id, URL(fileURLWithPath: account.home, isDirectory: true))
-            }
-        }
-        return roots
+        return SuggestionLogRoots.make(home: env.home, claudeBindings: claudeBindings,
+                                       registeredClaudeIDs: registeredClaudeIds,
+                                       codexAccounts: AppModel.codex.status?.accounts ?? [],
+                                       usages: usages)
     }
 
     /// Pace compares each fresh ok window with the previous sample of the same window. Samples are

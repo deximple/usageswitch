@@ -265,7 +265,7 @@ struct CursorUsageTests {
         }
     }
 
-    @Test("missing, null and finite percentages still parse; out-of-range clamps")
+    @Test("missing, null and finite percentages still parse; out-of-range is a schema change")
     func validPercentages() {
         func body(_ plan: String) -> Data {
             Data(#"{"billingCycleStart":"1767225600000","billingCycleEnd":"1769817600000","planUsage":{\#(plan)}}"#.utf8)
@@ -277,13 +277,18 @@ struct CursorUsageTests {
         // Boundaries and numeric strings/fractions pass through unchanged.
         let edges = body(#""autoPercentUsed":0,"apiPercentUsed":"55.5","totalPercentUsed":100"#)
         #expect(CursorUsageParser.windows(usage: edges, merged: nil)?.map(\.usedPercent) == [100, 0, 55.5])
-        // Finite out-of-range totals keep the established 0...100 clamping.
+        // Out-of-range percentages are a schema change: nothing is shown (audit B-11).
         let clampedBody = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":105"#)
-        #expect(CursorUsageParser.windows(usage: clampedBody, merged: nil)?.map(\.usedPercent) == [100, 0, 7])
+        #expect(CursorUsageParser.windows(usage: clampedBody, merged: nil) == nil)
         let clampedLow = body(#""totalPercentUsed":-5"#)
-        #expect(CursorUsageParser.windows(usage: clampedLow, merged: nil)?.map(\.usedPercent) == [0])
+        #expect(CursorUsageParser.windows(usage: clampedLow, merged: nil) == nil)
         let mergedClamped = body(#""autoPercentUsed":-5,"apiPercentUsed":7,"totalPercentUsed":"105""#)
-        #expect(CursorUsageParser.windows(usage: mergedClamped, merged: true)?.map(\.usedPercent) == [100, 0, 7])
+        #expect(CursorUsageParser.windows(usage: mergedClamped, merged: true) == nil)
+        // ...and the collector reports it as a changed response, not as "no usage".
+        #expect(CursorUsageParser.hasOutOfRangePercent(usage: clampedBody))
+        #expect(CursorUsageParser.hasOutOfRangePercent(usage: clampedLow))
+        #expect(!CursorUsageParser.hasOutOfRangePercent(usage: edges))
+        #expect(!CursorUsageParser.hasOutOfRangePercent(usage: Data(#"{"other":1}"#.utf8)))
     }
 
     @Test("an invalid Auto value omits that window but keeps the total and API")

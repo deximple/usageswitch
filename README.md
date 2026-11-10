@@ -112,7 +112,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 ```
 
 Then, in UsageSwitch, open that account's **Details** → **Connect usage via CLI profile…** → pick the folder (press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>.</kbd> to show hidden folders) → **Enable**.
-UsageSwitch shows the numbers only when the profile is confirmed to be the same account and organization before and after every read.
+UsageSwitch shows the numbers only when the profile's account/org IDs and the CLI-reported org, config folder and email match the saved account, before and after every read.
 
 ### 4. Save accounts for switching
 

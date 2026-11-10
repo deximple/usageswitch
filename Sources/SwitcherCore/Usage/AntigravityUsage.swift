@@ -76,6 +76,7 @@ public struct AntigravityUsageCollector: Sendable {
         }
         let screenResult: AntigravityScreenResult
         let screenReadAt: Date?
+        guard !Task.isCancelled else { return [finish(.failed(.refused))] } // no forkpty when cancelled (B-11)
         switch screenCache.acquire(at: now()) {
         case .read:
             let screenResultAt = now()
@@ -229,17 +230,24 @@ public struct AntigravityUsageCollector: Sendable {
                 guard let kind = UsageJSON.string(bucket["window"])?.lowercased() else {
                     return .failure(.unavailable(.schemaChanged))
                 }
-                let duration: Int
+                // A bucket kind we don't recognize still reports as an `.other` window —
+                // a new API bucket shape shouldn't hide the reading entirely (audit B-11).
+                let duration: Int?
                 switch kind {
                 case "weekly": duration = 10_080
                 case "5h": duration = 300
-                default: continue
+                default: duration = nil
                 }
                 guard let remaining = UsageJSON.double(bucket["remainingFraction"]),
-                      (0...1).contains(remaining),
-                      let reset = UsageJSON.resetDateISO(bucket["resetTime"]) else {
+                      (0...1).contains(remaining) else {
                     return .failure(.unavailable(.schemaChanged))
                 }
+                // A reset is still required for known window kinds; an unrecognized bucket
+                // may lack one and still reports as `.other` (audit B-11).
+                guard duration == nil || UsageJSON.resetDateISO(bucket["resetTime"]) != nil else {
+                    return .failure(.unavailable(.schemaChanged))
+                }
+                let reset = UsageJSON.resetDateISO(bucket["resetTime"])
                 windows.append(UsageWindow(scope: AntigravityScope.canonical(rawScope),
                                            durationMinutes: duration,
                                            usedPercent: (1 - remaining) * 100, resetsAt: reset))
@@ -368,6 +376,7 @@ extension AntigravityUsageCollector {
             return .failure(.unavailable(.schemaChanged))
         }
         let refreshedAt = now()
+        if Task.isCancelled { return .failure(.failed(.refused)) } // don't persist a token for abandoned work (B-11)
         tokenCache.store(accessToken: access,
                          validUntil: refreshedAt.addingTimeInterval(max(0, expires - 60)),
                          projectID: record.projectID)

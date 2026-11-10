@@ -46,11 +46,12 @@ private func makeCaskroomProfileBinary(home: URL) throws -> URL {
 }
 
 private func profileAuthJSON(_ profile: URL, loggedIn: Bool = true,
-                             org: String? = "org-1", configDirectory: String? = nil) -> String {
+                             org: String? = "org-1", configDirectory: String? = nil,
+                             email: String = "profile@example.invalid") -> String {
     let values: [String: Any] = [
         "loggedIn": loggedIn, "authMethod": "oauth", "apiProvider": "firstParty",
         "analyticsDisabled": false, "projectsDirectory": profile.appendingPathComponent("projects").path,
-        "configDirectory": configDirectory ?? profile.path, "email": "profile@example.invalid",
+        "configDirectory": configDirectory ?? profile.path, "email": email,
         "orgId": org.map { $0 as Any } ?? NSNull(), "orgName": "Profile org",
         "subscriptionType": "pro",
     ]
@@ -91,13 +92,14 @@ private final class ProfileAuthResponses: @unchecked Sendable {
 
 private func profileCollector(home: URL, profile: URL, binary: URL,
                               runner: FakeUsageRunner,
+                              expectedEmail: String? = nil,
                               managed: ClaudeManagedSettings? = nil,
                               workingDirectory: URL = FileManager.default.temporaryDirectory) -> ClaudeProfileUsageCollector {
     let scratch = home.appendingPathComponent("scratch", isDirectory: true)
     return ClaudeProfileUsageCollector(
         binding: ClaudeProfileBinding(accountId: "saved-1", accountUuid: "account-1",
                                       orgUuid: "org-1", profilePath: profile.path),
-        runner: runner, home: home,
+        runner: runner, expectedEmail: expectedEmail, home: home,
         managed: managed ?? ClaudeManagedSettings(
             folder: scratch.appendingPathComponent("managed"),
             preferences: scratch.appendingPathComponent("preferences")),
@@ -223,6 +225,30 @@ struct ClaudeProfileUsageTests {
                                                     workingDirectory: missing).collect())
         #expect(refused.state == .failed(.refused))
         #expect(idle.requests.isEmpty)
+    }
+
+    @Test func aProfileWhoseCLISignInIsAnotherAccountIsRejected() throws {
+        // The CLI is signed in as a different account (case-insensitive): accountMismatch.
+        let home = try profileTestDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent("profile", isDirectory: true)
+        try makeClaudeProfile(profile)
+        let binary = try makeProfileBinary(home: home)
+        let other = profileRunner(home: home, profile: profile,
+            statusJSONs: [profileAuthJSON(profile, email: "other@example.invalid")])
+        let result = try #require(profileCollector(home: home, profile: profile, binary: binary,
+                                                   runner: other,
+                                                   expectedEmail: "profile@example.invalid").collect())
+        #expect(result.state == .failed(.accountMismatch))
+        // a case-different match is accepted
+        let same = profileRunner(home: home, profile: profile,
+            statusJSONs: [profileAuthJSON(profile, email: "PROFILE@EXAMPLE.INVALID"),
+                          profileAuthJSON(profile, email: "PROFILE@EXAMPLE.INVALID")],
+            onUsage: { try? makeClaudeProfile(profile, startups: 2) })
+        let ok = try #require(profileCollector(home: home, profile: profile, binary: binary,
+                                                runner: same,
+                                                expectedEmail: "profile@example.invalid").collect())
+        #expect(ok.state == .ok)
     }
 
     @Test("happy path performs auth, usage, auth in order with the profile environment")

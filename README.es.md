@@ -111,7 +111,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 ```
 
 Luego, en UsageSwitch, abra los **Detalles** de esa cuenta → **Conectar uso mediante un perfil CLI…** → elija la carpeta (pulse <kbd>⌘</kbd><kbd>⇧</kbd><kbd>.</kbd> para ver carpetas ocultas) → **Activar**.
-UsageSwitch solo muestra los números cuando el perfil se confirma como la misma cuenta y organización antes y después de cada lectura.
+UsageSwitch solo muestra los números cuando antes y después de cada lectura el perfil coincide con la cuenta guardada en los IDs de cuenta/org y en la org, la carpeta de configuración y el correo que reporta la CLI.
 
 ### 4. Guarde cuentas para cambiar entre ellas
 

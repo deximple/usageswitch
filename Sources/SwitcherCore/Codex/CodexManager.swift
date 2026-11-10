@@ -43,14 +43,18 @@ public final class CodexManager: @unchecked Sendable {
     // MARK: - Listing
 
     public func status() -> CodexStatus {
-        let registry = loadRegistry() ?? CodexRegistry()
+        // A registry that can't be read is reported, not silently treated as empty: found is
+        // left empty too, so homes the user hid don't reappear (audit B-10).
+        let readable = loadRegistry()
+        let registry = readable ?? CodexRegistry()
         let listedProfiles = listedProfiles(registry)
         // Named together, so a found copy of a listed home never shows exactly the same name.
         let all = rows(listedProfiles + foundProfiles(registry), registry: registry, windows: windows())
         let hidden = registry.hidden.filter { Self.looksLikeCodexHome(home(ofFound: $0)) }.count
         return CodexStatus(installed: isInstalled, version: control.bundleVersion(appURL: env.codexAppURL),
-                           accounts: Array(all.prefix(listedProfiles.count)), found: Array(all.dropFirst(listedProfiles.count)),
-                           hiddenCount: hidden)
+                           accounts: Array(all.prefix(listedProfiles.count)),
+                           found: readable == nil ? [] : Array(all.dropFirst(listedProfiles.count)),
+                           hiddenCount: hidden, registryUnreadable: readable == nil)
     }
 
     /// Ends any `codex login` still running (the app is quitting).
@@ -187,17 +191,32 @@ public final class CodexManager: @unchecked Sendable {
                 $0.names[account.id] = nil
             }
         case .managed:
+            // Prove the folder and its home are real directories before anything irreversible:
+            // a linked or replaced path must fail before logout, window closes or trash (B-10).
+            // A path that is already gone is fine (a stale entry must stay removable); one that
+            // exists but is not a real directory is refused.
+            let folder = env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+            try fs.check(folder)
+            func realDirectoryOrMissing(_ url: URL) throws -> Bool {
+                var st = stat()
+                guard lstat(url.path, &st) == 0 else {
+                    if errno == ENOENT { return false }
+                    throw SwitcherError.forbiddenWrite(url.path)
+                }
+                guard (st.st_mode & S_IFMT) == S_IFDIR else { throw SwitcherError.forbiddenWrite(url.path) }
+                return true
+            }
+            _ = try realDirectoryOrMissing(folder)
+            let homeExists = try realDirectoryOrMissing(profile.home)
             try quitWindows(of: account)
             stopHelpers(using: profile.home)
-            if FileManager.default.fileExists(atPath: env.codexCLI.path) {
+            if homeExists, FileManager.default.fileExists(atPath: env.codexCLI.path) {
                 _ = control.runCLI(env.codexCLI, arguments: ["logout"], home: profile.home, timeout: 30,
                                    shouldStop: { false }, onOutput: { _ in })
             }
             // Never send a live sign-in to the Trash, even if `codex logout` didn't finish.
             let auth = profile.home.appendingPathComponent("auth.json")
             if FileManager.default.fileExists(atPath: auth.path) { try fs.remove(auth) }
-            let folder = env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
-            try fs.check(folder)
             if FileManager.default.fileExists(atPath: folder.path) { try control.moveToTrash(folder) }
             try updateRegistry {
                 $0.managed.removeAll { $0 == account.id }

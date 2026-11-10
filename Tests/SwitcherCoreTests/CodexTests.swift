@@ -425,7 +425,7 @@ struct CodexTests {
         rig.table.add(pid: 620, path: rig.appExecutable, codexHome: work.path, appDataPath: "/d/work")
         rig.control.quitWorks = false
         #expect(switcherError { _ = try rig.manager.reauthenticate("found:.codex-work") } == .codexStillRunning("old@example.com"))
-        #expect(rig.control.cliRuns.isEmpty)
+        #expect(rig.control.cliRuns.filter { $0.arguments.contains("logout") }.isEmpty)
     }
 
     @Test func removingFollowsWhoOwnsTheHome() throws {
@@ -510,6 +510,74 @@ struct CodexTests {
         #expect(switcherError { _ = try rig.manager.open("standard") } == .codexNotInstalled)
         #expect(switcherError { _ = try rig.manager.addAccount() } == .codexNotInstalled)
         #expect(rig.control.launches.isEmpty && rig.control.cliRuns.isEmpty)
+    }
+
+    @Test func removeChecksTheFolderBeforeAnythingIrreversible() throws {
+        // A managed folder replaced by a symlink out of the store: remove fails before
+        // windows close, sessions end, or anything reaches the trash (audit B-10).
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in
+            try? CodexFixture.writeAuth(into: home, email: "new@example.com")
+            return .exited(0)
+        }
+        let account = try rig.manager.addAccount()
+        let folder = rig.env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+        let outside = rig.sandbox.root.appendingPathComponent("outside-the-store", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: outside.appendingPathComponent("keep.txt"))
+        try FileManager.default.removeItem(at: folder)
+        try FileManager.default.createSymbolicLink(atPath: folder.path, withDestinationPath: outside.path)
+        #expect(switcherError { _ = try rig.manager.remove(account.id) } == .forbiddenWrite(folder.path))
+        #expect(rig.control.cliRuns.filter { $0.arguments.contains("logout") }.isEmpty)
+        #expect(rig.control.quitRequests.isEmpty)
+        #expect(rig.control.trashed.isEmpty)
+        #expect(fileData(outside.appendingPathComponent("keep.txt")) == Data("keep".utf8))
+    }
+
+    @Test func aManagedAccountWhoseFolderIsGoneCanStillBeRemoved() throws {
+        // A stale registry entry (folder deleted by hand) stays removable, without a logout.
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in
+            try? CodexFixture.writeAuth(into: home, email: "new@example.com")
+            return .exited(0)
+        }
+        let account = try rig.manager.addAccount()
+        let folder = rig.env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+        try FileManager.default.removeItem(at: folder)
+        _ = try rig.manager.remove(account.id)
+        #expect(rig.control.cliRuns.filter { $0.arguments.contains("logout") }.isEmpty)
+        #expect(!rig.manager.status().accounts.contains { $0.id == account.id })
+    }
+
+    @Test func aHomeLinkedOutsideTheStoreIsNotLoggedOut() throws {
+        // <id>/home pointing at another home: logout and every write must not run (audit B-10).
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in
+            try? CodexFixture.writeAuth(into: home, email: "new@example.com")
+            return .exited(0)
+        }
+        let account = try rig.manager.addAccount()
+        let folder = rig.env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let victim = try rig.makeHome(".codex", email: "alex@example.com")
+        try FileManager.default.removeItem(at: home)
+        try FileManager.default.createSymbolicLink(atPath: home.path, withDestinationPath: victim.path)
+        #expect(switcherError { _ = try rig.manager.remove(account.id) } == .forbiddenWrite(home.path))
+        #expect(rig.control.cliRuns.filter { $0.arguments.contains("logout") }.isEmpty)
+        #expect(rig.control.quitRequests.isEmpty)
+        #expect(rig.control.trashed.isEmpty)
+        #expect(fileData(victim.appendingPathComponent("auth.json")) != nil)
+    }
+
+    @Test func anUnreadableRegistryIsReportedInStatus() throws {
+        // A registry that can't be decoded flags status and surfaces no found homes, so
+        // homes the user hid don't reappear (audit B-10).
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        try rig.makeHome(".codex-work", email: "alex@work.example.com")
+        try rig.sandbox.write("{broken", to: rig.env.codexRegistryFile)
+        let status = rig.manager.status()
+        #expect(status.registryUnreadable)
+        #expect(status.found.isEmpty)
     }
 
     @Test func anUnreadableRecordIsNeverOverwritten() throws {

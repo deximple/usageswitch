@@ -109,6 +109,12 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         return UsageSnapshot(generatedAt: generatedAt, accounts: safeAccounts)
     }
 
+    /// The same snapshot without the rows of `providers` (a connection that was just turned off).
+    public func removing(providers: Set<UsageProvider>) -> UsageSnapshot {
+        let names = Set(providers.map(\.rawValue))
+        return UsageSnapshot(generatedAt: generatedAt, accounts: accounts.filter { !names.contains($0.provider) })
+    }
+
     /// The last written snapshot; nil when the app never finished a read (or the file is unreadable).
     /// Masked on load too, so snapshots written before masking-on-write still protect emails.
     public static func load(env: SwitcherEnvironment) -> UsageSnapshot? {

@@ -243,6 +243,7 @@ extension Strings {
         .codexShow: "Show",
         .codexSignIn: "Sign in",
         .codexReauth: "Sign In Again…",
+        .codexRegistryUnreadable: "UsageSwitch can't read its Codex account list (codex-accounts.json). Accounts are hidden until it can be read; nothing was changed.",
         .codexRemoveButton: "Remove",
         .codexHideButton: "Remove from List",
         .codexReauthButton: "Sign In Again",

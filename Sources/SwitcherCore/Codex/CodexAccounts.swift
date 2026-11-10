@@ -67,6 +67,18 @@ public struct CodexStatus: Codable, Equatable, Sendable {
     public let found: [CodexAccount]
     /// Found homes the user hid or removed from the list (they can be shown again).
     public let hiddenCount: Int
+    /// The registry file could not be read: `found` is empty so hidden homes don't resurface (audit B-10).
+    public let registryUnreadable: Bool
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        installed = try c.decode(Bool.self, forKey: .installed)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
+        accounts = try c.decode([CodexAccount].self, forKey: .accounts)
+        found = try c.decode([CodexAccount].self, forKey: .found)
+        hiddenCount = try c.decode(Int.self, forKey: .hiddenCount)
+        registryUnreadable = try c.decodeIfPresent(Bool.self, forKey: .registryUnreadable) ?? false
+    }
 
     public var runningCount: Int { accounts.filter { $0.state == .running }.count }
 
@@ -75,12 +87,14 @@ public struct CodexStatus: Codable, Equatable, Sendable {
     public var withoutPhantomDefault: CodexStatus {
         guard !installed else { return self }
         let real = accounts.filter { $0.kind != .standard || $0.identity != nil || !$0.pids.isEmpty }
-        return CodexStatus(installed: installed, version: version, accounts: real, found: found, hiddenCount: hiddenCount)
+        return CodexStatus(installed: installed, version: version, accounts: real, found: found, hiddenCount: hiddenCount, registryUnreadable: registryUnreadable)
     }
 
-    public init(installed: Bool, version: String?, accounts: [CodexAccount], found: [CodexAccount] = [], hiddenCount: Int) {
+    public init(installed: Bool, version: String?, accounts: [CodexAccount], found: [CodexAccount] = [],
+                hiddenCount: Int, registryUnreadable: Bool = false) {
         self.installed = installed; self.version = version; self.accounts = accounts; self.found = found
         self.hiddenCount = hiddenCount
+        self.registryUnreadable = registryUnreadable
     }
 }
 

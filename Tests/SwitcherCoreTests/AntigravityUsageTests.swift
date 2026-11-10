@@ -351,9 +351,11 @@ struct AntigravityUsageTests {
         http.queue = [project(), quota()]
         let row = collector(http, credentials, runner: missingKeychain()).collect().first
         #expect(row?.state == .ok)
-        #expect(row?.windows.map(\.scope) == ["Claude And Gpt Models", "Claude And Gpt Models"])
-        #expect(row?.windows.map(\.durationMinutes) == [10_080, 300])
-        #expect(row?.windows.map(\.usedPercent) == [25, 75])
+        // An unrecognized bucket kind becomes an `.other` window (nil duration), not a skip.
+        #expect(row?.windows.map(\.scope) == ["Claude And Gpt Models", "Claude And Gpt Models",
+                                             "Claude And Gpt Models"])
+        #expect(row?.windows.map(\.durationMinutes) == [10_080, 300, nil])
+        #expect(row?.windows.map(\.usedPercent) == [25, 75, 100])
         #expect(row?.windows[0].resetsAt == UsageJSON.resetDateISO("2026-11-15T03:13:50Z"))
         #expect(http.requests.map(\.url.lastPathComponent)
                 == ["v1internal:loadCodeAssist", "v1internal:retrieveUserQuotaSummary"])
@@ -366,8 +368,9 @@ struct AntigravityUsageTests {
         let http = SpyTransport(); let credentials = SpyCredentials()
         legacyToken(credentials)
         http.queue = [project(), quota(#"{"groups":[{"displayName":"Gemini Models","buckets":[{"window":"daily","remainingFraction":1}]}]}"#)]
-        #expect(collector(http, credentials, runner: missingKeychain()).collect().first?.state
-                == .unavailable(.schemaChanged))
+        let row = collector(http, credentials, runner: missingKeychain()).collect().first
+        #expect(row?.state == .ok)
+        #expect(row?.windows.map(\.kind) == [.other])
     }
 
     @Test("only fresh legacy access tokens are used when Keychain is absent")
@@ -816,7 +819,7 @@ struct AntigravityUsageTests {
         http.queue = [project(), quota()]
         let screen = AntigravityUsageScreen(runner: FixedPTY(data: Data("startup only".utf8)))
         let result = collector(http, credentials, runner: missingKeychain(), screen: screen).collect().first
-        #expect(result?.state == .ok && result?.windows.count == 2)
+        #expect(result?.state == .ok && result?.windows.count == 3)
     }
 
     @Test("trust dialog receives no input and falls back to the quota API")
@@ -867,7 +870,7 @@ struct AntigravityUsageTests {
 
         let row = try #require(await task.value)
         #expect(row.state == .ok)
-        #expect(row.windows.count == 2)
+        #expect(row.windows.count == 3)
         #expect(http.requests.count == 2)
         #expect(try Data(contentsOf: inputFile).isEmpty)
     }
