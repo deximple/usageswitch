@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.1.5 — lighter, quieter, and more accurate
+
+- Claude account switching and saving work with a Japanese, Buddhist, ROC, Persian or
+  Islamic system calendar. Before, they timed out and rolled back, or skipped the
+  20-second check after Claude started.
+- Much less background work. LaunchAgents and Claude's log are read again only when they
+  change, at most 64 KiB is read from each file a LaunchAgent points to, and status checks
+  never overlap.
+- Usage reads start the Claude and Codex CLIs in one fixed, empty folder (`cli-workdir/` in
+  the app's store). Before, every read left a new folder in `~/.claude/projects` (and in a
+  linked profile's `projects` folder). To remove the ones earlier versions left, run this
+  once; it deletes only folders that are empty:
+
+  ```bash
+  find ~/.claude/projects -mindepth 1 -maxdepth 2 -type d -path '*-T-usageswitch-claude-*' -empty -delete
+  ```
+
+  For a linked Claude CLI profile, run it again with that profile's `projects` folder.
+- Each Connect dialog now says what is read, what is run and which hosts are contacted.
+  Antigravity's and Gemini's dialogs now describe what happens on every refresh, so **those
+  two connections ask to be allowed once more** after the update.
+- The Guide and the API tab get their first usage-log reading right after launch, instead of
+  about 10 minutes later.
+- A usage warning is not repeated after a failed read, a restart, or "Flush learning data".
+  A new limit period or another account still warns. Warned limits are kept in
+  `usage-alerts.json` as opaque keys with their reset times.
+- The usage-log reader catches up faster: it reads API-key accounts' logs and the newest
+  files first, with a larger budget. `log-cursors.json` no longer grows without limit. While
+  logs are still being read, the API tab says so instead of showing a partial spend as
+  complete.
+
 ## 2.1.4 — clearer sign-in messages
 
 - Rejected sign-ins (Cursor, Gemini, Grok, Antigravity's quota API, Devin, OpenCode Go)

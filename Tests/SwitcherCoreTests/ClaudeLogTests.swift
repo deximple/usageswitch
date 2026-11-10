@@ -32,8 +32,25 @@ struct ClaudeLogTests {
 
     @Test func parseTimestampUsesLocalTime() throws {
         let date = try #require(ClaudeLog.parseTimestamp("2026-10-17 09:30:15 [info] x"))
-        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = TimeZone.current
+        let c = gregorian.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
         #expect([c.year, c.month, c.day, c.hour, c.minute, c.second] == [2026, 10, 17, 9, 30, 15])
+    }
+
+    @Test func logCalendarIsGregorian() {
+        #expect(ClaudeLog.logCalendar.identifier == .gregorian)
+    }
+
+    @Test func cursorStampsNewLinesWithTheInjectedClock() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let main = sb.env.claudeLogsDir.appendingPathComponent("main.log")
+        let observed = at(500)
+        let cursor = ClaudeLog.Cursor(log: ClaudeLog(logsDir: sb.env.claudeLogsDir), now: { observed })
+        try LogFixture.appendLines(main, [(at(0), "fresh")])
+        let lines = cursor.poll()
+        #expect(lines.map(\.timestamp) == [at(0)])
+        #expect(lines.map(\.observedAt) == [observed])
     }
 
     @Test func linesSinceSpansRotatedFile() throws {
@@ -43,8 +60,125 @@ struct ClaudeLogTests {
         try LogFixture.appendLines(dir.appendingPathComponent("main.log"), [(at(20), "new-a")])
         let log = ClaudeLog(logsDir: dir)
         #expect(log.lines(since: at(10.7)).map { $0.text.components(separatedBy: "[info] ").last } == ["old-b", "new-a"])
-        #expect(log.read("main.log", tailBytes: 6) == "new-a\n")
+        // A tail that starts mid-line drops that fragment; one that starts on a line boundary keeps the line.
+        #expect(log.read("main.log", tailBytes: 6) == "")
+        let whole = try #require(log.read("main.log"))
+        #expect(log.read("main.log", tailBytes: whole.utf8.count) == whole)
+        #expect(log.read("main.log", tailBytes: 1_000_000) == whole)
         #expect(log.read("main9.log") == nil)
+    }
+
+    // MARK: - Tail-first reads (audit A-02)
+
+    /// About `megabytes` MB of ordinary log lines.
+    func filler(megabytes: Double) -> String {
+        let line = LogFixture.line(at(0), "noise " + String(repeating: "x", count: 150)) + "\n"
+        return String(repeating: line, count: Int(megabytes * 1_000_000) / line.utf8.count)
+    }
+
+    func observedLog(_ sb: Sandbox) -> (log: ClaudeLog, bytes: ReadCounter) {
+        let bytes = ReadCounter()
+        var log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        log.onRead = { name, count in for _ in 0..<max(count / 1024, 1) { bytes.record(name) } }
+        return (log, bytes)
+    }
+
+    @Test func latestIdentityFindsTheSignalInTheTail() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, LogFixture.line(at(0), LogFixture.initLine(.a)) + "\n" + filler(megabytes: 5))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(9), LogFixture.cacheKeyLine(.b)), (at(10), "noise")])
+        let (log, bytes) = observedLog(sb)
+        #expect(log.latestIdentity() == ClaudeLog.IdentitySignal(
+            timestamp: at(9), accountUuid: FakeIdentity.b.account, orgUuid: FakeIdentity.b.org, loggedOutAfter: false))
+        #expect(log.signedInSinceLastInit())
+        // Two tail reads for latestIdentity; signedInSinceLastInit had to fall back to the whole 5 MB once.
+        #expect(bytes.count("main.log") < 6 * 1024)
+    }
+
+    @Test func latestIdentityReadsOnlyTheTailWhenTheSignalIsThere() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 5))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(9), LogFixture.cacheKeyLine(.b))])
+        let (log, bytes) = observedLog(sb)
+        #expect(log.latestIdentity()?.accountUuid == FakeIdentity.b.account)
+        #expect(bytes.count("main.log") <= ClaudeLog.tailBytes / 1024)
+    }
+
+    @Test func latestIdentityFallsBackToTheWholeFileWhenTheTailHasNone() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.cacheKeyLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        #expect(log.latestIdentity() == ClaudeLog.IdentitySignal(
+            timestamp: at(1), accountUuid: FakeIdentity.a.account, orgUuid: FakeIdentity.a.org, loggedOutAfter: false))
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutAfterTheSignalIsSeenInTheTail() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a)), (at(2), "Navigated to /logout")])
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        #expect(log.latestIdentity()?.loggedOutAfter == true)
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutInTheTailCountsWhenTheSignalIsOnlyInTheHead() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "Navigated to /logout")])
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        let signal = try #require(log.latestIdentity())
+        #expect(signal.accountUuid == FakeIdentity.a.account)
+        #expect(signal.loggedOutAfter)
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutInANewerFileStillCountsForASignalInARotatedOne() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.claudeLogsDir.appendingPathComponent("main1.log"), [(at(1), LogFixture.initLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "Navigated to /logout")])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        #expect(ClaudeLog(logsDir: sb.env.claudeLogsDir).latestIdentity()?.loggedOutAfter == true)
+    }
+
+    @Test func signalsAreNotRecomputedWhileTheFileIsUnchanged() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a))])
+        let (log, bytes) = observedLog(sb)
+        let signals = ClaudeLogSignals(log: log)
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.a.account)
+        #expect(!signals.current().nativeMultiAccount)
+        let afterFirst = bytes.count("main.log")
+        #expect(afterFirst > 0)
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.a.account)
+        #expect(bytes.count("main.log") == afterFirst)
+
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "GET " + ClaudeLog.multiAccountMarker), (at(3), LogFixture.cacheKeyLine(.b))])
+        let changed = signals.current()
+        #expect(changed.latestIdentity?.accountUuid == FakeIdentity.b.account)
+        #expect(changed.nativeMultiAccount)
+        #expect(bytes.count("main.log") > afterFirst)
+    }
+
+    @Test func theMultiAccountMarkerIsFoundAcrossAppendsAndResetOnRotation() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let signals = ClaudeLogSignals(log: ClaudeLog(logsDir: sb.env.claudeLogsDir))
+        #expect(!signals.current().nativeMultiAccount) // no log at all
+        // The marker is split across two appends.
+        let marker = ClaudeLog.multiAccountMarker
+        try LogFixture.append(sb.env.mainLog, LogFixture.line(at(1), "GET " + String(marker.prefix(6))))
+        #expect(!signals.current().nativeMultiAccount)
+        try LogFixture.append(sb.env.mainLog, String(marker.dropFirst(6)) + "\n")
+        #expect(signals.current().nativeMultiAccount)
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "noise")])
+        #expect(signals.current().nativeMultiAccount) // stays true for this file
+        // Rotation: a new main.log without the marker.
+        try FileManager.default.moveItem(at: sb.env.mainLog, to: sb.env.claudeLogsDir.appendingPathComponent("main1.log"))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(3), "fresh file")])
+        #expect(!signals.current().nativeMultiAccount)
     }
 
     @Test func latestIdentityPrefersNewestSignal() throws {
@@ -238,6 +372,32 @@ struct LaunchVerdictTests {
         let ok: [(TimeInterval, String)] = [(0, LogFixture.startText), (2, LogFixture.initLine(target))]
         #expect(verdict(ok, now: 21.9) == .pending)
         #expect(verdict(ok, now: 22) == .success(initAt: Self.t0.addingTimeInterval(2)))
+    }
+
+    /// The settle wait must not depend on what calendar year the log line claims (audit A-01).
+    func skewed(_ skew: TimeInterval) -> [ClaudeLog.Line] {
+        let wrong = Self.t0.addingTimeInterval(skew)
+        return [
+            ClaudeLog.Line(timestamp: wrong, text: LogFixture.line(wrong, LogFixture.startText), observedAt: Self.t0),
+            ClaudeLog.Line(timestamp: wrong, text: LogFixture.line(wrong, LogFixture.initLine(target)), observedAt: Self.t0),
+        ]
+    }
+
+    func verdict(skew: TimeInterval, now: TimeInterval) -> LaunchVerdict {
+        LaunchVerdict.evaluate(lines: skewed(skew), targetAccount: target.account, targetOrg: target.org,
+                               now: Self.t0.addingTimeInterval(now), settle: 20)
+    }
+
+    @Test func settleCountsFromObservationNotFromTheLogTimestamp() {
+        let twoThousandYears: TimeInterval = 2000 * 365.25 * 86400
+        #expect(verdict(skew: twoThousandYears, now: 5) == .pending)
+        #expect(verdict(skew: twoThousandYears, now: 25) == .success(initAt: Self.t0.addingTimeInterval(twoThousandYears)))
+    }
+
+    @Test func aTimestampFarInThePastStillWaitsForSettle() {
+        let fiveHundredYearsAgo: TimeInterval = -500 * 365.25 * 86400
+        #expect(verdict(skew: fiveHundredYearsAgo, now: 5) == .pending)
+        #expect(verdict(skew: fiveHundredYearsAgo, now: 25) == .success(initAt: Self.t0.addingTimeInterval(fiveHundredYearsAgo)))
     }
 
     @Test func wrongAccountOrOrgFails() {

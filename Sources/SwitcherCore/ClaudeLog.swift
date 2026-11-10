@@ -7,9 +7,12 @@ public struct ClaudeLog: Sendable {
     public struct Line: Equatable, Sendable {
         public let timestamp: Date
         public let text: String
-        public init(timestamp: Date, text: String) {
+        /// When a `Cursor` read the line. Unlike `timestamp` it does not depend on parsing the log's wall clock.
+        public let observedAt: Date?
+        public init(timestamp: Date, text: String, observedAt: Date? = nil) {
             self.timestamp = timestamp
             self.text = text
+            self.observedAt = observedAt
         }
     }
 
@@ -25,9 +28,21 @@ public struct ClaudeLog: Sendable {
     public let logsDir: URL
     public static let fileNames = ["main.log", "main1.log", "main2.log", "main3.log", "main4.log"]
 
+    /// Status polling looks here first; the whole file is read only when the tail has no answer.
+    static let tailBytes = 262_144
+    /// Called with the file name and byte count of every read (tests count reads through it).
+    var onRead: (@Sendable (String, Int) -> Void)?
+
     public init(logsDir: URL) { self.logsDir = logsDir }
 
     // MARK: - Parsing
+
+    /// Claude writes local wall-clock time in the Gregorian calendar, whatever calendar the user picked.
+    static let logCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
 
     static func parseTimestamp(_ line: Substring) -> Date? {
         let u = Array(line.utf8.prefix(19))
@@ -41,7 +56,7 @@ public struct ClaudeLog: Sendable {
               let h = num(11..<13), let mi = num(14..<16), let s = num(17..<19) else { return nil }
         var comps = DateComponents()
         comps.year = y; comps.month = mo; comps.day = d; comps.hour = h; comps.minute = mi; comps.second = s
-        return Calendar.current.date(from: comps)
+        return logCalendar.date(from: comps)
     }
 
     /// Splits text into lines; continuation lines (no timestamp) inherit the previous timestamp.
@@ -56,16 +71,59 @@ public struct ClaudeLog: Sendable {
         return out
     }
 
+    /// The whole file, or its last `tailBytes`. A tail that starts inside a line drops that fragment.
     func read(_ name: String, tailBytes: Int? = nil) -> String? {
-        let url = logsDir.appendingPathComponent(name)
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: logsDir.appendingPathComponent(name)) else { return nil }
         defer { try? handle.close() }
+        var cut = false
         if let tailBytes {
             let size = (try? handle.seekToEnd()) ?? 0
-            try? handle.seek(toOffset: size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0)
+            cut = size > UInt64(tailBytes)
+            // One byte early, so a tail that begins exactly on a line boundary keeps its first line.
+            try? handle.seek(toOffset: cut ? size - UInt64(tailBytes) - 1 : 0)
         }
-        guard let data = try? handle.readToEnd() else { return nil }
+        guard var data = try? handle.readToEnd() else { return nil }
+        onRead?(name, data.count)
+        if cut {
+            guard let newline = data.firstIndex(of: 0x0A) else { return "" }
+            data = data[data.index(after: newline)...]
+        }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Bytes of `name` from `offset` to the end (nil when the file cannot be opened).
+    func readData(_ name: String, from offset: UInt64) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: logsDir.appendingPathComponent(name)) else { return nil }
+        defer { try? handle.close() }
+        try? handle.seek(toOffset: offset)
+        guard let data = try? handle.readToEnd() else { return nil }
+        onRead?(name, data.count)
+        return data
+    }
+
+    private func size(of name: String) -> Int? {
+        var info = stat()
+        return stat(logsDir.appendingPathComponent(name).path, &info) == 0 ? Int(info.st_size) : nil
+    }
+
+    /// Walks the log newest line first and stops at the first line `match` accepts. Each file is tried by
+    /// its tail before it is read whole. `loggedOutAfter` says whether a logout marker follows that line.
+    private func newestMatch<T>(_ match: (Line) -> T?) -> (value: T, loggedOutAfter: Bool)? {
+        var loggedOutInNewerFiles = false
+        for name in Self.fileNames {
+            guard let size = size(of: name) else { continue }
+            let passes: [Int?] = size > Self.tailBytes ? [Self.tailBytes, nil] : [nil]
+            for tail in passes {
+                guard let text = read(name, tailBytes: tail) else { break }
+                var loggedOut = loggedOutInNewerFiles
+                for line in Self.parse(text).reversed() {
+                    if Self.logoutPatterns.contains(where: { line.text.contains($0) }) { loggedOut = true }
+                    if let value = match(line) { return (value, loggedOut) }
+                }
+                if tail == nil { loggedOutInNewerFiles = loggedOut }
+            }
+        }
+        return nil
     }
 
     /// Lines with timestamp >= `since` (second resolution) from main1.log + main.log, oldest first.
@@ -135,33 +193,17 @@ public struct ClaudeLog: Sendable {
     /// Most recent account/org evidence: an `Initialization succeeded` line, or a token-cache lookup that
     /// names `acct:<uuid>|…:<org>` (these appear constantly while signed in). Scans newest file first.
     public func latestIdentity() -> IdentitySignal? {
-        var loggedOutAfter = false
-        for name in Self.fileNames {
-            guard let text = read(name) else { continue }
-            for line in Self.parse(text).reversed() {
-                if Self.logoutPatterns.contains(where: { line.text.contains($0) }) { loggedOutAfter = true }
-                if let pair = Self.parseInit(line) ?? Self.parseCacheKey(line) {
-                    return IdentitySignal(
-                        timestamp: line.timestamp, accountUuid: pair.account, orgUuid: pair.org,
-                        loggedOutAfter: loggedOutAfter)
-                }
+        newestMatch { line in (Self.parseInit(line) ?? Self.parseCacheKey(line)).map { (line.timestamp, $0) } }
+            .map { found in
+                IdentitySignal(timestamp: found.value.0, accountUuid: found.value.1.account,
+                               orgUuid: found.value.1.org, loggedOutAfter: found.loggedOutAfter)
             }
-        }
-        return nil
     }
 
     /// Design D2-5 recapture guard: the last `[LocalSessionManager] Initialization succeeded` exists and no
     /// logout marker follows it (token-cache lookups are not treated as sign-in evidence here).
     public func signedInSinceLastInit() -> Bool {
-        var loggedOutAfter = false
-        for name in Self.fileNames {
-            guard let text = read(name) else { continue }
-            for line in Self.parse(text).reversed() {
-                if Self.logoutPatterns.contains(where: { line.text.contains($0) }) { loggedOutAfter = true }
-                if Self.parseInit(line) != nil { return !loggedOutAfter }
-            }
-        }
-        return false
+        newestMatch { Self.parseInit($0) != nil ? true : nil }.map { !$0.loggedOutAfter } ?? false
     }
 
     // MARK: - Incremental reading
@@ -172,10 +214,12 @@ public struct ClaudeLog: Sendable {
         private var inode: ino_t = 0
         private var offset: UInt64 = 0
         private var lastTimestamp: Date?
+        private let now: @Sendable () -> Date
         public private(set) var collected: [Line] = []
 
-        public init(log: ClaudeLog) {
+        public init(log: ClaudeLog, now: @escaping @Sendable () -> Date = { Date() }) {
             self.log = log
+            self.now = now
             let url = log.logsDir.appendingPathComponent("main.log")
             var st = stat()
             if stat(url.path, &st) == 0 {
@@ -209,7 +253,9 @@ public struct ClaudeLog: Sendable {
                     offset = 0
                 }
             }
+            let observedAt = now()
             let lines = ClaudeLog.parse(newText, initialTimestamp: lastTimestamp)
+                .map { Line(timestamp: $0.timestamp, text: $0.text, observedAt: observedAt) }
             if let last = lines.last { lastTimestamp = last.timestamp }
             collected += lines
             return lines
@@ -257,7 +303,7 @@ public enum LaunchVerdict: Equatable, Sendable {
                 reason: L10n.t(.reasonWrongAccount, String(first.account.prefix(8)), String(first.org.prefix(8))),
                 needsRelogin: false)
         }
-        if now.timeIntervalSince(firstLine.timestamp) < settle { return .pending }
+        if now.timeIntervalSince(firstLine.observedAt ?? firstLine.timestamp) < settle { return .pending }
         return .success(initAt: firstLine.timestamp)
     }
 }
