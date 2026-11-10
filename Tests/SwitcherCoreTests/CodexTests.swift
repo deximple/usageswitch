@@ -512,6 +512,17 @@ struct CodexTests {
         #expect(rig.control.launches.isEmpty && rig.control.cliRuns.isEmpty)
     }
 
+    @Test func anUnreadableRegistryIsReportedInStatus() throws {
+        // A registry that can't be decoded flags status and surfaces no found homes, so
+        // homes the user hid don't reappear (audit B-10).
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        try rig.makeHome(".codex-work", email: "alex@work.example.com")
+        try rig.sandbox.write("{broken", to: rig.env.codexRegistryFile)
+        let status = rig.manager.status()
+        #expect(status.registryUnreadable)
+        #expect(status.found.isEmpty)
+    }
+
     @Test func anUnreadableRecordIsNeverOverwritten() throws {
         let rig = try CodexRig(); defer { rig.cleanup() }
         try rig.makeHome(".codex-work", email: "alex@work.example.com")

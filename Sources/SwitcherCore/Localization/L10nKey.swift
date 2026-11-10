@@ -261,6 +261,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case codexShow = "codex.show"
     case codexSignIn = "codex.signIn"
     case codexReauth = "codex.reauth"
+    case codexRegistryUnreadable = "codex.registryUnreadable"
     case codexRemoveButton = "codex.remove.button"
     case codexHideButton = "codex.hide.button"
     case codexReauthButton = "codex.reauth.button"

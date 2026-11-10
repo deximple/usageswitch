@@ -126,7 +126,12 @@ enum CLI {
         let target = args.count >= 2 && !args[1].hasPrefix("--") ? args[1] : nil
         switch command {
         case "status", "list":
-            return emit(codex.status().withoutPhantomDefault)
+            let status = codex.status().withoutPhantomDefault
+            // An unreadable registry is an error, not an empty list (audit B-10).
+            if status.registryUnreadable {
+                return fail("registry_unreadable", "could not read codex-accounts.json", exit: 1)
+            }
+            return emit(status)
         case "open":
             guard let target else { return fail("usage", usage, exit: 64) }
             return emit(try codex.open(target))

@@ -243,6 +243,7 @@ extension Strings {
         .codexShow: "显示",
         .codexSignIn: "登录",
         .codexReauth: "重新登录…",
+        .codexRegistryUnreadable: "无法读取 Codex 账户列表（codex-accounts.json）。在可读之前账户保持隐藏；没有改动任何内容。",
         .codexRemoveButton: "移除",
         .codexHideButton: "从列表中移除",
         .codexReauthButton: "重新登录",

@@ -243,6 +243,7 @@ extension Strings {
         .codexShow: "表示",
         .codexSignIn: "サインイン",
         .codexReauth: "再サインイン…",
+        .codexRegistryUnreadable: "Codex アカウント一覧 (codex-accounts.json) を読めません。読めるようになるまでアカウントは非表示です。何も変更していません。",
         .codexRemoveButton: "削除",
         .codexHideButton: "リストから削除",
         .codexReauthButton: "再サインイン",

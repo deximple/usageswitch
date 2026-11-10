@@ -402,6 +402,9 @@ struct CodexMainContent: View {
                     VStack(alignment: .leading, spacing: Theme.gapGroup) {
                         if case .signingIn = model.phase { CodexSignInProgress(model: model) }
                         if let banner = model.banner { BannerView(banner: banner) }
+                        if status.registryUnreadable {
+                            BannerView(banner: SwitcherModel.Banner(kind: .error, text: L10n.t(.codexRegistryUnreadable)))
+                        }
                         VStack(alignment: .leading, spacing: Theme.gapRow) {
                             Text(L10n.t(.uiAccounts)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
                             ForEach(status.accounts) { account in

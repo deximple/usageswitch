@@ -243,6 +243,7 @@ extension Strings {
         .codexShow: "보기",
         .codexSignIn: "로그인",
         .codexReauth: "재인증…",
+        .codexRegistryUnreadable: "Codex 계정 목록(codex-accounts.json)을 읽을 수 없습니다. 읽을 수 있을 때까지 계정을 숨깁니다. 아무것도 바꾸지 않았습니다.",
         .codexRemoveButton: "제거",
         .codexHideButton: "목록에서 제거",
         .codexReauthButton: "재인증",
