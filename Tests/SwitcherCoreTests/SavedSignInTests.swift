@@ -129,9 +129,9 @@ struct SavedSignInTests {
 
     @Test func emojiNamesAreFineButInvisiblesAndBidiOverridesAreNot() throws {
         let rig = try Rig.make(enrolled: [.b]); defer { rig.cleanup() }
-        // Plain emoji are fine; the ZWJ inside composed emoji is now forbidden (U+200B–200F).
-        #expect(try rig.switcher.renameAccount(FakeIdentity.b.key, to: "⭐ Work").label == "⭐ Work")
-        #expect(switcherError { try rig.switcher.renameAccount(FakeIdentity.b.key, to: "👩‍💻 Work") }
+        // Plain and ZWJ-composed emoji are fine; the ZWJ must sit between emoji scalars.
+        #expect(try rig.switcher.renameAccount(FakeIdentity.b.key, to: "👩‍💻 Work").label == "👩‍💻 Work")
+        #expect(switcherError { try rig.switcher.renameAccount(FakeIdentity.b.key, to: "a\u{200D}b") }
             == .invalidAccountName(maxLength: AccountNames.maxLength))
         #expect(try rig.switcher.renameAccount(FakeIdentity.b.key, to: "soft\u{00AD}hyphen").customName == "soft\u{00AD}hyphen")
         #expect(switcherError { try rig.switcher.renameAccount(FakeIdentity.b.key, to: "\u{202E}kroW") }

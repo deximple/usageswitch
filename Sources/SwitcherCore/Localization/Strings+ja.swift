@@ -317,7 +317,7 @@ extension Strings {
         .suggestionUrgentMessage: "緊急モードでは最上位モデルを最大の推論強度で使えます。次のClaudeの5時間リセット時にバランスモードへ戻り、リセット時刻が不明な場合は5時間後に戻ります。",
         .suggestionUrgentConfirm: "緊急モードを使う",
         .suggestionSituationHeadroom: "%@の余裕（残り%d%%）",
-        .suggestionSituationRemaining: "%@の現在の残り（%@）",
+        .suggestionSituationRemaining: "%@の現在の残り（%d%%）",
         .suggestionLine: "現在、%@を踏まえると %@ → %@ → %@",
         .suggestionRecentEffort: " · 最近よく使った強度: %@",
         .suggestionEffortNone: "なし",

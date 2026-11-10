@@ -81,10 +81,30 @@ public enum AccountNames {
     public static func validated(_ raw: String?) throws -> String? {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.count <= maxLength, !trimmed.unicodeScalars.contains(where: isForbidden) else {
+        guard trimmed.count <= maxLength, !hasForbiddenScalar(in: trimmed) else {
             throw SwitcherError.invalidAccountName(maxLength: maxLength)
         }
         return trimmed.precomposedStringWithCompatibilityMapping
+    }
+
+    /// U+200D (ZWJ) is allowed only between emoji scalars; every other forbidden scalar
+    /// is rejected wherever it appears (audit P3).
+    static func hasForbiddenScalar(in name: String) -> Bool {
+        let scalars = Array(name.unicodeScalars)
+        for (index, scalar) in scalars.enumerated() {
+            if scalar.value == 0x200D {
+                let left = index > 0 ? scalars[index - 1] : nil
+                let right = index + 1 < scalars.count ? scalars[index + 1] : nil
+                let emoji = { (s: Unicode.Scalar?) -> Bool in
+                    guard let s else { return false }
+                    return s.properties.isEmoji && s.value > 0x7F
+                }
+                if emoji(left) && emoji(right) { continue }
+                return true
+            }
+            if isForbidden(scalar) { return true }
+        }
+        return false
     }
 
     /// Format characters such as emoji joiners are fine; bidi overrides, invisible width/zero-space
@@ -92,7 +112,8 @@ public enum AccountNames {
     static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
         if scalar.properties.generalCategory == .control || CharacterSet.newlines.contains(scalar) { return true }
         if (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value) { return true }
-        if (0x200B...0x200F).contains(scalar.value) || scalar.value == 0x2060
+        if (0x200B...0x200C).contains(scalar.value)
+            || (0x200E...0x200F).contains(scalar.value) || scalar.value == 0x2060
             || scalar.value == 0xFEFF || scalar.value == 0x061C { return true }
         return (0xE0000...0xE007F).contains(scalar.value)
     }

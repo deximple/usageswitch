@@ -317,7 +317,7 @@ extension Strings {
         .suggestionUrgentMessage: "긴급 모드는 최상위 모델에서 최대 추론 강도를 허용합니다. 다음 Claude 5시간 재설정 시점에 균형 모드로 돌아가며, 재설정 시점을 모르면 5시간 후에 돌아갑니다.",
         .suggestionUrgentConfirm: "긴급 모드 사용",
         .suggestionSituationHeadroom: "%@ 여유분 (%d%% 남음)",
-        .suggestionSituationRemaining: "%@ 현재 남은 양 (%@)",
+        .suggestionSituationRemaining: "%@ 현재 남은 양 (%d%%)",
         .suggestionLine: "지금 %@을 고려하면 %@ → %@ → %@",
         .suggestionRecentEffort: " · 최근 주로 쓴 강도: %@",
         .suggestionEffortNone: "없음",

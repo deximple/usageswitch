@@ -317,7 +317,7 @@ extension Strings {
         .suggestionUrgentMessage: "El modo urgente permite modelos de frontera con el máximo nivel de esfuerzo. Vuelve al modo equilibrado en el próximo reinicio de cinco horas de Claude o, si no se conoce, al cabo de cinco horas.",
         .suggestionUrgentConfirm: "Usar modo urgente",
         .suggestionSituationHeadroom: "margen de %@ (%d%% restante)",
-        .suggestionSituationRemaining: "%@ restante ahora (%@)",
+        .suggestionSituationRemaining: "%@ restante ahora (%d%%)",
         .suggestionLine: "Ahora, teniendo en cuenta %@: %@ → %@ → %@",
         .suggestionRecentEffort: " · esfuerzo más usado recientemente: %@",
         .suggestionEffortNone: "Ninguno",

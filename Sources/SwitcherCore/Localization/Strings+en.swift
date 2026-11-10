@@ -317,7 +317,7 @@ extension Strings {
         .suggestionUrgentMessage: "Urgent mode allows frontier models at max effort. It returns to Balanced at the next five-hour Claude reset, or after five hours if no reset is known.",
         .suggestionUrgentConfirm: "Use Urgent",
         .suggestionSituationHeadroom: "%@ headroom (%d%% remaining)",
-        .suggestionSituationRemaining: "current %@ remaining (%@)",
+        .suggestionSituationRemaining: "current %@ remaining (%d%%)",
         .suggestionLine: "Right now, with %@: %@ → %@ → %@",
         .suggestionRecentEffort: " · recently mostly: %@",
         .suggestionEffortNone: "None",

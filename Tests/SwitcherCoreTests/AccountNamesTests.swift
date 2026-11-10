@@ -10,6 +10,10 @@ struct AccountNamesTests {
             #expect(throws: SwitcherError.self) { try AccountNames.validated("a\(scalar)b") }
         }
         #expect(throws: Never.self) { try AccountNames.validated("plain name") }
+        #expect(throws: Never.self) { try AccountNames.validated("👩‍💻 Work") }
+        #expect(throws: SwitcherError.self) { try AccountNames.validated("a\u{200D}b") }
+        #expect(throws: SwitcherError.self) { try AccountNames.validated("#\u{200D}1") }
+        #expect(throws: SwitcherError.self) { try AccountNames.validated("x\u{200D}") }
     }
 
     @Test("NFKC runs before folding: lookalike encodings collide")

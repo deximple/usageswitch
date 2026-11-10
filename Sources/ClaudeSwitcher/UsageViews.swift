@@ -332,7 +332,8 @@ struct UsageContent: View {
                                    UsageText.percentLeft(window.usedPercent) ?? 0)
         case .remainingShare:
             situationText = L10n.t(.suggestionSituationRemaining,
-                                   UsageText.name(of: window), UsageText.left(window))
+                                   UsageText.name(of: window),
+                                   UsageText.percentLeft(window.usedPercent) ?? 0)
         }
         let line = L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
                           effortName(effort))

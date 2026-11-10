@@ -25,6 +25,17 @@ struct WordingTests {
         }
     }
 
+    @Test("remaining line takes a bare number too")
+    func remainingLine() {
+        let name = UsageText.name(of: window)
+        for language in AppLanguage.allCases {
+            let line = L10n.string(.suggestionSituationRemaining, language: language,
+                                   [name, UsageText.percentLeft(window.usedPercent) ?? 0])
+            #expect(!line.contains("% left") && !line.contains("% 남음")
+                    && !line.contains("(%@") && line.contains("80"))
+        }
+    }
+
     @Test("the refreshing-soon string exists in every language")
     func refreshingSoon() {
         for language in AppLanguage.allCases {

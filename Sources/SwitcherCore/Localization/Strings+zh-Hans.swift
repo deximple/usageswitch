@@ -317,7 +317,7 @@ extension Strings {
         .suggestionUrgentMessage: "紧急模式允许使用前沿模型和最高推理强度。到下一个 Claude 五小时重置时切回平衡模式；如果重置时间未知，则在五小时后切回。",
         .suggestionUrgentConfirm: "使用紧急模式",
         .suggestionSituationHeadroom: "%@余量（剩余%d%%）",
-        .suggestionSituationRemaining: "%@当前剩余（%@）",
+        .suggestionSituationRemaining: "%@当前剩余（%d%%）",
         .suggestionLine: "此刻考虑到%@：%@ → %@ → %@",
         .suggestionRecentEffort: " · 最近主要使用的强度：%@",
         .suggestionEffortNone: "无",
