@@ -33,6 +33,36 @@ struct SwitcherRecoveryPathTests {
         #expect(!exists(rig.env.previousDir) && !rig.switcher.isLocked(), sourceLocation: sourceLocation)
     }
 
+    @Test func setAsidePendingJournalMovesEverythingIntact() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        var journal = SwapEngine.Journal(state: "installing", applied: [])
+        journal.keepPreviousAt = nil
+        try JSONEncoder().encode(journal).write(to: env.journalFile)
+        try FileManager.default.createDirectory(at: env.stagingDir, withIntermediateDirectories: true)
+        try Data("staged".utf8).write(to: env.stagingDir.appendingPathComponent("config.json"))
+
+        let destination = try rig.switcher.setAsidePendingJournal()
+        #expect(destination.deletingLastPathComponent().path == env.displacedDir.path)
+        #expect(destination.lastPathComponent.hasPrefix("journal-"))
+        #expect(!rig.switcher.status().pendingJournal)
+        #expect(String(decoding: try Data(contentsOf: destination.appendingPathComponent("previous/Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+        #expect(try JSONDecoder().decode(SwapEngine.Journal.self,
+                    from: Data(contentsOf: destination.appendingPathComponent("swap-journal.json"))).state == "installing")
+        #expect(!exists(env.stagingDir))
+    }
+
+    @Test func setAsidePendingJournalIsRefusedWhileClaudeRuns() throws {
+        let rig = try Rig.make(); defer { rig.cleanup() } // Claude running
+        try Data("{".utf8).write(to: rig.env.journalFile)
+        #expect(throws: SwitcherError.self) { try rig.switcher.setAsidePendingJournal() }
+        #expect(rig.env.journalFile.path == rig.env.journalFile.path) // untouched
+        #expect(exists(rig.env.journalFile))
+    }
+
     @Test func displacedConfigsHaveNoTokenCachesAfterRecovery() throws {
         // A crash during verification leaves an "installed" journal: recovery commits it and
         // must strip token caches out of every displaced config.json (B-01).

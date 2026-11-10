@@ -293,6 +293,29 @@ public final class Switcher: @unchecked Sendable {
         for dir in dirs { store.stripTokenCaches(inConfigAt: dir.appendingPathComponent(SnapshotItems.config)) }
     }
 
+    /// Moves an unresolved swap journal and its `previous/` copy out of the way (audit B-03 follow-up):
+    /// nothing is deleted, so the kept files can still be inspected or restored by hand.
+    /// Refused while Claude runs (the files may be in use) or another session holds the lock.
+    @discardableResult
+    public func setAsidePendingJournal() throws -> URL {
+        guard processes.mainProcess() == nil else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
+        }
+        try acquireLock()
+        defer { releaseLock() }
+        guard swapper.journalPresent else { throw SwitcherError.swapFailed(L10n.t(.reasonNoPendingJournal)) }
+        let destination = env.displacedDir.appendingPathComponent(
+            "journal-\(Int(clock.now().timeIntervalSince1970))")
+        try fs.createDirectory(env.displacedDir)
+        try fs.createDirectory(destination)
+        if SwapEngine.exists(env.previousDir) {
+            try fs.move(env.previousDir, to: destination.appendingPathComponent("previous"))
+        }
+        try fs.move(env.journalFile, to: destination.appendingPathComponent("swap-journal.json"))
+        try fs.remove(env.stagingDir)
+        return destination
+    }
+
     private func runRecovery() -> (notes: [String], locked: Bool, failed: Bool) {
         do {
             try acquireLock()

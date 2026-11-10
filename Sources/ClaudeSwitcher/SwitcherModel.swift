@@ -135,6 +135,20 @@ final class SwitcherModel: ObservableObject {
         return false
     }
 
+    /// Moves the pending switch record aside (audit B-03): previous/ + journal into
+    /// displaced/journal-<epoch>, nothing deleted. Refused while Claude runs.
+    func setAsidePendingJournal() {
+        do {
+            let destination = try switcher.setAsidePendingJournal()
+            banner = .init(kind: .success, text: destination.path)
+            refresh()
+        } catch let e as SwitcherError {
+            banner = .init(kind: .error, text: e.description)
+        } catch {
+            banner = .init(kind: .error, text: String(describing: error))
+        }
+    }
+
     func refreshIfIdle() {
         expireSuggestionUrgentModeIfNeeded(
             now: Date(), snapshot: AppModel.usage.suggestionUsageSnapshot())

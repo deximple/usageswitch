@@ -88,6 +88,13 @@ enum CLI {
                 return emit(switcher.probeCodeSession(
                     expected: identity, since: since, trigger: args.contains("--trigger"), timeout: timeout))
             case "recover":
+                if args.contains("--set-aside") {
+                    guard args.contains("--yes") else {
+                        return fail("needs_confirmation", L10n.t(.uiSetAsideJournalBody), exit: 3)
+                    }
+                    let destination = try switcher.setAsidePendingJournal()
+                    return emit(["setAside": destination.path])
+                }
                 let report = switcher.recover()
                 _ = emit(["notes": report.notes])
                 return report.needsAttention ? 1 : 0

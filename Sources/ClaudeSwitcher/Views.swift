@@ -394,6 +394,20 @@ struct MainView: View {
                         VStack(alignment: .leading, spacing: Theme.gapRow) {
                             if let banner = model.banner { BannerView(banner: banner) }
                             ForEach(status.warnings, id: \.self) { BannerView(banner: .init(kind: .info, text: $0)) }
+                            if status.pendingJournal {
+                                Button(L10n.t(.uiSetAsideJournal)) {
+                                    let alert = NSAlert()
+                                    alert.messageText = L10n.t(.uiSetAsideJournalTitle)
+                                    alert.informativeText = L10n.t(.uiSetAsideJournalBody)
+                                    alert.alertStyle = .warning
+                                    alert.addButton(withTitle: L10n.t(.uiCancel)) // first = default (Cancel)
+                                    alert.addButton(withTitle: L10n.t(.uiSetAsideJournal))
+                                    if alert.runModal() == .alertSecondButtonReturn {
+                                        model.setAsidePendingJournal()
+                                    }
+                                }
+                                .font(Theme.caption)
+                            }
                             if !model.steps.isEmpty { StepsView(steps: model.steps, working: model.isBusy) }
                         }
                     }
