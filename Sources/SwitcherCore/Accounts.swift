@@ -48,8 +48,11 @@ public struct SwitcherAccount: Codable, Equatable, Identifiable, Sendable {
         [label, Self.defaultName(for: identity)] + (identity.email.map { [$0] } ?? [])
     }
 
-    /// Case-insensitive form used to compare names.
-    public static func fold(_ name: String) -> String { name.folding(options: [.caseInsensitive], locale: nil) }
+    /// Case-insensitive, compatibility-normalized form used to compare names: NFKC makes
+    /// lookalike encodings (full-width, ligatures, decomposed marks) fold to one key.
+    public static func fold(_ name: String) -> String {
+        name.precomposedStringWithCompatibilityMapping.folding(options: [.caseInsensitive], locale: nil)
+    }
 
     public func answers(to name: String) -> Bool {
         let wanted = Self.fold(name)
@@ -81,12 +84,16 @@ public enum AccountNames {
         guard trimmed.count <= maxLength, !trimmed.unicodeScalars.contains(where: isForbidden) else {
             throw SwitcherError.invalidAccountName(maxLength: maxLength)
         }
-        return trimmed
+        return trimmed.precomposedStringWithCompatibilityMapping
     }
 
-    /// Format characters such as emoji joiners are fine; bidi overrides could make one name look like another.
+    /// Format characters such as emoji joiners are fine; bidi overrides, invisible width/zero-space
+    /// marks and tag characters could make one name look like another.
     static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
         if scalar.properties.generalCategory == .control || CharacterSet.newlines.contains(scalar) { return true }
-        return (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value)
+        if (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value) { return true }
+        if (0x200B...0x200F).contains(scalar.value) || scalar.value == 0x2060
+            || scalar.value == 0xFEFF || scalar.value == 0x061C { return true }
+        return (0xE0000...0xE007F).contains(scalar.value)
     }
 }
