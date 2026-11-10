@@ -193,18 +193,24 @@ public final class CodexManager: @unchecked Sendable {
         case .managed:
             // Prove the folder and its home are real directories before anything irreversible:
             // a linked or replaced path must fail before logout, window closes or trash (B-10).
+            // A path that is already gone is fine (a stale entry must stay removable); one that
+            // exists but is not a real directory is refused.
             let folder = env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
             try fs.check(folder)
-            var st = stat()
-            guard lstat(folder.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR else {
-                throw SwitcherError.forbiddenWrite(folder.path)
+            func realDirectoryOrMissing(_ url: URL) throws -> Bool {
+                var st = stat()
+                guard lstat(url.path, &st) == 0 else {
+                    if errno == ENOENT { return false }
+                    throw SwitcherError.forbiddenWrite(url.path)
+                }
+                guard (st.st_mode & S_IFMT) == S_IFDIR else { throw SwitcherError.forbiddenWrite(url.path) }
+                return true
             }
-            guard lstat(profile.home.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR else {
-                throw SwitcherError.forbiddenWrite(profile.home.path)
-            }
+            _ = try realDirectoryOrMissing(folder)
+            let homeExists = try realDirectoryOrMissing(profile.home)
             try quitWindows(of: account)
             stopHelpers(using: profile.home)
-            if FileManager.default.fileExists(atPath: env.codexCLI.path) {
+            if homeExists, FileManager.default.fileExists(atPath: env.codexCLI.path) {
                 _ = control.runCLI(env.codexCLI, arguments: ["logout"], home: profile.home, timeout: 30,
                                    shouldStop: { false }, onOutput: { _ in })
             }

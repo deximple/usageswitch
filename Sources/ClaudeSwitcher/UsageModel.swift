@@ -511,8 +511,17 @@ final class UsageModel: ObservableObject {
             clearPace(provider)
         }
         // Persist the swapped rows at once — a crash between the swap and the next refresh
-        // must not resurrect a revoked provider's data (audit B-11).
-        writeUsageSnapshotFile(now: Date())
+        // must not resurrect a revoked provider's data (audit B-11). Before the first status
+        // arrives the full snapshot can't be rebuilt, so the revoked rows are cut from the file.
+        if AppModel.shared.status != nil {
+            writeUsageSnapshotFile(now: Date())
+        } else {
+            let env = SwitcherEnvironment.live()
+            let revoked = Set(UsageProvider.allCases.filter { $0.requiresConsent && !enabled.contains($0) })
+            if let previous = UsageSnapshot.load(env: env) {
+                try? previous.removing(providers: revoked).write(env: env, fs: SafeFS(env: env))
+            }
+        }
         refresh()
     }
 

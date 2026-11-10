@@ -88,6 +88,16 @@ public enum CursorUsageParser {
         }
     }
 
+    /// True when the response reports a plan percentage outside 0...100.
+    public static func hasOutOfRangePercent(usage: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: usage) as? [String: Any],
+              let plan = object["planUsage"] as? [String: Any] else { return false }
+        return [plan["autoPercentUsed"], plan["apiPercentUsed"], plan["totalPercentUsed"]].contains { raw in
+            guard case .value(let v) = percent(raw) else { return false }
+            return !(0...100).contains(v)
+        }
+    }
+
     static func percent(_ value: Any?) -> PercentField {
         guard let value, !(value is NSNull) else { return .absent }
         if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
@@ -156,7 +166,9 @@ public struct CursorUsageCollector: Sendable {
         if response.status == 401 || response.status == 403 { return [finish(.failed(.signInRejected))] }
         guard response.status == 200 else { return [finish(.failed(.network))] }
         guard let windows = CursorUsageParser.windows(usage: response.body) else {
-            return [finish(.notReporting)]
+            // A percentage outside 0...100 is a changed response, not "no usage" (audit B-11).
+            return [finish(CursorUsageParser.hasOutOfRangePercent(usage: response.body)
+                           ? .unavailable(.schemaChanged) : .notReporting)]
         }
         return [finish(.ok, windows)]
     }

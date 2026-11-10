@@ -534,6 +534,21 @@ struct CodexTests {
         #expect(fileData(outside.appendingPathComponent("keep.txt")) == Data("keep".utf8))
     }
 
+    @Test func aManagedAccountWhoseFolderIsGoneCanStillBeRemoved() throws {
+        // A stale registry entry (folder deleted by hand) stays removable, without a logout.
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in
+            try? CodexFixture.writeAuth(into: home, email: "new@example.com")
+            return .exited(0)
+        }
+        let account = try rig.manager.addAccount()
+        let folder = rig.env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+        try FileManager.default.removeItem(at: folder)
+        _ = try rig.manager.remove(account.id)
+        #expect(rig.control.cliRuns.filter { $0.arguments.contains("logout") }.isEmpty)
+        #expect(!rig.manager.status().accounts.contains { $0.id == account.id })
+    }
+
     @Test func aHomeLinkedOutsideTheStoreIsNotLoggedOut() throws {
         // <id>/home pointing at another home: logout and every write must not run (audit B-10).
         let rig = try CodexRig(); defer { rig.cleanup() }

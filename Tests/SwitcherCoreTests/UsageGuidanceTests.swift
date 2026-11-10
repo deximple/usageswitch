@@ -579,6 +579,18 @@ struct UsageAlertStoreTests {
 
 @Suite("Usage snapshot")
 struct UsageSnapshotTests {
+    @Test func turningAConnectionOffCutsOnlyItsRows() {
+        let usages = [
+            usage([window(300, used: 55, resetsAt: epoch.addingTimeInterval(3600))], id: "codex:a", readAt: epoch),
+            usage([window(300, used: 20, resetsAt: epoch.addingTimeInterval(3600))], id: "cursor:current",
+                  provider: .cursor, readAt: epoch),
+        ]
+        let snapshot = UsageSnapshot(usages: usages, generatedAt: epoch, showEmails: false)
+        let cut = snapshot.removing(providers: [.cursor])
+        #expect(cut.accounts.map(\.provider) == ["codex"])
+        #expect(cut.generatedAt == snapshot.generatedAt)
+    }
+
     @Test("round-trips with masked labels and problem names")
     func roundTrip() throws {
         L10n.language = .en
