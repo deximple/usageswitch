@@ -18,8 +18,8 @@ public enum APIVendor: String, CaseIterable, Codable, Identifiable, Sendable {
         allCases.first { $0.usageProvider == provider }
     }
 
-    /// Only OpenAI writes priced API-key usage to the local logs (audit B-07, D-5); other vendors'
-    /// log entries are subscription traffic, so spend for them can't be estimated.
+    /// Only Codex rows can be marked as API-key accounts, so only OpenAI spend has local
+    /// API-key logs to price (audit B-07, D-5).
     public var hasLogReader: Bool { self == .openai }
 }
 
@@ -207,7 +207,7 @@ public enum APIUsageEstimator {
             // one day of records must not understate the daily spend by seven (audit B-07).
             let earliestDay = daily.keys.filter { $0 >= firstSeven }.min()
             let coveredDays = earliestDay
-                .flatMap { dayFormatter.date(from: $0) }
+                .flatMap { SuggestionRetention.date(utcDay: $0) }
                 .flatMap { calendar.dateComponents([.day], from: $0, to: startOfToday).day }
                 .map { min(7, max(1, $0 + 1)) } ?? 1
             result[vendor] = APIUsageEstimate(
@@ -257,14 +257,6 @@ public enum APIUsageEstimator {
         return amount.isFinite && amount >= 0 ? amount : nil
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 
     private static var utcCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)

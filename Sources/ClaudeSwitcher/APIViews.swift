@@ -60,7 +60,9 @@ struct APIContent: View {
                     }
                     ForEach(entries) { entry in
                         HStack(spacing: 8) {
-                            Text("\(vendorName(entry.vendor)) · \(entry.nickname) · ••••\(entry.last4)")
+                            Text(entry.isUnreadable
+                                 ? "\(vendorName(entry.vendor)) · \(entry.nickname) · \(L10n.t(.apiKeyUnreadable))"
+                                 : "\(vendorName(entry.vendor)) · \(entry.nickname) · ••••\(entry.last4)")
                                 .font(Theme.caption).foregroundStyle(Theme.ink)
                                 .lineLimit(1).truncationMode(.middle)
                             Spacer()
@@ -69,7 +71,7 @@ struct APIContent: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 150)
                                 Button(L10n.t(.apiKeyHide)) { revealedKeys.removeValue(forKey: entry.id) }
-                            } else {
+                            } else if !entry.isUnreadable {
                                 Button(L10n.t(.apiKeyReveal)) { revealKey(entry) }
                             }
                             Button(L10n.t(.apiKeyDelete), role: .destructive) { deleteKey(entry) }
