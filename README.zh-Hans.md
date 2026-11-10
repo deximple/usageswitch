@@ -111,7 +111,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 ```
 
 然后在 UsageSwitch 中打开该账户的**详情** → **通过 CLI 配置目录连接用量…** → 选择文件夹（按 <kbd>⌘</kbd><kbd>⇧</kbd><kbd>.</kbd> 显示隐藏文件夹）→ **启用**。
-只有当每次读取前后都确认该配置属于同一账户和同一组织时，UsageSwitch 才会显示数字。
+只有当每次读取前后都确认该配置的账户/组织 ID 与 CLI 报告的组织、配置目录和邮箱与已保存账户一致时，UsageSwitch 才会显示数字。
 
 ### 4. 为切换保存账户
 

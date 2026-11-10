@@ -37,6 +37,9 @@ public struct ClaudeProfileUsageCollector: Sendable {
     }
 
     private let binding: ClaudeProfileBinding
+    /// The saved account's email; compared against the CLI sign-in's email when both are
+    /// known, case-insensitively (audit B-11).
+    private let expectedEmail: String?
     private let runner: any UsageProcessRunner
     private let home: URL
     private let managed: ClaudeManagedSettings
@@ -46,6 +49,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
     private let now: @Sendable () -> Date
 
     public init(binding: ClaudeProfileBinding, runner: any UsageProcessRunner,
+                expectedEmail: String? = nil,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 managed: ClaudeManagedSettings = .system,
                 binaryPaths: [URL]? = nil,
@@ -53,6 +57,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
                 workingDirectory: URL,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.binding = binding
+        self.expectedEmail = expectedEmail
         self.runner = runner
         self.home = home
         self.managed = managed
@@ -108,7 +113,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         case .status(let status): authA = status
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
-        switch Self.validate(auth: authA, binding: binding, profile: profile) {
+        switch Self.validate(auth: authA, binding: binding, profile: profile, expectedEmail: expectedEmail) {
         case .valid: break
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
@@ -137,7 +142,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         case .status(let status): authB = status
         case .problem(let state): return finish(state, toolVersion: toolVersion)
         }
-        guard case .valid = Self.validate(auth: authB, binding: binding, profile: profile),
+        guard case .valid = Self.validate(auth: authB, binding: binding, profile: profile, expectedEmail: expectedEmail),
               authB == authA
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
         guard !Task.isCancelled else { return nil }
@@ -146,9 +151,14 @@ public struct ClaudeProfileUsageCollector: Sendable {
     }
 
     private static func validate(auth: AuthStatus, binding: ClaudeProfileBinding,
-                                 profile: URL) -> AuthValidation {
+                                 profile: URL, expectedEmail: String?) -> AuthValidation {
         guard auth.loggedIn else { return .problem(.unavailable(.noSignIn)) }
         guard auth.orgId == binding.orgUuid else { return .problem(.failed(.accountMismatch)) }
+        if let expectedEmail, !expectedEmail.isEmpty, let email = auth.email,
+           email.caseInsensitiveCompare(expectedEmail) != .orderedSame {
+            // The CLI is signed in as a different account — never trust its quota (B-11).
+            return .problem(.failed(.accountMismatch))
+        }
         guard let configDirectory = auth.configDirectory,
               ClaudeProfileDirectory.realpathValue(configDirectory) == profile.path
         else { return .problem(.unavailable(.profileInvalid)) }

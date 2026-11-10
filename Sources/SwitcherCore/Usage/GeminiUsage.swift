@@ -83,6 +83,7 @@ public struct GeminiUsageCollector: Sendable {
         default:
             break
         }
+        guard !Task.isCancelled else { return .unavailable(.refused) } // (audit B-11)
         guard let data = credentials.read(home.appendingPathComponent(".gemini/oauth_creds.json")) else {
             return .unavailable(.noSignIn)
         }

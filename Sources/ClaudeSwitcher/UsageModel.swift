@@ -396,7 +396,10 @@ final class UsageModel: ObservableObject {
                         let excludedRoots = [env.claudeUserData, env.storeDir]
                         for binding in activeBindings {
                             if Task.isCancelled { break }
+                            let expectedEmail = await AppModel.shared.status?.accounts
+                                .first { $0.id == binding.accountId }?.email
                             if let row = ClaudeProfileUsageCollector(binding: binding, runner: runner,
+                                expectedEmail: expectedEmail,
                                 home: env.home, managed: .system, binaryPaths: binaryPaths,
                                 excludedRoots: excludedRoots, workingDirectory: claudeWorkDir).collect() {
                                 rows.append(row)
@@ -450,6 +453,18 @@ final class UsageModel: ObservableObject {
         }
     }
 
+    /// The `--cli usage` file: display-safe identity, authentication and window data only —
+    /// labels always email-masked, never credentials or raw emails.
+    private func writeUsageSnapshotFile(now: Date) {
+        if AppModel.shared.status != nil {
+            try? UsageSnapshot(presentations: presentations(claude: settings.status,
+                                                            codex: AppModel.codex.status,
+                                                            now: now),
+                               generatedAt: now)
+                .write(env: SwitcherEnvironment.live(), fs: SafeFS(env: SwitcherEnvironment.live()))
+        }
+    }
+
     func requestRefresh() {
         guard !isDemo else { return }
         if isRefreshing {
@@ -495,6 +510,9 @@ final class UsageModel: ObservableObject {
             usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
             clearPace(provider)
         }
+        // Persist the swapped rows at once — a crash between the swap and the next refresh
+        // must not resurrect a revoked provider's data (audit B-11).
+        writeUsageSnapshotFile(now: Date())
         refresh()
     }
 
@@ -590,15 +608,7 @@ final class UsageModel: ObservableObject {
             store.record(fresh, now: now, generation: generation)
         }
         scheduleSuggestionLogRead(now: now, env: env)
-        // The `--cli usage` file: display-safe identity, authentication and window
-        // data only — labels always email-masked, never credentials or raw emails.
-        if AppModel.shared.status != nil {
-            try? UsageSnapshot(presentations: presentations(claude: settings.status,
-                                                            codex: AppModel.codex.status,
-                                                            now: now),
-                               generatedAt: now)
-                .write(env: env, fs: SafeFS(env: env))
-        }
+        writeUsageSnapshotFile(now: now)
         deliverAlerts(now: now)
         isRefreshing = false
         refreshStartedAt = nil

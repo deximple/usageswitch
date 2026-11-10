@@ -48,17 +48,23 @@ public enum CursorUsageParser {
         let fields = [percent(plan["autoPercentUsed"]), percent(plan["apiPercentUsed"]),
                       percent(plan["totalPercentUsed"])]
         guard let total = fields[2].value else { return nil }
+        // A reported percentage outside 0...100 is a schema change, not something to clamp
+        // into range and present as real data (audit B-11).
+        guard fields.allSatisfy({ field in
+            guard case .value(let v) = field else { return true }
+            return (0...100).contains(v)
+        }) else { return nil }
         var windows = [UsageWindow(scope: nil, durationMinutes: duration,
-                                   usedPercent: clamped(total), resetsAt: resets)]
+                                   usedPercent: total, resetsAt: resets)]
         // autoPercentUsed/apiPercentUsed are the dashboard's Cursor Models/Other Models pools;
         // a bad or absent split only omits that window.
         if let auto = fields[0].value {
             windows.append(UsageWindow(scope: Self.cursorModelsScope, durationMinutes: duration,
-                                       usedPercent: clamped(auto), resetsAt: resets))
+                                       usedPercent: auto, resetsAt: resets))
         }
         if let api = fields[1].value {
             windows.append(UsageWindow(scope: Self.otherModelsScope, durationMinutes: duration,
-                                       usedPercent: clamped(api), resetsAt: resets))
+                                       usedPercent: api, resetsAt: resets))
         }
         return windows
     }
@@ -179,6 +185,7 @@ public struct CursorUsageCollector: Sendable {
         default:
             break // ordinary failure/empty -> file fallback below
         }
+        guard !Task.isCancelled else { return nil } // cancelled: no file fallback (audit B-11)
         let auth = home.appendingPathComponent(".cursor/auth.json")
         guard let data = credentials.read(auth),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
