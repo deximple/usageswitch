@@ -54,6 +54,18 @@ struct SuggestionLogReadGateTests {
         #expect(applied6)
     }
 
+    @Test func aBacklogSkipsTheThrottle() {
+        var gate = SuggestionLogReadGate()
+        let token = gate.begin()
+        let applied = gate.finish(token: token, now: t0, backlog: true)
+        #expect(applied)
+        #expect(gate.shouldStart(now: t0.addingTimeInterval(1)))
+        // Once the backlog is gone the ten-minute wait is back.
+        let next = gate.begin()
+        _ = gate.finish(token: next, now: t0.addingTimeInterval(1), backlog: false)
+        #expect(!gate.shouldStart(now: t0.addingTimeInterval(300)))
+    }
+
     @Test func invalidatingClearsTheThrottle() {
         var gate = SuggestionLogReadGate()
         let token = gate.begin()

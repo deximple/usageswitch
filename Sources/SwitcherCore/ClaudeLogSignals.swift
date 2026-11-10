@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// What status polling needs from Claude's log, recomputed only when `main.log` changes.
-/// Switching itself (the recapture guard, launch verification) reads the log directly.
+/// The recapture guard and launch verification read the log directly.
 final class ClaudeLogSignals: @unchecked Sendable {
     struct Snapshot: Equatable {
         let latestIdentity: ClaudeLog.IdentitySignal?
@@ -34,8 +34,10 @@ final class ClaudeLogSignals: @unchecked Sendable {
         if let snapshot, fingerprint == now { return snapshot }
         let fresh = Snapshot(latestIdentity: log.latestIdentity(),
                              nativeMultiAccount: exists && markerFound(inode: info.st_ino, size: UInt64(info.st_size)))
-        fingerprint = now
-        snapshot = fresh
+        // "No identity" in an existing log may be a read that failed; it is looked up again next time.
+        let cacheable = !exists || fresh.latestIdentity != nil
+        fingerprint = cacheable ? now : nil
+        snapshot = cacheable ? fresh : nil
         return fresh
     }
 

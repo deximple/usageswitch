@@ -49,6 +49,8 @@ final class UsageModel: ObservableObject {
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
     /// Limits already warned about. Loaded from the store on first use, saved when it changes.
     private var alertState: UsageAlertState?
+    /// Set when the store write failed; cleared when a later save succeeds.
+    private var alertStateNeedsSave = false
     private var alertStateLoaded = false
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
@@ -243,7 +245,8 @@ final class UsageModel: ObservableObject {
         guard let budget = settings.apiBudget(for: vendor),
               let estimate = apiUsageEstimates[vendor],
               estimate.hasAPIKeyAccounts, estimate.spendIsComplete else { return nil }
-        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now)
+        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now,
+                                       coverageStartDay: estimate.coverageStartDay)
     }
 
     func apiUsageBalanceHint(for usage: AccountUsage, shownWindows: [UsageWindow],
@@ -547,8 +550,9 @@ final class UsageModel: ObservableObject {
         pace = pace.filter { !$0.key.hasPrefix(prefix) }
         previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
         if let state = loadedAlertState() {
-            alertState = UsageAlertState(threshold: state.threshold,
-                                         keys: state.keys.filter { !$0.hasPrefix(prefix) })
+            let next = UsageAlertState(threshold: state.threshold,
+                                       marks: state.marks.filter { !$0.key.hasPrefix(prefix) })
+            if next != state { saveAlertState(next) }
         }
     }
 
@@ -614,11 +618,13 @@ final class UsageModel: ObservableObject {
                   let key = reader.accountRefKey(for: usage.accountRef) else { return nil }
             return APIKeyAccountKey(provider: usage.provider, accountKey: key)
         })
+        // Logs behind a spend estimate are read first.
+        let priorityAccountRefs = Set(usages.filter { $0.authentication == .apiKey }.map(\.accountRef))
         let catalog = Self.suggestionCatalog
         let stateStore = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
         suggestionStore = stateStore
         let backgroundTask = Task.detached(priority: .utility) {
-            _ = reader.read(roots: roots, now: now)
+            let pass = reader.read(roots: roots, now: now, priorityAccountRefs: priorityAccountRefs)
             for record in reader.recentRecords(now: now) {
                 guard !Task.isCancelled else { break }
                 guard let observedAt = record.lastUsedAt else { continue }
@@ -628,9 +634,12 @@ final class UsageModel: ObservableObject {
             }
             let estimates = catalog.map {
                 APIUsageEstimator.estimate(records: reader.recentRecords(now: now, days: 35),
-                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now)
+                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now,
+                                           incompleteAccounts: pass.failed ? apiKeyAccounts : pass.pendingAccounts,
+                                           coverageStartDay: SuggestionLogPass.coverageStartDay(
+                                               firstPassDay: pass.firstPassDay))
             } ?? [:]
-            return (reader.recentSummary(now: now), estimates)
+            return (reader.recentSummary(now: now), estimates, pass.failed || pass.pendingBytes > 0)
         }
         suggestionLogTask = Task { @MainActor [weak self] in
             let result = await withTaskCancellationHandler(operation: {
@@ -639,7 +648,8 @@ final class UsageModel: ObservableObject {
                 backgroundTask.cancel()
             })
             // A usage refresh that started meanwhile does not make this result stale.
-            guard let self, self.logReadGate.finish(token: token, now: Date()) else { return }
+            guard let self, self.logReadGate.finish(token: token, now: Date(), backlog: result.2)
+            else { return }
             self.suggestionLogHints = result.0
             self.apiUsageEstimates = result.1
         }
@@ -716,18 +726,22 @@ final class UsageModel: ObservableObject {
         return alertState
     }
 
+    /// Memory and store change together, so a restart never brings back a key that was cleared.
+    /// When a write fails the memory copy still advances, so the retry flag keeps asking for a save.
+    private func saveAlertState(_ state: UsageAlertState) {
+        alertState = state
+        let env = SwitcherEnvironment.live()
+        alertStateNeedsSave = (try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(state)) == nil
+    }
+
     private func deliverAlerts(now: Date) {
         guard settings.usageAlertsEnabled, !isDemo else { return }
         let saved = loadedAlertState()
         let threshold = Double(settings.usageWarnPercent)
         let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
-                                                 alerted: saved?.keys(for: threshold) ?? [], now: now)
-        let next = UsageAlertState(threshold: threshold, keys: alerted)
-        if next != saved {
-            alertState = next
-            let env = SwitcherEnvironment.live()
-            try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(next)
-        }
+                                                 alerted: saved?.marks(for: threshold) ?? [:], now: now)
+        let next = UsageAlertState(threshold: threshold, marks: alerted)
+        if next != saved || alertStateNeedsSave { saveAlertState(next) }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }
