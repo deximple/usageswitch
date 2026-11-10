@@ -191,6 +191,17 @@ public final class CodexManager: @unchecked Sendable {
                 $0.names[account.id] = nil
             }
         case .managed:
+            // Prove the folder and its home are real directories before anything irreversible:
+            // a linked or replaced path must fail before logout, window closes or trash (B-10).
+            let folder = env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
+            try fs.check(folder)
+            var st = stat()
+            guard lstat(folder.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR else {
+                throw SwitcherError.forbiddenWrite(folder.path)
+            }
+            guard lstat(profile.home.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR else {
+                throw SwitcherError.forbiddenWrite(profile.home.path)
+            }
             try quitWindows(of: account)
             stopHelpers(using: profile.home)
             if FileManager.default.fileExists(atPath: env.codexCLI.path) {
@@ -200,8 +211,6 @@ public final class CodexManager: @unchecked Sendable {
             // Never send a live sign-in to the Trash, even if `codex logout` didn't finish.
             let auth = profile.home.appendingPathComponent("auth.json")
             if FileManager.default.fileExists(atPath: auth.path) { try fs.remove(auth) }
-            let folder = env.codexManagedDir.appendingPathComponent(account.id, isDirectory: true)
-            try fs.check(folder)
             if FileManager.default.fileExists(atPath: folder.path) { try control.moveToTrash(folder) }
             try updateRegistry {
                 $0.managed.removeAll { $0 == account.id }
