@@ -223,6 +223,32 @@ struct SwitcherSwitchTests {
         #expect(rig.liveFingerprint() == before)
     }
 
+    @Test func anInitLineObservedJustBeforeTheDeadlineStillSettles() throws {
+        var options = SwitcherOptions()
+        let rig = try Rig.make(options: options); defer { rig.cleanup() }
+        // The init line lands inside the launch-verify window but is first polled
+        // near its end: it must still get the full settle, not a deadline rollback.
+        rig.world.update {
+            $0.launchInitDelay = options.launchVerifyTimeout + options.pollInterval / 2
+            $0.afterLaunch = { $0.launchInitDelay = 2; $0.afterLaunch = nil }
+        }
+        let result = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false)
+        #expect(result.outcome == "switched")
+    }
+
+    @Test func anInitLineAfterTheVerifyWindowStillTimesOut() throws {
+        var options = SwitcherOptions()
+        let rig = try Rig.make(options: options); defer { rig.cleanup() }
+        rig.world.update {
+            $0.launchInitDelay = options.launchVerifyTimeout + options.pollInterval + 2
+            $0.afterLaunch = { $0.launchInitDelay = 2; $0.afterLaunch = nil }
+        }
+        let err = switcherError { _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false) }
+        guard case .verificationFailed = err else {
+            Issue.record("expected verificationFailed, got \(String(describing: err))"); return
+        }
+    }
+
     @Test func noVerdictWithinTimeoutRollsBack() throws {
         let rig = try Rig.make(); defer { rig.cleanup() }
         // Only the post-swap launch is silent; the rollback relaunch initialises normally.
