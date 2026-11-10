@@ -41,6 +41,24 @@ enum AppModel {
         return model
     }()
 
+    /// Visible UI surfaces (menu panel + owned windows). While zero, both status
+    /// pollers run at the slow 30 s cadence; showing any surface restores 6 s and
+    /// triggers an immediate refresh (audit P3 / A-02).
+    private(set) static var visibleSurfaces = 0
+    static var anySurfaceVisible: Bool { visibleSurfaces > 0 }
+
+    static func noteSurface(open: Bool) {
+        let was = anySurfaceVisible
+        visibleSurfaces = max(0, visibleSurfaces + (open ? 1 : -1))
+        guard anySurfaceVisible != was else { return }
+        shared.scheduleStatusPoll(visible: anySurfaceVisible)
+        codex.scheduleStatusPoll(visible: anySurfaceVisible)
+        if anySurfaceVisible {
+            shared.refreshIfIdle()
+            codex.refreshIfIdle()
+        }
+    }
+
     /// Demo screens (any `--ui-fixture`) get demo Codex data and never touch the real Codex homes.
     static let codex: CodexModel = {
         _ = shared   // language first
@@ -131,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // The tree is rebuilt on a language change, so the AppKit title follows it here.
                 .onAppear { [weak window] in window?.title = L10n.t(.uiDetails) }
             })
+        if window.isVisible != true { AppModel.noteSurface(open: true) }
         window.makeKeyAndOrderFront(nil)
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
@@ -143,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Revealed API keys must not outlive their window (audit B-06).
         NotificationCenter.default.post(name: Self.apiKeysShouldHideNotification, object: nil)
         if closing === detailWindow { detailWindow = nil; detailID = nil }
+        AppModel.noteSurface(open: false)
         // only OUR two owned windows decide the policy — menus/alerts never count
         let stillOpen = [window, detailWindow].contains {
             $0 !== closing && $0?.isVisible == true
@@ -300,6 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         NSApp.setActivationPolicy(.regular)
+        if window?.isVisible != true { AppModel.noteSurface(open: true) }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }

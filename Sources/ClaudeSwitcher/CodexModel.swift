@@ -50,7 +50,14 @@ final class CodexModel: ObservableObject {
         phase = demoPhase
         guard demo == nil else { return }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
+        scheduleStatusPoll(visible: AppModel.anySurfaceVisible)
+    }
+
+    /// Poll cadence: 6 s while a window or the menu panel is visible, 30 s while all
+    /// surfaces are closed; re-armed by `AppModel.noteSurface` (audit P3).
+    func scheduleStatusPoll(visible: Bool) {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: visible ? 6 : 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshIfIdle() }
         }
     }
