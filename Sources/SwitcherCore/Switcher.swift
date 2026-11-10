@@ -286,11 +286,13 @@ public final class Switcher: @unchecked Sendable {
     @discardableResult
     public func recoverIfNeeded() -> [String] { runRecovery().notes }
 
-    /// Moves an unresolved swap journal and its `previous/` copy out of the way (audit B-03 follow-up):
-    /// nothing is deleted, so the kept files can still be inspected or restored by hand.
-    /// Refused while Claude runs (the files may be in use) or another session holds the lock.
+    /// Moves a damaged swap journal and everything it may still protect — `previous/`, `staging/`
+    /// (an interrupted swap can leave the only copy of a sign-in in it) — out of the way under
+    /// `displaced/journal-<epoch>`. Nothing is deleted: the kept files can be inspected or restored
+    /// by hand. With no journal left, Claude's suspended relaunchers are restored like recovery does.
+    /// Refused while Claude runs or while another session holds the lock.
     @discardableResult
-    public func setAsidePendingJournal() throws -> URL {
+    public func setAsidePendingJournal() throws -> (destination: URL, restoreNotes: [String], needsAttention: Bool) {
         try acquireLock()
         defer { releaseLock() }
         guard processes.mainProcess() == nil else {
@@ -308,9 +310,13 @@ public final class Switcher: @unchecked Sendable {
         if SwapEngine.exists(env.previousDir) {
             try fs.move(env.previousDir, to: destination.appendingPathComponent("previous"))
         }
+        if SwapEngine.exists(env.stagingDir) {
+            try fs.move(env.stagingDir, to: destination.appendingPathComponent("staging"))
+        }
         try fs.move(env.journalFile, to: destination.appendingPathComponent("swap-journal.json"))
-        try fs.remove(env.stagingDir)
-        return destination
+        var notes: [String] = []
+        let needsAttention = restoreSuspendedRelaunchers(notes: &notes)
+        return (destination, notes, needsAttention)
     }
 
     private func runRecovery() -> (notes: [String], locked: Bool, failed: Bool) {
@@ -358,6 +364,13 @@ public final class Switcher: @unchecked Sendable {
             if !relaunchers.journal().isEmpty { notes.append(L10n.t(.recoverRelaunchersHeld)) }
             return (notes, false, failed)
         }
+        let needsAttention = restoreSuspendedRelaunchers(notes: &notes)
+        return (notes, false, failed || needsAttention)
+    }
+
+    /// The tail recovery runs once no swap journal is left: restore Claude's suspended relaunchers
+    /// and report any left suspended. Returns true when something needs attention (audit B-03).
+    private func restoreSuspendedRelaunchers(notes: inout [String]) -> Bool {
         if relaunchers.journalIsUnreadable() { notes.append(L10n.t(.recoverRelauncherJournalUnreadable)) }
         let restored = relaunchers.restoreAll()
         if !restored.isEmpty { notes.append(L10n.t(.recoverRelaunchersRestored, restored.map(\.label).joined(separator: ", "))) }
@@ -366,7 +379,7 @@ public final class Switcher: @unchecked Sendable {
         if !stillSuspended.isEmpty {
             notes.append(L10n.t(.warnRelaunchersSuspended, stillSuspended.joined(separator: ", ")))
         }
-        return (notes, false, failed)
+        return relaunchers.journalIsUnreadable() || !stillSuspended.isEmpty
     }
 
     // MARK: - Switch

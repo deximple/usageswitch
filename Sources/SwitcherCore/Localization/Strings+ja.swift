@@ -82,7 +82,7 @@ extension Strings {
         .uiSetAsideJournal: "未完了の切り替え記録を退避…",
         .uiSetAsideJournalDone: "切り替え記録を %@ に移動しました。",
         .uiSetAsideJournalTitle: "未完了の切り替え記録を退避しますか？",
-        .uiSetAsideJournalBody: "破損した切り替え記録と記録が保持していたファイル（previous/）は displaced/journal-<日付> に移動されます。何も削除されません。Claude の現在のファイルはそのままです。退避後に Claude がサインインされていない場合は、Claude でもう一度サインインしてください。",
+        .uiSetAsideJournalBody: "破損した切り替え記録と記録が保持していたファイル（previous/ と staging/）は displaced/journal-<日付> に移動されます。何も削除されません。Claude の現在のファイルはそのままです。退避後に Claude がサインインされていない場合は、Claude でもう一度サインインしてください。",
         .reasonSwapAndRollbackFailed: "入れ替えに失敗し、元に戻すことにも失敗しました（切り替え記録を保持し、自動復旧を待機中）：%@",
         .reasonRolledBack: "元に戻しました：%@",
         .reasonSchemaNewer: "Cookie スキーマ %1$d > %2$d",

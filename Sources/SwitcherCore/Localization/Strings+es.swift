@@ -82,7 +82,7 @@ extension Strings {
         .uiSetAsideJournal: "Apartar el registro de cambio pendiente…",
         .uiSetAsideJournalDone: "El registro de cambio se movió a %@.",
         .uiSetAsideJournalTitle: "¿Apartar el registro de cambio pendiente?",
-        .uiSetAsideJournalBody: "El registro de cambio dañado y los archivos que guardó (previous/) se moverán a displaced/journal-<fecha>. No se elimina nada. Los archivos actuales de Claude se dejan como están; si Claude no está firmado después, inicie sesión de nuevo en Claude.",
+        .uiSetAsideJournalBody: "El registro de cambio dañado y los archivos que guardó (previous/ y staging/) se moverán a displaced/journal-<fecha>. No se elimina nada. Los archivos actuales de Claude se dejan como están; si Claude no está firmado después, inicie sesión de nuevo en Claude.",
         .reasonSwapAndRollbackFailed: "Fallaron el intercambio y la reversión (se conserva el registro del cambio, a la espera de la recuperación automática): %@",
         .reasonRolledBack: "Revertido: %@",
         .reasonSchemaNewer: "esquema de cookies %1$d > %2$d",

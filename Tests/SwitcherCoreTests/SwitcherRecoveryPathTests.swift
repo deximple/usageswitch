@@ -44,7 +44,7 @@ struct SwitcherRecoveryPathTests {
         try FileManager.default.createDirectory(at: env.stagingDir, withIntermediateDirectories: true)
         try Data("staged".utf8).write(to: env.stagingDir.appendingPathComponent("config.json"))
 
-        let destination = try rig.switcher.setAsidePendingJournal()
+        let destination = try rig.switcher.setAsidePendingJournal().destination
         #expect(destination.deletingLastPathComponent().path == env.displacedDir.path)
         #expect(destination.lastPathComponent.hasPrefix("journal-"))
         #expect(!rig.switcher.status().pendingJournal)
@@ -87,6 +87,40 @@ struct SwitcherRecoveryPathTests {
         // A damaged one is both.
         try Data("{broken".utf8).write(to: rig.env.journalFile)
         #expect(rig.switcher.status().journalUnreadable)
+    }
+
+    @Test func setAsideKeepsStagingFilesLeftMidSwap() throws {
+        // install() can stop between swap and move: staging/ then holds the original live
+        // file — possibly the only copy of an unsaved sign-in. Set-aside must keep it too.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.stagingDir, withIntermediateDirectories: true)
+        try Data("ORIGINAL-live-config".utf8).write(to: env.stagingDir.appendingPathComponent("config.json"))
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        try Data("{unreadable".utf8).write(to: env.journalFile)
+
+        let result = try rig.switcher.setAsidePendingJournal()
+        let staged = result.destination.appendingPathComponent("staging/config.json")
+        #expect(String(decoding: try Data(contentsOf: staged), as: UTF8.self) == "ORIGINAL-live-config")
+        #expect(!exists(env.stagingDir))  // moved, not deleted
+        #expect(exists(result.destination.appendingPathComponent("swap-journal.json")))
+    }
+
+    @Test func setAsideRestoresSuspendedRelaunchers() throws {
+        // A damaged swap journal with Claude's relaunchers still suspended: set-aside must
+        // re-bootstrap them — nothing else would until the next recovery.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        _ = try rig.switcher.relaunchers.suspendAll()
+        #expect(!rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))
+        try Data("{unreadable".utf8).write(to: env.journalFile)
+
+        let result = try rig.switcher.setAsidePendingJournal()
+        #expect(rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))
+        #expect(rig.switcher.relaunchers.journal().isEmpty)   // suspended-relaunchers.json gone
+        #expect(result.restoreNotes == [L10n.t(.recoverRelaunchersRestored, AgentFixture.keepaliveLabel)])
+        #expect(!result.needsAttention)
     }
 
     @Test func displacedConfigsHaveNoTokenCachesAfterRecovery() throws {

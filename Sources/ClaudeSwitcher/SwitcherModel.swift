@@ -139,8 +139,10 @@ final class SwitcherModel: ObservableObject {
     /// displaced/journal-<epoch>, nothing deleted. Refused while Claude runs.
     func setAsidePendingJournal() {
         do {
-            let destination = try switcher.setAsidePendingJournal()
-            banner = .init(kind: .success, text: L10n.t(.uiSetAsideJournalDone, destination.path))
+            let result = try switcher.setAsidePendingJournal()
+            var text = L10n.t(.uiSetAsideJournalDone, result.destination.path)
+            for note in result.restoreNotes { text += "\n" + note }
+            banner = .init(kind: .success, text: text)
             refresh()
         } catch let e as SwitcherError {
             banner = .init(kind: .error, text: e.description)

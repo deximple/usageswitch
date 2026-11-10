@@ -92,8 +92,10 @@ enum CLI {
                     guard args.contains("--yes") else {
                         return fail("needs_confirmation", L10n.t(.uiSetAsideJournalBody), exit: 3)
                     }
-                    let destination = try switcher.setAsidePendingJournal()
-                    return emit(["setAside": destination.path])
+                    let result = try switcher.setAsidePendingJournal()
+                    result.restoreNotes.forEach { FileHandle.standardError.write(Data("note: \($0)\n".utf8)) }
+                    _ = emit(["setAside": result.destination.path])
+                    return result.needsAttention ? 1 : 0
                 }
                 let report = switcher.recover()
                 _ = emit(["notes": report.notes])
