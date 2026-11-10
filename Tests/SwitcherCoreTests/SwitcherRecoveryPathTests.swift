@@ -62,6 +62,16 @@ struct SwitcherRecoveryPathTests {
         #expect(exists(rig.env.journalFile))
     }
 
+    @Test func setAsideWaitsForThePersonalBuildsUnfinishedSwap() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        try Data("{".utf8).write(to: rig.env.journalFile)
+        try rig.sandbox.write("{}", to: rig.env.legacyJournalFile)
+        #expect(switcherError { _ = try rig.switcher.setAsidePendingJournal() } == .legacyRecoveryPending)
+        #expect(exists(rig.env.journalFile))
+        let displaced = (try? FileManager.default.contentsOfDirectory(atPath: rig.env.displacedDir.path)) ?? []
+        #expect(!displaced.contains { $0.hasPrefix("journal-") })
+    }
+
     @Test func aReadableJournalCannotBeSetAside() throws {
         let rig = try Rig.make(running: false); defer { rig.cleanup() }
         let env = rig.env

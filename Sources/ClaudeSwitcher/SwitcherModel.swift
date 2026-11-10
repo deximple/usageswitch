@@ -142,7 +142,7 @@ final class SwitcherModel: ObservableObject {
             let result = try switcher.setAsidePendingJournal()
             var text = L10n.t(.uiSetAsideJournalDone, result.destination.path)
             for note in result.restoreNotes { text += "\n" + note }
-            banner = .init(kind: .success, text: text)
+            banner = .init(kind: result.needsAttention ? .info : .success, text: text)
             refresh()
         } catch let e as SwitcherError {
             banner = .init(kind: .error, text: e.description)

@@ -295,6 +295,8 @@ public final class Switcher: @unchecked Sendable {
     public func setAsidePendingJournal() throws -> (destination: URL, restoreNotes: [String], needsAttention: Bool) {
         try acquireLock()
         defer { releaseLock() }
+        // The 1.0 build's unfinished swap must recover first; restoring relaunchers now could start Claude on mixed files.
+        guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
         guard processes.mainProcess() == nil else {
             throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
         }
