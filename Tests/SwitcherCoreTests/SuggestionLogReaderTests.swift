@@ -96,8 +96,9 @@ struct SuggestionLogReaderTests {
                                     encoding: .utf8)
         #expect(!cursorText.contains(file.path))
         let cursorObject = try #require(JSONSerialization.jsonObject(with: Data(cursorText.utf8))
-            as? [String: [String: Any]])
-        let cursorKeys = try #require(cursorObject["cursors"]?.keys)
+            as? [String: Any])
+        #expect(Set(cursorObject.keys) == ["cursors", "firstPassDay"])
+        let cursorKeys = try #require((cursorObject["cursors"] as? [String: Any])?.keys)
         #expect(cursorKeys.count == 1)
         #expect(cursorKeys.first?.count == 64)
         #expect(cursorKeys.first?.allSatisfy(\.isHexDigit) == true)
@@ -159,8 +160,8 @@ struct SuggestionLogReaderTests {
         let cursorFile = env.storeDir.appendingPathComponent("suggestion/log-cursors.json")
         let cursorData = try Data(contentsOf: cursorFile)
         let cursorState = try #require(JSONSerialization.jsonObject(with: cursorData)
-            as? [String: [String: Any]])
-        #expect(cursorState["cursors"]?.isEmpty == true)
+            as? [String: Any])
+        #expect((cursorState["cursors"] as? [String: Any])?.isEmpty == true)
     }
 
     @Test("Claude messages spanning passes retain only the final usage")
@@ -227,18 +228,173 @@ struct SuggestionLogReaderTests {
         #expect(logReader.read(roots: [logRoot], now: now).records.first?.inputTokens == 9)
     }
 
-    @Test("total read budget is eight MiB and files older than fourteen days are skipped")
+    // MARK: - Cursors, order and completeness (audit A-08)
+
+    private func scratch() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    }
+
+    private func cursorFile(_ root: URL) -> URL {
+        environment(root).storeDir.appendingPathComponent("suggestion/log-cursors.json")
+    }
+
+    private func suggestionFiles(_ root: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(
+            atPath: environment(root).storeDir.appendingPathComponent("suggestion").path)) ?? []).sorted()
+    }
+
+    private func usageLogBytes(_ root: URL) -> Int {
+        let directory = environment(root).storeDir.appendingPathComponent("suggestion")
+        return suggestionFiles(root).filter { $0.hasPrefix("log-usage-") }.reduce(0) { total, name in
+            total + (((try? FileManager.default.attributesOfItem(
+                atPath: directory.appendingPathComponent(name).path))?[.size] as? Int) ?? 0)
+        }
+    }
+
+    /// One finished Claude turn in its own session file (old enough to be finalized at once).
+    private func finishedSession(_ logRoot: SuggestionLogRoot, name: String, id: String, input: Int,
+                                 modifiedAt: Date? = nil) throws {
+        try write(claudeLine(id: id, input: input) + "\n",
+                  to: logRoot.directory.appendingPathComponent("projects/project/\(name).jsonl"),
+                  modifiedAt: modifiedAt ?? now.addingTimeInterval(-11 * 60))
+    }
+
+    @Test func cursorsOfFilesNotSeenForFortyFiveDaysArePruned() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "old", id: "old", input: 10, modifiedAt: now.addingTimeInterval(-3600))
+        let logReader = reader(root)
+        #expect(logReader.read(roots: [logRoot], now: now).records.count == 1)
+        func cursorCount() throws -> Int {
+            let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: cursorFile(root))) as? [String: Any])
+            return (state["cursors"] as? [String: Any])?.count ?? -1
+        }
+        #expect(try cursorCount() == 1)
+        // 44 days later the file is too old to be read again but its cursor is still remembered.
+        _ = logReader.read(roots: [logRoot], now: now.addingTimeInterval(44 * 86_400))
+        #expect(try cursorCount() == 1)
+        _ = logReader.read(roots: [logRoot], now: now.addingTimeInterval(46 * 86_400))
+        #expect(try cursorCount() == 0)
+    }
+
+    @Test func anUnreadableCursorFileSkipsThePassAndRebuildsWithoutDoubleCounting() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        #expect(logReader.read(roots: [logRoot], now: now).records.map(\.inputTokens) == [10])
+        try Data("{broken".utf8).write(to: cursorFile(root))
+
+        let skipped = logReader.read(roots: [logRoot], now: now)
+        #expect(skipped.records.isEmpty && skipped.bytesRead == 0)
+        #expect(suggestionFiles(root).contains { $0.hasPrefix("log-cursors.json.unreadable-") })
+        #expect(!suggestionFiles(root).contains("log-cursors.json"))
+        #expect(usageLogBytes(root) == 0)
+        #expect(logReader.recentRecords(now: now).isEmpty)
+
+        let rebuilt = logReader.read(roots: [logRoot], now: now)
+        #expect(rebuilt.records.map(\.inputTokens) == [10])
+        #expect(logReader.recentRecords(now: now).map(\.inputTokens) == [10]) // counted once
+    }
+
+    @Test func aMissingCursorFileIsAFreshStart() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let pass = reader(root).read(roots: [logRoot], now: now)
+        #expect(pass.records.map(\.inputTokens) == [10])
+        #expect(!suggestionFiles(root).contains { $0.contains("unreadable") })
+        #expect(pass.firstPassDay == SuggestionRetention.utcDay(now))
+        // The first-pass day is remembered, not moved by later passes.
+        let later = reader(root).read(roots: [logRoot], now: now.addingTimeInterval(3 * 86_400))
+        #expect(later.firstPassDay == SuggestionRetention.utcDay(now))
+    }
+
+    @Test func aFailedCursorSaveRollsTheAppendedRecordsBack() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        #expect(logReader.read(roots: [logRoot], now: now).records.count == 1)
+        let before = usageLogBytes(root)
+        #expect(before > 0)
+
+        try finishedSession(logRoot, name: "two", id: "two", input: 20)
+        logReader.cursorSaveFault = { throw SwitcherError.io("injected") }
+        let failed = logReader.read(roots: [logRoot], now: now)
+        #expect(failed.records.isEmpty)
+        #expect(usageLogBytes(root) == before)
+
+        logReader.cursorSaveFault = nil
+        #expect(logReader.read(roots: [logRoot], now: now).records.map(\.inputTokens) == [20])
+        #expect(logReader.recentRecords(now: now).map(\.inputTokens).sorted() == [10, 20])
+    }
+
+    @Test func filesOfPriorityAccountsAreReadFirst() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let claude = try claudeRoot(root)
+        for index in 0..<8 {
+            try finishedSession(claude, name: "a-session-\(index)", id: "claude-\(index)", input: 10 + index, modifiedAt: now)
+        }
+        let codex = try codexRoot(root, accountRef: "api-key-home")
+        let rollout = """
+        {"type":"turn_context","payload":{"model":"gpt-5","effort":"high"}}
+        {"type":"event_msg","timestamp":"\(timestamp())","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"output_tokens":40}}}}
+        """
+        try write(rollout + "\n", to: codex.directory.appendingPathComponent("sessions/2027/01/rollout-one.jsonl"),
+                  modifiedAt: now.addingTimeInterval(-3600))
+        let env = environment(root)
+        // A budget that fits the Codex file but not much else.
+        let small = SuggestionLogReader(env: env, fs: SafeFS(env: env), catalog: nil, readBudget: 512)
+        let pass = small.read(roots: [claude, codex], now: now, priorityAccountRefs: ["api-key-home"])
+        #expect(pass.records.contains { $0.provider == .codex && $0.inputTokens == 200 })
+        #expect(pass.pendingBytes > 0)
+        let codexKey = try #require(small.accountRefKey(for: "api-key-home"))
+        let claudeKey = try #require(small.accountRefKey(for: "cli"))
+        #expect(!pass.pendingAccounts.contains(APIKeyAccountKey(provider: .codex, accountKey: codexKey)))
+        #expect(pass.pendingAccounts.contains(APIKeyAccountKey(provider: .claude, accountKey: claudeKey)))
+    }
+
+    @Test func newerFilesAreReadBeforeOlderOnes() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "a-older", id: "older", input: 11, modifiedAt: now.addingTimeInterval(-2 * 86_400))
+        try finishedSession(logRoot, name: "z-newer", id: "newer", input: 22, modifiedAt: now.addingTimeInterval(-3600))
+        let lineBytes = (claudeLine(id: "newer", input: 22) + "\n").utf8.count
+        let env = environment(root)
+        let small = SuggestionLogReader(env: env, fs: SafeFS(env: env), catalog: nil, readBudget: lineBytes)
+        #expect(small.read(roots: [logRoot], now: now).records.map(\.inputTokens) == [22])
+        #expect(small.read(roots: [logRoot], now: now).records.map(\.inputTokens) == [11])
+    }
+
+    @Test func aPassReportsWhatIsStillUnread() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        try finishedSession(logRoot, name: "two", id: "two", input: 20)
+        let lineBytes = (claudeLine(id: "one", input: 10) + "\n").utf8.count
+        let env = environment(root)
+        let small = SuggestionLogReader(env: env, fs: SafeFS(env: env), catalog: nil, readBudget: lineBytes)
+        let first = small.read(roots: [logRoot], now: now)
+        #expect(first.bytesRead == lineBytes)
+        #expect(first.pendingBytes == lineBytes)
+        let second = small.read(roots: [logRoot], now: now)
+        #expect(second.pendingBytes == 0)
+        #expect(second.pendingAccounts.isEmpty)
+    }
+
+    @Test("total read budget is 32 MiB and files older than fourteen days are skipped")
     func boundsAndAgeFilter() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)
         let file = logRoot.directory.appendingPathComponent("projects/project/session.jsonl")
-        var oversized = Data()
-        for _ in 0..<9 {
-            oversized.append(Data(repeating: 120, count: SuggestionLogReader.maximumLineBytes + 1))
-            oversized.append(10)
-        }
-        try oversized.write(to: file)
+        // Only the size matters here: a sparse file of zeros is one over-long line.
+        #expect(SuggestionLogReader.maximumReadBytes == 32 * 1_048_576)
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: UInt64(SuggestionLogReader.maximumReadBytes) + 1_048_576)
+        try handle.close()
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
         let bounded = reader(root).read(roots: [logRoot], now: now)
         #expect(bounded.bytesRead == SuggestionLogReader.maximumReadBytes)

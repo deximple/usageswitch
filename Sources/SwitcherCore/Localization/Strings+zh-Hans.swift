@@ -337,6 +337,7 @@ extension Strings {
         .apiDailyRate: "平均每日费率：%@",
         .apiDaysLeft: "按当前费率约剩 %d 天",
         .apiNoPrice: "缺少使用日志或模型价格，无法估算支出。",
+        .apiEstimatesReadingLogs: "正在读取用量日志，暂时无法估算支出。",
         .apiSubscriptionRoom: "订阅额度仍充足",
         .apiBalance: "API 余额 %@",
         .apiBalanceRemaining: "预付余额：%@",

@@ -130,12 +130,38 @@ public struct SuggestionLogSummary: Sendable {
 public struct SuggestionLogPass: Equatable, Sendable {
     public let records: [SuggestionLogUsage]
     public let bytesRead: Int
+    /// Bytes of eligible log files this pass left unread (the read budget ran out).
+    public let pendingBytes: Int
+    /// The accounts whose logs still have unread bytes.
+    public let pendingAccounts: Set<APIKeyAccountKey>
+    /// The UTC day this reader first read logs into the current store, when known.
+    public let firstPassDay: String?
+
+    public init(records: [SuggestionLogUsage], bytesRead: Int, pendingBytes: Int = 0,
+                pendingAccounts: Set<APIKeyAccountKey> = [], firstPassDay: String? = nil) {
+        self.records = records
+        self.bytesRead = bytesRead
+        self.pendingBytes = pendingBytes
+        self.pendingAccounts = pendingAccounts
+        self.firstPassDay = firstPassDay
+    }
+
+    /// The first day the stored usage is complete from. The first pass reads whole every log file
+    /// changed in the 14 days before it, so everything from 13 days before that pass is covered.
+    public static func coverageStartDay(firstPassDay: String?) -> String? {
+        guard let firstPassDay, let date = SuggestionRetention.date(utcDay: firstPassDay) else { return nil }
+        return SuggestionRetention.utcDay(date.addingTimeInterval(-13 * 86_400))
+    }
 }
 
 public final class SuggestionLogReader: @unchecked Sendable {
     public static let maximumLineBytes = 1_048_576
-    public static let maximumReadBytes = 8 * 1_048_576
+    public static let maximumReadBytes = 32 * 1_048_576
     public static let maximumFileAge: TimeInterval = 14 * 24 * 60 * 60
+    /// A cursor is dropped this long after its file was last eligible. Longer than the 35 days
+    /// the spend estimate looks back, so a file read again later cannot be counted twice inside it.
+    static let cursorRetention: TimeInterval = 45 * 24 * 60 * 60
+    static let maximumCursorFileBytes = 4 * 1_048_576
     private static let pendingMessageIdleTime: TimeInterval = 10 * 60
 
     private struct PendingClaudeMessage: Codable {
@@ -159,10 +185,27 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var codexToolVersion: String?
         var codexSubscription: Bool?
         var claudePending: PendingClaudeMessage?
+        /// When the file was last among the eligible files of a pass.
+        var lastSeenAt: Date?
     }
 
     private struct FileCursorState: Codable {
         var cursors: [String: Cursor]
+        var firstPassDay: String?
+    }
+
+    private enum CursorLoad {
+        case missing
+        case loaded(FileCursorState)
+        /// Present but too large or not decodable.
+        case unreadable
+        /// The read stalled; nothing is known about the file.
+        case stalled
+    }
+
+    private struct Unread {
+        var bytes: UInt64
+        let account: APIKeyAccountKey
     }
 
     private struct LogFile {
@@ -295,10 +338,14 @@ public final class SuggestionLogReader: @unchecked Sendable {
     private let accountReferences: SuggestionAccountReference
     private let usageStore: SuggestionLogUsageStore
     private let catalog: SuggestionCatalog?
+    private let readBudget: Int
     private let lock = NSLock()
+    /// Test seam: runs before the cursor file is written, so a test can make that write fail.
+    var cursorSaveFault: (@Sendable () throws -> Void)?
 
     public init(env: SwitcherEnvironment, fs: SafeFS, catalog: SuggestionCatalog?,
-                reader: BoundedReader = .shared) {
+                reader: BoundedReader = .shared, readBudget: Int = SuggestionLogReader.maximumReadBytes) {
+        self.readBudget = readBudget
         directory = env.storeDir.appendingPathComponent("suggestion", isDirectory: true)
         cursorFile = directory.appendingPathComponent("log-cursors.json")
         self.fs = fs
@@ -318,7 +365,10 @@ public final class SuggestionLogReader: @unchecked Sendable {
         accountReferences.reset()
     }
 
-    public func read(roots: [SuggestionLogRoot], now: Date = Date()) -> SuggestionLogPass {
+    /// - Parameter priorityAccountRefs: root account refs whose files are read before the others
+    ///   (the accounts a spend estimate depends on).
+    public func read(roots: [SuggestionLogRoot], now: Date = Date(),
+                     priorityAccountRefs: Set<String> = []) -> SuggestionLogPass {
         lock.lock()
         defer { lock.unlock() }
         guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: 0) }
@@ -326,11 +376,25 @@ public final class SuggestionLogReader: @unchecked Sendable {
             return SuggestionLogPass(records: [], bytesRead: 0)
         }
         SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: boundedReader)
-        var cursors = loadCursors()
-        let files = eligibleFiles(roots: roots, now: now)
-        var remaining = Self.maximumReadBytes
+        var state: FileCursorState
+        switch loadCursors() {
+        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
+        case .loaded(let loaded): state = loaded
+        case .stalled: return SuggestionLogPass(records: [], bytesRead: 0)
+        case .unreadable:
+            // Offsets are lost, so what was already counted is unknown: set the cursor file aside,
+            // drop the stored usage and let the next pass count everything once from the start.
+            try? fs.move(cursorFile, to: directory.appendingPathComponent(
+                "log-cursors.json.unreadable-\(Int(now.timeIntervalSince1970))"))
+            usageStore.removeAll()
+            return SuggestionLogPass(records: [], bytesRead: 0)
+        }
+        var cursors = state.cursors
+        let files = eligibleFiles(roots: roots, now: now, priorityAccountRefs: priorityAccountRefs)
+        var remaining = readBudget
         var totalRead = 0
         var totals: [UsageKey: Totals] = [:]
+        var unread: [String: Unread] = [:]
 
         for file in files {
             guard !Task.isCancelled,
@@ -341,6 +405,10 @@ public final class SuggestionLogReader: @unchecked Sendable {
             if cursor.inode != info.inode || info.size < cursor.offset {
                 cursor = Cursor(inode: info.inode, offset: 0)
             }
+            cursor.lastSeenAt = now
+            let unreadKey = "\(pathKey)\u{0}\(accountRef)"
+            unread[unreadKey] = Unread(bytes: info.size - cursor.offset,
+                account: APIKeyAccountKey(provider: file.root.provider, accountKey: accountRef))
             guard cursor.offset < info.size else {
                 if file.root.provider == .claude,
                    now.timeIntervalSince(info.modifiedAt) > Self.pendingMessageIdleTime,
@@ -358,6 +426,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
             }
             let requested = Int(min(info.size - cursor.offset, UInt64(remaining)))
             guard requested > 0, let data = Self.read(file.url, offset: cursor.offset, count: requested) else {
+                cursors[pathKey] = cursor
                 continue
             }
             totalRead += data.count
@@ -378,6 +447,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 continue
             }
             cursors[pathKey] = nextCursor
+            unread[unreadKey]?.bytes = info.size > nextCursor.offset ? info.size - nextCursor.offset : 0
             for parsedUsage in parsed {
                 accumulate(parsedUsage, into: &totals)
             }
@@ -397,11 +467,26 @@ public final class SuggestionLogReader: @unchecked Sendable {
         }
 
         guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: totalRead) }
-        guard usageStore.append(records) else {
-            return SuggestionLogPass(records: records, bytesRead: totalRead)
+        // Records and cursors go together: if either write fails, neither is kept and the next pass
+        // reads the same bytes again.
+        guard let appended = usageStore.append(records) else {
+            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay)
         }
-        do { try saveCursors(cursors) } catch { }
-        return SuggestionLogPass(records: records, bytesRead: totalRead)
+        // Old cursor files have no `lastSeenAt`; their clock starts now.
+        state.cursors = cursors.compactMapValues { cursor in
+            var kept = cursor
+            if kept.lastSeenAt == nil { kept.lastSeenAt = now }
+            return now.timeIntervalSince(kept.lastSeenAt ?? now) > Self.cursorRetention ? nil : kept
+        }
+        do { try saveCursors(state) } catch {
+            SuggestionStorage.rollBack(appended, fs: fs)
+            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay)
+        }
+        let pending = unread.values.filter { $0.bytes > 0 }
+        return SuggestionLogPass(
+            records: records, bytesRead: totalRead,
+            pendingBytes: Int(clamping: pending.reduce(UInt64(0)) { $0 &+ $1.bytes }),
+            pendingAccounts: Set(pending.map(\.account)), firstPassDay: state.firstPassDay)
     }
 
     public func recentSummary(now: Date = Date()) -> [String: SuggestionLogSummary.Hint] {
@@ -412,22 +497,29 @@ public final class SuggestionLogReader: @unchecked Sendable {
         usageStore.recentRecords(now: now, days: days)
     }
 
-    private func loadCursors() -> [String: Cursor] {
-        guard case let .data(data) = boundedReader.read(atPath: cursorFile.path, using: { path in
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-                  (attributes[.size] as? NSNumber)?.intValue ?? 0 <= 4 * 1_048_576 else { return nil }
-            return FileManager.default.contents(atPath: path)
-        }), let state = try? JSONDecoder().decode(FileCursorState.self, from: data) else { return [:] }
-        return state.cursors
+    private func loadCursors() -> CursorLoad {
+        var attributes = stat()
+        if lstat(cursorFile.path, &attributes) != 0, errno == ENOENT { return .missing }
+        switch boundedReader.read(atPath: cursorFile.path, using: { path in
+            BoundedReader.readBounded(path, limit: Self.maximumCursorFileBytes + 1, allowBinary: true)
+        }) {
+        case .timedOut: return .stalled
+        case .unreadable: return .unreadable
+        case .data(let data):
+            guard let state = try? JSONDecoder().decode(FileCursorState.self, from: data) else { return .unreadable }
+            return .loaded(state)
+        }
     }
 
-    private func saveCursors(_ cursors: [String: Cursor]) throws {
+    private func saveCursors(_ state: FileCursorState) throws {
+        try cursorSaveFault?()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try fs.write(try encoder.encode(FileCursorState(cursors: cursors)), to: cursorFile)
+        try fs.write(try encoder.encode(state), to: cursorFile)
     }
 
-    private func eligibleFiles(roots: [SuggestionLogRoot], now: Date) -> [LogFile] {
+    private func eligibleFiles(roots: [SuggestionLogRoot], now: Date,
+                               priorityAccountRefs: Set<String>) -> [LogFile] {
         var files: [LogFile] = []
         var seen = Set<String>()
         for root in roots where root.provider == .claude || root.provider == .codex {
@@ -465,10 +557,16 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 continue
             }
         }
-        return files.sorted {
-            $0.url.path == $1.url.path
-                ? $0.root.accountRef < $1.root.accountRef
-                : $0.url.path < $1.url.path
+        // Accounts a spend estimate depends on first, then newest first, so a backlog is worked
+        // off where it matters most.
+        return files.sorted { lhs, rhs in
+            let lhsPriority = priorityAccountRefs.contains(lhs.root.accountRef)
+            let rhsPriority = priorityAccountRefs.contains(rhs.root.accountRef)
+            if lhsPriority != rhsPriority { return lhsPriority }
+            if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt > rhs.modifiedAt }
+            return lhs.url.path == rhs.url.path
+                ? lhs.root.accountRef < rhs.root.accountRef
+                : lhs.url.path < rhs.url.path
         }
     }
 
@@ -767,20 +865,36 @@ private final class SuggestionLogUsageStore {
         self.reader = reader
     }
 
-    func append(_ records: [SuggestionLogUsage]) -> Bool {
-        guard !records.isEmpty else { return true }
+    /// What was appended, for undoing it; nil when a write failed (and what was written is undone).
+    func append(_ records: [SuggestionLogUsage]) -> [SuggestionStorage.Appended]? {
+        guard !records.isEmpty else { return [] }
         let grouped = Dictionary(grouping: records, by: \.day)
+        var appended: [SuggestionStorage.Appended] = []
         do {
             try fs.createDirectory(directory)
             for (day, values) in grouped {
-                try SuggestionStorage.appendLines(
+                if let entry = try SuggestionStorage.appendLines(
                     values.sorted { ($0.accountRef, $0.model, $0.effort ?? "")
                         < ($1.accountRef, $1.model, $1.effort ?? "") },
-                    component: "log-usage", day: day, directory: directory, fs: fs)
+                    component: "log-usage", day: day, directory: directory, fs: fs) {
+                    appended.append(entry)
+                }
             }
-            return true
+            return appended
         } catch {
-            return false
+            SuggestionStorage.rollBack(appended, fs: fs)
+            return nil
+        }
+    }
+
+    /// Removes every stored usage file, current and archived.
+    func removeAll() {
+        let archiveDirectory = directory.appendingPathComponent("archive", isDirectory: true)
+        for folder in [directory, archiveDirectory] {
+            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            for file in files where Self.day(in: file.lastPathComponent) != nil {
+                try? fs.remove(file)
+            }
         }
     }
 

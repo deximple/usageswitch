@@ -337,6 +337,7 @@ extension Strings {
         .apiDailyRate: "일평균 사용률: %@",
         .apiDaysLeft: "현재 속도 기준 약 %d일 남음",
         .apiNoPrice: "로그 또는 모델 가격이 없어 지출 예상액을 표시할 수 없습니다.",
+        .apiEstimatesReadingLogs: "사용 로그를 읽는 중이라 아직 지출을 추정할 수 없습니다.",
         .apiSubscriptionRoom: "구독 사용량에 여유가 있습니다",
         .apiBalance: "API 잔액 %@",
         .apiBalanceRemaining: "선불 잔액: %@",

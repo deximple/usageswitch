@@ -22,11 +22,12 @@ public struct SuggestionLogReadGate: Equatable, Sendable {
         return epoch
     }
 
-    /// True when the result may be applied; the throttle starts only then.
-    public mutating func finish(token: Int, now: Date) -> Bool {
+    /// True when the result may be applied; the throttle starts only then. With a `backlog`
+    /// (logs still unread) there is no wait: the next refresh reads on.
+    public mutating func finish(token: Int, now: Date, backlog: Bool = false) -> Bool {
         if inFlight == token { inFlight = nil }
         guard token == epoch else { return false }
-        lastAppliedAt = now
+        lastAppliedAt = backlog ? nil : now
         return true
     }
 

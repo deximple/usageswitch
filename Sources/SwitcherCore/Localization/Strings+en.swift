@@ -337,6 +337,7 @@ extension Strings {
         .apiDailyRate: "Average daily rate: %@",
         .apiDaysLeft: "≈%d days left at this rate",
         .apiNoPrice: "No spend estimate is available because logs or model pricing are missing.",
+        .apiEstimatesReadingLogs: "Still reading usage logs, so there is no spend estimate yet.",
         .apiSubscriptionRoom: "Subscription has room",
         .apiBalance: "API balance %@",
         .apiBalanceRemaining: "Prepaid balance remaining: %@",

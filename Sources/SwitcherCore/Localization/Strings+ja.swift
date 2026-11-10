@@ -337,6 +337,7 @@ extension Strings {
         .apiDailyRate: "1 日あたりの平均: %@",
         .apiDaysLeft: "現在のペースで約 %d 日分",
         .apiNoPrice: "ログまたはモデル価格がないため、支出額を推定できません。",
+        .apiEstimatesReadingLogs: "使用ログを読み取り中のため、まだ支出を推定できません。",
         .apiSubscriptionRoom: "サブスクリプションに余裕があります",
         .apiBalance: "API 残高 %@",
         .apiBalanceRemaining: "前払い残高: %@",

@@ -243,7 +243,8 @@ final class UsageModel: ObservableObject {
         guard let budget = settings.apiBudget(for: vendor),
               let estimate = apiUsageEstimates[vendor],
               estimate.hasAPIKeyAccounts, estimate.spendIsComplete else { return nil }
-        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now)
+        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now,
+                                       coverageStartDay: estimate.coverageStartDay)
     }
 
     func apiUsageBalanceHint(for usage: AccountUsage, shownWindows: [UsageWindow],
@@ -614,11 +615,13 @@ final class UsageModel: ObservableObject {
                   let key = reader.accountRefKey(for: usage.accountRef) else { return nil }
             return APIKeyAccountKey(provider: usage.provider, accountKey: key)
         })
+        // Logs behind a spend estimate are read first.
+        let priorityAccountRefs = Set(usages.filter { $0.authentication == .apiKey }.map(\.accountRef))
         let catalog = Self.suggestionCatalog
         let stateStore = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
         suggestionStore = stateStore
         let backgroundTask = Task.detached(priority: .utility) {
-            _ = reader.read(roots: roots, now: now)
+            let pass = reader.read(roots: roots, now: now, priorityAccountRefs: priorityAccountRefs)
             for record in reader.recentRecords(now: now) {
                 guard !Task.isCancelled else { break }
                 guard let observedAt = record.lastUsedAt else { continue }
@@ -628,9 +631,12 @@ final class UsageModel: ObservableObject {
             }
             let estimates = catalog.map {
                 APIUsageEstimator.estimate(records: reader.recentRecords(now: now, days: 35),
-                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now)
+                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now,
+                                           incompleteAccounts: pass.pendingAccounts,
+                                           coverageStartDay: SuggestionLogPass.coverageStartDay(
+                                               firstPassDay: pass.firstPassDay))
             } ?? [:]
-            return (reader.recentSummary(now: now), estimates)
+            return (reader.recentSummary(now: now), estimates, pass.pendingBytes > 0)
         }
         suggestionLogTask = Task { @MainActor [weak self] in
             let result = await withTaskCancellationHandler(operation: {
@@ -639,7 +645,8 @@ final class UsageModel: ObservableObject {
                 backgroundTask.cancel()
             })
             // A usage refresh that started meanwhile does not make this result stale.
-            guard let self, self.logReadGate.finish(token: token, now: Date()) else { return }
+            guard let self, self.logReadGate.finish(token: token, now: Date(), backlog: result.2)
+            else { return }
             self.suggestionLogHints = result.0
             self.apiUsageEstimates = result.1
         }
