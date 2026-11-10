@@ -42,8 +42,8 @@ public struct UsageAlertStore: Sendable {
         return try? JSONDecoder().decode(UsageAlertState.self, from: data)
     }
 
-    /// Marks without a reset time cannot tell accounts apart across a restart, so they are
-    /// persisted-less: kept in memory only until the app quits.
+    /// Marks without a reset time cannot tell accounts apart across a restart, so they are not
+    /// written: they stay in memory only until the app quits.
     public func save(_ state: UsageAlertState) throws {
         try fs.createDirectory(env.storeDir)
         let encoder = JSONEncoder()
