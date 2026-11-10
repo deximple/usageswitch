@@ -116,7 +116,7 @@ struct MenuBarUsageTests {
         #expect(MenuBarTitle.usage(windowName: "Weekly", usedPercent: 75.4)
             == "Weekly " + L10n.string(.usageLeft, language: L10n.language, [25]))
         #expect(MenuBarTitle.usage(windowName: "Session", usedPercent: 99.6)
-            == "Session " + L10n.string(.usageLeft, language: L10n.language, [0]))
+            == "Session " + L10n.string(.usageUsedUp, language: L10n.language))
     }
 
     @Test("unscoped totals outrank scoped pools on the menu bar")
