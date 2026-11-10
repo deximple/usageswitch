@@ -238,17 +238,19 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
             var skipInput = skipTerminalInput
             if !skipInput {
                 _ = readAvailable(retainOutput: false)
-                skipInput = terminal.hasTrustPrompt
+                // Keys go only into a screen that still shows the main prompt; an unknown or
+                // modal screen gets signals, never keystrokes (audit B-09).
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput {
                 write([0x1b])
                 _ = pollAndDrain(until: ProcessInfo.processInfo.systemUptime + 0.05)
-                skipInput = terminal.hasTrustPrompt
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput { write([0x03]) }
             if !skipInput && !cancelled {
                 pauseWhileDraining(timing.interruptInterval, retainOutput: false)
-                skipInput = terminal.hasTrustPrompt
+                skipInput = terminal.hasTrustPrompt || !terminal.hasMainInputPrompt
             }
             if !skipInput { write([0x03]) }
             if skipInput {
@@ -295,19 +297,18 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
 
         func waitForUsageInput() -> AntigravityPTYWaitResult {
             let deadline = ProcessInfo.processInfo.systemUptime + max(0, timing.commandPause)
-            var usageInputSeen = terminal.hasUsageInput
+            // No cumulative flag: only the screen at the END of the pause counts — an echo
+            // replaced by a modal before Enter is written is not a go (audit B-09).
             while ProcessInfo.processInfo.systemUptime < deadline {
                 if terminal.hasTrustPrompt { return .trustPrompt }
                 if Task.isCancelled { return .cancelled }
-                usageInputSeen = usageInputSeen || terminal.hasUsageInput
                 guard pollAndDrain(until: deadline) else { return .promptNotReady }
-                usageInputSeen = usageInputSeen || terminal.hasUsageInput
                 if terminal.hasTrustPrompt { return .trustPrompt }
                 if Task.isCancelled { return .cancelled }
-                if updateChildStatus() && !usageInputSeen { return .promptNotReady }
+                if updateChildStatus() && !terminal.hasUsageInput { return .promptNotReady }
             }
             if terminal.hasTrustPrompt { return .trustPrompt }
-            return usageInputSeen || terminal.hasUsageInput ? .ready : .promptNotReady
+            return terminal.hasUsageInput ? .ready : .promptNotReady
         }
 
         func waitForQuotaScreen(until deadline: TimeInterval) -> AntigravityPTYWaitResult {
@@ -353,18 +354,25 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
                     } else if Task.isCancelled {
                         outcome = .cancelled
                     } else {
-                        write([0x0d])
-                        let cleanupReserve = timing.interruptInterval + timing.terminateGrace
-                            + timing.killGrace + 5
-                        let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
-                                                 startedAt + timing.totalTimeout - cleanupReserve)
-                        switch waitForQuotaScreen(until: screenDeadline) {
-                        case .ready: outcome = .completed
-                        case .trustPrompt:
-                            outcome = .trustPrompt
+                        _ = readAvailable(retainOutput: false)
+                        if terminal.hasMainInputPrompt && terminal.hasUsageInput
+                            && !terminal.hasTrustPrompt {
+                            write([0x0d])
+                            let cleanupReserve = timing.interruptInterval + timing.terminateGrace
+                                + timing.killGrace + 5
+                            let screenDeadline = min(ProcessInfo.processInfo.systemUptime + timing.screenTimeout,
+                                                     startedAt + timing.totalTimeout - cleanupReserve)
+                            switch waitForQuotaScreen(until: screenDeadline) {
+                            case .ready: outcome = .completed
+                            case .trustPrompt:
+                                outcome = .trustPrompt
+                                skipTerminalInput = true
+                            case .cancelled: outcome = .cancelled
+                            case .timedOut, .promptNotReady: outcome = .timedOut
+                            }
+                        } else {
+                            outcome = .promptNotReady
                             skipTerminalInput = true
-                        case .cancelled: outcome = .cancelled
-                        case .timedOut, .promptNotReady: outcome = .timedOut
                         }
                     }
                 case .trustPrompt:

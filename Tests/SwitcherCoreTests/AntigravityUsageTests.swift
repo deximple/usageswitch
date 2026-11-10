@@ -877,6 +877,65 @@ struct AntigravityPTYTests {
         #expect(errno == ECHILD)
     }
 
+    @Test func enterIsWithheldWhenTheEchoIsNoLongerOnScreen() throws {
+        // The echo is replaced by a modal before Enter is written (audit B-09): the sink
+        // receives the typed command but never 0x0d.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\nprintf '? for shortcuts\n'\n"
+            + "(sleep 0.05; printf '> /usage\n'; sleep 0.4; printf '\\rmenu overlay — pick a number: '\n) &\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        var t = timing(promptQuiet: 0.05, promptTimeout: 0.5)
+        t.commandPause = 0.8; t.totalTimeout = 4; t.screenTimeout = 0.3
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x0d))
+        #expect(result.outcome != .completed)
+    }
+
+    @Test func enterNeedsTheExactCommandRow() throws {
+        // `> /usage-report` is not `/usage` — Enter must not go in (audit B-09).
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\nprintf '? for shortcuts\n> /usage-report\n'\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        var t = timing(promptQuiet: 0.05, promptTimeout: 0.5)
+        t.commandPause = 0.3; t.totalTimeout = 3
+        let result = SystemAntigravityPTYRunner(timing: t).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(result.outcome == .promptNotReady)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x0d))
+    }
+
+    @Test func teardownSendsNoKeysIntoAnUnknownScreen() throws {
+        // No main prompt marker: teardown uses signals only — no ESC or Ctrl-C in the sink.
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nstty -echo -icanon -isig\ntrap '' INT TERM\n"
+            + "printf 'something entirely else\n'\n"
+            + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputFile = directory.appendingPathComponent("input")
+        try Data().write(to: inputFile)
+        var environment = ProcessInfo.processInfo.environment
+        environment["INPUT_FILE"] = inputFile.path
+        let result = SystemAntigravityPTYRunner(timing: timing()).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        let received = try Data(contentsOf: inputFile)
+        #expect(!received.contains(0x1b))
+        #expect(!received.contains(0x03))
+        _ = result
+    }
+
     @Test("missing input marker never types the usage command")
     func missingPromptMarker() throws {
         let (directory, executable) = try script(contents:
