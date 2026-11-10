@@ -1,5 +1,4 @@
 import Foundation
-import SwitcherCore
 
 /// `<executable> --cli <command>`: JSON on stdout, progress on stderr. Never prints secrets.
 public enum CLI {
