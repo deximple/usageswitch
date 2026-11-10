@@ -278,7 +278,7 @@ public enum AntigravityScope {
         guard let slash = rest.firstIndex(of: "/") else { return key }
         let scope = rest[rest.index(after: slash)...]
         guard !scope.isEmpty else { return key }
-        return prefix + rest[...slash] + canonical(String(scope))
+        return prefix + String(rest[...slash]) + canonical(String(scope))
     }
 }
 
