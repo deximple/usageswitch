@@ -4,6 +4,8 @@ on:
   push:
     branches: [main, "cloud/**", "devin/**"]
   pull_request:
+  schedule:
+    - cron: "13 4 * * 1"   # weekly TSan run (audit B-13)
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,9 @@ jobs:
           swift --version
       - name: Build
         run: swift build 2>&1 | tee build.log
+      - name: Universal release compile
+        # Compile-only: proves both slices build; not a signed product.
+        run: swift build -c release --arch arm64 --arch x86_64
       - name: Test with coverage
         run: ./scripts/test.sh 2>&1 | tee test.log
       - name: Core line coverage >= 80%
@@ -50,6 +55,19 @@ jobs:
           total=$(awk '$1 == "TOTAL" { print $10 }' docs/evidence/coverage.txt | tr -d '%')
           echo "SwitcherCore line coverage: ${total}%"
           awk -v t="$total" 'BEGIN { exit !(t != "" && t + 0 >= 80) }'
+      - name: Per-file coverage floors
+        # Floors at 90%; UsageHTTPTransport is 85.96% today so its floor is the
+        # current value rounded down (85) until coverage catches up (audit B-13).
+        run: |
+          check() {  # $1=file suffix  $2=floor
+            pct=$(awk -v f="$1" '$1 ~ f { print $4; exit }' docs/evidence/coverage.txt | tr -d '%')
+            echo "$1: ${pct}% (floor $2)"
+            awk -v p="$pct" -v t="$2" 'BEGIN { exit !(p != "" && p + 0 >= t) }'
+          }
+          check 'SwapEngine.swift$' 90
+          check 'SafeFS.swift$' 90
+          check 'Switcher.swift$' 90
+          check 'UsageHTTPTransport.swift$' 85
       - name: Localization
         run: python3 scripts/check-l10n.py 2>&1 | tee l10n.log
       - name: Acceptance summary self-test
@@ -74,3 +92,22 @@ jobs:
             l10n.log
             docs/evidence/coverage.txt
           if-no-files-found: ignore
+
+  tsan:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select Xcode 26
+        run: |
+          current=$( { xcodebuild -version 2>/dev/null || true; } | awk 'NR == 1 { print $2 }')
+          if [ "${current%%.*}" -ge 26 ]; then echo "Using default Xcode $current"; exit 0; fi
+          xcode=$( { ls -d /Applications/Xcode_26*.app 2>/dev/null || true; } \
+            | { grep -v -i -E 'beta|_rc|release_candidate' || true; } | sort -V | tail -1)
+          test -n "$xcode" || { echo "Xcode 26 is required"; ls -d /Applications/Xcode*.app; exit 1; }
+          sudo xcode-select -s "$xcode"
+      - name: Test with ThreadSanitizer
+        run: swift test --sanitize=thread
