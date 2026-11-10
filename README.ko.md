@@ -199,7 +199,7 @@ UsageSwitch는 읽을 때마다 그 전후로 같은 계정·같은 조직인지
 | Cursor | Cursor의 키체인 항목, 없으면 `~/.cursor/auth.json` | `api2.cursor.sh` | 새로 고침마다 요청 1회. 토큰이 만료됐으면 요청을 보내지 않습니다. 브라우저 `cursor-agent login`은 약 60일, API 키 로그인은 약 1시간 유지됩니다. Grok Bot과 온디맨드 요금은 읽지 않습니다. |
 | Grok | Grok CLI 로그인 파일 | `cli-chat-proxy.grok.com` | 실험 기능 |
 | Gemini | Gemini CLI 키체인 항목, 없으면 `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | 액세스 토큰이 만료됐으면 저장된 갱신 토큰과 설치된 Gemini CLI 자체의 로그인 클라이언트로 임시 토큰을 받아 메모리에만 둡니다. 아무것도 다시 쓰지 않습니다. 새로 고침마다 요청은 최대 3회입니다. |
-| Antigravity | 홈 폴더에서 숨겨진 터미널로 실행한 `agy` (최대 9분에 한 번). agy의 키체인 항목은 갱신할 때마다 읽음 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy`는 사용자가 설정한 MCP 서버를 포함해 평소 설정으로 시작합니다. UsageSwitch는 agy의 프롬프트에 응답하지 않습니다. macOS가 키체인 접근 허용을 한 번 물을 수 있습니다. |
+| Antigravity | 홈 폴더에서 숨겨진 터미널로 실행한 `agy` (최대 9분에 한 번). agy의 키체인 항목(키체인에 없으면 `~/.gemini/jetski-standalone-oauth-token`)을 갱신할 때마다 읽음 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy`는 사용자가 설정한 MCP 서버를 포함해 평소 설정으로 시작합니다. UsageSwitch는 agy의 프롬프트에 응답하지 않습니다. macOS가 키체인 접근 허용을 한 번 물을 수 있습니다. |
 | Devin | Devin CLI 인증 정보와 버전 | `server.codeium.com` | 지원되는 Devin CLI 버전이 필요합니다. |
 | OpenCode Go | OpenCode `auth.json`의 `opencode-go` 항목 | `opencode.ai` | Go 요금제만 읽습니다. 다른 OpenCode 사용량은 포함하지 않습니다. |
 

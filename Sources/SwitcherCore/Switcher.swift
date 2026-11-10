@@ -648,12 +648,14 @@ public final class Switcher: @unchecked Sendable {
     }
 
     func waitForVerdict(cursor: ClaudeLog.Cursor, target: AccountIdentity) -> LaunchVerdict {
-        let deadline = clock.now().addingTimeInterval(options.launchVerifyTimeout + options.settle)
+        let start = clock.now()
+        let deadline = start.addingTimeInterval(options.launchVerifyTimeout + options.settle)
         while true {
             cursor.poll()
+            let now = clock.now()
             let verdict = LaunchVerdict.evaluate(
                 lines: cursor.collected, targetAccount: target.accountUuid, targetOrg: target.orgUuid,
-                now: clock.now(), settle: options.settle)
+                now: now, settle: options.settle)
             switch verdict {
             case .success:
                 if let main = processes.mainProcess() {
@@ -672,7 +674,17 @@ public final class Switcher: @unchecked Sendable {
                 return verdict
             case .failure: return verdict
             case .pending:
-                if clock.now() >= deadline { return .pending }
+                // An init line observed in time always gets its full settle: since A-01 the
+                // verdict measures settle from the poll time, which can be up to one poll
+                // interval after the launch-verify window ends.
+                let settling = cursor.collected
+                    .first(where: { ClaudeLog.parseInit($0) != nil })
+                    .flatMap(\.observedAt)
+                    .map { observed in
+                        observed <= start.addingTimeInterval(options.launchVerifyTimeout + options.pollInterval)
+                            && now < observed.addingTimeInterval(options.settle)
+                    } ?? false
+                if now >= deadline && !settling { return .pending }
                 clock.sleep(options.pollInterval)
             }
         }

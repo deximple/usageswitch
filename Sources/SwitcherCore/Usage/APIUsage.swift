@@ -121,10 +121,17 @@ public struct APIUsageEstimate: Equatable, Sendable {
     public let dailyRateUSD: Double?
     public let medianDailyRate14DaysUSD: Double?
     public let dailySpend: [APIDailySpend]
+    /// No estimate yet because this vendor's logs are still being read (not because a price is unknown).
+    public let isReadingLogs: Bool
+    /// The first UTC day the stored usage is complete from, when known.
+    public let coverageStartDay: String?
 
     public init(hasAPIKeyAccounts: Bool, spendIsComplete: Bool, spendLast7DaysUSD: Double?,
                 dailyRateUSD: Double?, medianDailyRate14DaysUSD: Double?,
-                dailySpend: [APIDailySpend]) {
+                dailySpend: [APIDailySpend], isReadingLogs: Bool = false,
+                coverageStartDay: String? = nil) {
+        self.isReadingLogs = isReadingLogs
+        self.coverageStartDay = coverageStartDay
         self.hasAPIKeyAccounts = hasAPIKeyAccounts
         self.spendIsComplete = spendIsComplete
         self.spendLast7DaysUSD = spendLast7DaysUSD
@@ -135,8 +142,15 @@ public struct APIUsageEstimate: Equatable, Sendable {
 }
 
 public enum APIUsageEstimator {
+    /// - Parameters:
+    ///   - incompleteAccounts: accounts whose logs still have unread bytes. A vendor with one of
+    ///     them gets no spend figures: a partial sum would look like a complete one.
+    ///   - coverageStartDay: the first day the stored usage is complete from, passed through for
+    ///     `APIBudgetMath.remaining`.
     public static func estimate(records: [SuggestionLogUsage], apiKeyAccounts: Set<APIKeyAccountKey>,
-                                catalog: SuggestionCatalog, now: Date) -> [APIVendor: APIUsageEstimate] {
+                                catalog: SuggestionCatalog, now: Date,
+                                incompleteAccounts: Set<APIKeyAccountKey> = [],
+                                coverageStartDay: String? = nil) -> [APIVendor: APIUsageEstimate] {
         let today = SuggestionRetention.utcDay(now)
         let calendar = utcCalendar
         let startOfToday = calendar.startOfDay(for: now)
@@ -151,10 +165,11 @@ public enum APIUsageEstimator {
             let hasUnloggedAccounts = accounts.contains {
                 $0.provider != .claude && $0.provider != .codex
             }
+            let isReadingLogs = !accounts.isDisjoint(with: incompleteAccounts)
             var daily: [String: Double] = [:]
-            var unknownBudgetPrice = hasUnloggedAccounts
-            var unknownRecentPrice = hasUnloggedAccounts
-            var unknownSevenDayPrice = hasUnloggedAccounts
+            var unknownBudgetPrice = hasUnloggedAccounts || isReadingLogs
+            var unknownRecentPrice = hasUnloggedAccounts || isReadingLogs
+            var unknownSevenDayPrice = hasUnloggedAccounts || isReadingLogs
             let firstSeven = SuggestionRetention.utcDay(
                 calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? now)
             for record in records where record.day >= firstBudgetDay && record.day <= today
@@ -184,7 +199,8 @@ public enum APIUsageEstimator {
                 dailyRateUSD: sevenDayValue.map { $0 / 7 },
                 medianDailyRate14DaysUSD: unknownRecentPrice ? nil : median,
                 dailySpend: unknownBudgetPrice ? [] : daily.keys.sorted()
-                    .map { APIDailySpend(day: $0, amountUSD: daily[$0] ?? 0) })
+                    .map { APIDailySpend(day: $0, amountUSD: daily[$0] ?? 0) },
+                isReadingLogs: isReadingLogs, coverageStartDay: coverageStartDay)
         }
         return result
     }
@@ -234,7 +250,10 @@ public enum APIBudgetMath {
         SuggestionRetention.utcDay(date)
     }
 
-    public static func remaining(_ budget: APIBudget, spending: [APIDailySpend], now: Date) -> Double? {
+    /// - Parameter coverageStartDay: the first day `spending` is complete from. A budget that
+    ///   started before it cannot be worked out, so the answer is nil.
+    public static func remaining(_ budget: APIBudget, spending: [APIDailySpend], now: Date,
+                                 coverageStartDay: String? = nil) -> Double? {
         let amount = budget.amountUSD
         guard amount.isFinite, amount >= 0,
               spending.allSatisfy({ $0.amountUSD.isFinite && $0.amountUSD >= 0 }) else { return nil }
@@ -255,6 +274,7 @@ public enum APIBudgetMath {
             baselineDay = nil
             baselineAmount = 0
         }
+        if let coverageStartDay, coverageStartDay > firstDay { return nil }
         let today = SuggestionRetention.utcDay(now)
         let used = spending.filter { $0.day >= firstDay && $0.day <= today }
             .reduce(0.0) { total, daily in

@@ -142,6 +142,69 @@ struct APITests {
         #expect(unloggedProvider?.spendIsComplete == false)
     }
 
+    // MARK: - Completeness (audit A-08)
+
+    private func pricedRecord(_ key: APIKeyAccountKey, catalog: SuggestionCatalog) throws -> SuggestionLogUsage {
+        let model = try #require(catalog.models.first { $0.model == "claude-fable-5-1" })
+        return SuggestionLogUsage(day: SuggestionRetention.utcDay(now), provider: .claude, accountRef: key.accountKey,
+            model: model.model, effort: "high", turns: 1, inputTokens: 1_000_000, cachedInputTokens: 0,
+            outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
+    }
+
+    @Test func spendIsHiddenWhileAnAPIKeyAccountStillHasUnreadLogs() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let key = APIKeyAccountKey(provider: .claude, accountKey: "acct-0123456789abcdef")
+        let estimate = try #require(APIUsageEstimator.estimate(
+            records: [try pricedRecord(key, catalog: catalog)], apiKeyAccounts: [key], catalog: catalog, now: now,
+            incompleteAccounts: [key])[.anthropic])
+        #expect(estimate.spendLast7DaysUSD == nil)
+        #expect(estimate.dailyRateUSD == nil)
+        #expect(estimate.medianDailyRate14DaysUSD == nil)
+        #expect(estimate.spendIsComplete == false)
+        #expect(estimate.dailySpend.isEmpty)
+        #expect(estimate.isReadingLogs)
+    }
+
+    @Test func spendIsShownOnceTheBacklogIsGone() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let key = APIKeyAccountKey(provider: .claude, accountKey: "acct-0123456789abcdef")
+        let records = [try pricedRecord(key, catalog: catalog)]
+        let plain = APIUsageEstimator.estimate(records: records, apiKeyAccounts: [key], catalog: catalog, now: now)
+        let explicit = APIUsageEstimator.estimate(records: records, apiKeyAccounts: [key], catalog: catalog, now: now,
+                                                  incompleteAccounts: [], coverageStartDay: nil)
+        #expect(plain == explicit)
+        #expect(plain[.anthropic]?.spendLast7DaysUSD != nil)
+        #expect(plain[.anthropic]?.isReadingLogs == false)
+        // Another vendor's backlog does not hide this one.
+        let other = APIUsageEstimator.estimate(records: records, apiKeyAccounts: [key], catalog: catalog, now: now,
+            incompleteAccounts: [APIKeyAccountKey(provider: .codex, accountKey: "acct-other")])
+        #expect(other[.anthropic]?.spendLast7DaysUSD != nil)
+    }
+
+    @Test func aMonthlyQuotaIsIncompleteUntilTheCycleIsCovered() throws {
+        let spending = [APIDailySpend(day: SuggestionRetention.utcDay(now), amountUSD: 3)]
+        let quota = APIBudget.quota(amountUSD: 10, resetDayOfMonth: 1)
+        let cycleStart = SuggestionRetention.utcDay(
+            try #require(APIBudgetMath.monthlyCycleStart(resetDayOfMonth: 1, now: now)))
+        let dayAfter = SuggestionRetention.utcDay(
+            try #require(APIBudgetMath.monthlyCycleStart(resetDayOfMonth: 1, now: now)).addingTimeInterval(86_400))
+        #expect(APIBudgetMath.remaining(quota, spending: spending, now: now) == 7)
+        #expect(APIBudgetMath.remaining(quota, spending: spending, now: now, coverageStartDay: cycleStart) == 7)
+        #expect(APIBudgetMath.remaining(quota, spending: spending, now: now, coverageStartDay: dayAfter) == nil)
+        // A prepaid balance entered today needs only today's logs.
+        let balance = APIBudget.balance(amountUSD: 10, asOf: now.addingTimeInterval(-60))
+        #expect(APIBudgetMath.remaining(balance, spending: spending, now: now,
+                                        coverageStartDay: SuggestionRetention.utcDay(now)) != nil)
+        #expect(APIBudgetMath.remaining(balance, spending: spending, now: now,
+            coverageStartDay: SuggestionRetention.utcDay(now.addingTimeInterval(86_400))) == nil)
+    }
+
+    @Test func theLogCoverageStartsThirteenDaysBeforeTheFirstPass() {
+        #expect(SuggestionLogPass.coverageStartDay(firstPassDay: "2027-01-20") == "2027-01-07")
+        #expect(SuggestionLogPass.coverageStartDay(firstPassDay: nil) == nil)
+        #expect(SuggestionLogPass.coverageStartDay(firstPassDay: "garbage") == nil)
+    }
+
     @Test("monthly API estimates can read compressed log-usage archives")
     func readsCompressedUsageArchive() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

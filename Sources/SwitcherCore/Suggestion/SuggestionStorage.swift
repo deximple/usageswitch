@@ -79,10 +79,25 @@ enum SuggestionStorage {
     static let maximumJSONLBytes = 1_048_576
     static let maximumLineBytes = 16_384
 
+    /// A file `appendLines` wrote to and its size before the write, for undoing the append.
+    struct Appended {
+        let file: URL
+        let previousSize: off_t
+    }
+
+    /// Cuts each file back to the size it had before `appendLines` wrote to it.
+    static func rollBack(_ appended: [Appended], fs: SafeFS) {
+        for entry in appended {
+            guard (try? fs.check(entry.file)) != nil else { continue }
+            _ = truncate(entry.file.path, entry.previousSize)
+        }
+    }
+
+    @discardableResult
     static func appendLines<T: Encodable>(_ values: [T], component: String, day: String,
                                           directory: URL, fs: SafeFS,
-                                          maxLineBytes: Int = maximumLineBytes) throws {
-        guard !values.isEmpty else { return }
+                                          maxLineBytes: Int = maximumLineBytes) throws -> Appended? {
+        guard !values.isEmpty else { return nil }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -93,7 +108,7 @@ enum SuggestionStorage {
             data.append(line)
             data.append(10)
         }
-        guard !data.isEmpty else { return }
+        guard !data.isEmpty else { return nil }
 
         let file = try nextFile(component: component, day: day, directory: directory, fs: fs)
         try fs.check(file)
@@ -101,11 +116,22 @@ enum SuggestionStorage {
         guard descriptor >= 0 else { throw SwitcherError.io("open suggestion log") }
         defer { close(descriptor) }
         guard fchmod(descriptor, 0o600) == 0 else { throw SwitcherError.io("chmod suggestion log") }
+        var before = stat()
+        guard fstat(descriptor, &before) == 0 else { throw SwitcherError.io("stat suggestion log") }
+        let appended = Appended(file: file, previousSize: before.st_size)
+        do { try write(data, to: descriptor) } catch {
+            rollBack([appended], fs: fs)
+            throw error
+        }
+        return appended
+    }
+
+    private static func write(_ data: Data, to descriptor: Int32) throws {
         try data.withUnsafeBytes { bytes in
             guard let base = bytes.baseAddress else { return }
             var offset = 0
             while offset < bytes.count {
-                let count = write(descriptor, base.advanced(by: offset), bytes.count - offset)
+                let count = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
                 guard count > 0 else { throw SwitcherError.io("append suggestion log") }
                 offset += count
             }
@@ -404,6 +430,17 @@ enum SuggestionRetention {
         formatter.dateFormat = "yyyy-MM-dd"
         guard let date = formatter.date(from: day) else { return 0 }
         return max(0, now.timeIntervalSince(date))
+    }
+
+    /// The start of a `yyyy-MM-dd` UTC day, or nil when the text is not one.
+    static func date(utcDay day: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return day.count == 10 ? formatter.date(from: day) : nil
     }
 
     static func utcDay(_ date: Date) -> String {

@@ -266,11 +266,11 @@ struct UsageAlertTests {
     @Test("a window crossing the threshold alerts once")
     func crossOnce() {
         let usages = [usage([window(10080, used: 85, resetsAt: future)])]
-        let first = UsageAlerts.update(usages: usages, threshold: 80, alerted: [], now: epoch)
+        let first = UsageAlerts.update(usages: usages, threshold: 80, alerted: [:], now: epoch)
         #expect(first.alerts.count == 1)
         #expect(first.alerts[0].key == "codex:a/weekly/")
         #expect(first.alerts[0].emptied == false)
-        #expect(first.alerted == ["codex:a/weekly/"])
+        #expect(first.alerted == ["codex:a/weekly/": UsageAlerts.Mark(resetsAt: future)])
         // Same reading again: kept in the set, nothing new.
         let again = UsageAlerts.update(usages: usages, threshold: 80, alerted: first.alerted,
                                        now: epoch)
@@ -281,13 +281,55 @@ struct UsageAlertTests {
     @Test("100%+ is emptied; a window already at 100 on first sight alerts as emptied")
     func emptied() {
         let usages = [usage([window(300, used: 104, resetsAt: future)])]
-        let result = UsageAlerts.update(usages: usages, threshold: 80, alerted: [], now: epoch)
+        let result = UsageAlerts.update(usages: usages, threshold: 80, alerted: [:], now: epoch)
         #expect(result.alerts.map(\.emptied) == [true])
+    }
+
+    @Test func aResetWhileTheAppWasClosedAlertsAgain() {
+        // The stored mark's reset passed while the app was closed; a window whose new
+        // reset is days away is a different cycle — warn once more.
+        let r = epoch.addingTimeInterval(-3600)
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: r)]
+        let fresh = [usage([window(10080, used: 90, resetsAt: epoch.addingTimeInterval(7 * 86400))])]
+        let result = UsageAlerts.update(usages: fresh, threshold: 80, alerted: stored, now: epoch)
+        #expect(result.alerts.count == 1)
+    }
+
+    @Test func anotherAccountOnTheSameRowAlertsAgain() {
+        // Same row key, different account → a different reset time is a different cycle.
+        let r = epoch.addingTimeInterval(86400)
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: r)]
+        let other = [usage([window(10080, used: 90, resetsAt: r.addingTimeInterval(2 * 86400))])]
+        let result = UsageAlerts.update(usages: other, threshold: 80, alerted: stored, now: epoch)
+        #expect(result.alerts.count == 1)
+    }
+
+    @Test func aSmallResetJitterIsTheSameCycle() {
+        let r = epoch.addingTimeInterval(86400)
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: r)]
+        let jitter = [usage([window(10080, used: 90, resetsAt: r.addingTimeInterval(30))])]
+        let result = UsageAlerts.update(usages: jitter, threshold: 80, alerted: stored, now: epoch)
+        #expect(result.alerts.isEmpty)
+    }
+
+    @Test func aWindowWithoutAResetTimeStaysSuppressed() {
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init()]
+        let noReset = [usage([window(10080, used: 90, resetsAt: nil)])]
+        let result = UsageAlerts.update(usages: noReset, threshold: 80, alerted: stored, now: epoch)
+        #expect(result.alerts.isEmpty)
+    }
+
+    @Test func aFailedReadDropsMarksWhoseResetPassed() {
+        let passed = epoch.addingTimeInterval(-60)
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: passed)]
+        let failed = [usage([], state: .failed(.network))]
+        let result = UsageAlerts.update(usages: failed, threshold: 80, alerted: stored, now: epoch)
+        #expect(result.alerted.isEmpty)
     }
 
     @Test("recovering below the hysteresis re-arms; hovering just under keeps it spent")
     func hysteresis() {
-        let alerted: Set<String> = ["codex:a/weekly/"]
+        let alerted: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: future)]
         let hovering = [usage([window(10080, used: 76, resetsAt: future)])] // 80-5=75 boundary
         let keep = UsageAlerts.update(usages: hovering, threshold: 80, alerted: alerted, now: epoch)
         #expect(keep.alerted == alerted)
@@ -303,9 +345,108 @@ struct UsageAlertTests {
     @Test("stale and non-ok windows never alert")
     func neverStale() {
         let stale = usage([window(300, used: 95, resetsAt: epoch.addingTimeInterval(-60))])
-        #expect(UsageAlerts.update(usages: [stale], threshold: 80, alerted: [], now: epoch).alerts.isEmpty)
+        #expect(UsageAlerts.update(usages: [stale], threshold: 80, alerted: [:], now: epoch).alerts.isEmpty)
         let failed = usage([window(300, used: 95, resetsAt: future)], state: .failed(.network))
-        #expect(UsageAlerts.update(usages: [failed], threshold: 80, alerted: [], now: epoch).alerts.isEmpty)
+        #expect(UsageAlerts.update(usages: [failed], threshold: 80, alerted: [:], now: epoch).alerts.isEmpty)
+    }
+
+    // MARK: - Audit A-07
+
+    @Test func aFailedReadBetweenTwoReadingsDoesNotRearm() {
+        let ok = [usage([window(10080, used: 90, resetsAt: future)])]
+        let first = UsageAlerts.update(usages: ok, threshold: 80, alerted: [:], now: epoch)
+        #expect(first.alerts.count == 1)
+        // A transient failure: the row keeps its windows but its state is failed.
+        let failed = [usage([window(10080, used: 90, resetsAt: future)], state: .failed(.timeout))]
+        let during = UsageAlerts.update(usages: failed, threshold: 80, alerted: first.alerted, now: epoch)
+        #expect(during.alerts.isEmpty)
+        #expect(during.alerted == first.alerted)
+        let after = UsageAlerts.update(usages: ok, threshold: 80, alerted: during.alerted, now: epoch)
+        #expect(after.alerts.isEmpty)
+    }
+
+    @Test func aKeyIsKeptWhileItsAccountHasNoOkReading() {
+        let alerted: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(), "codex:a/session/": .init()]
+        for state in [UsageState.failed(.network), .unavailable(.noSignIn), .notReporting] {
+            let result = UsageAlerts.update(usages: [usage([], state: state)], threshold: 80, alerted: alerted, now: epoch)
+            #expect(result.alerted == alerted, "\(state)")
+            #expect(result.alerts.isEmpty)
+        }
+    }
+
+    @Test func aKeyIsDroppedWhenItsAccountDisappears() {
+        let alerted: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(), "codex:gone/weekly/": .init()]
+        let result = UsageAlerts.update(usages: [usage([], state: .failed(.network))], threshold: 80,
+                                        alerted: alerted, now: epoch)
+        #expect(result.alerted == ["codex:a/weekly/": .init()])
+        // An id that merely starts with another id is a different account.
+        let other = UsageAlerts.update(usages: [usage([], id: "codex:ab", state: .failed(.network))], threshold: 80,
+                                       alerted: ["codex:a/weekly/": .init()], now: epoch)
+        #expect(other.alerted.isEmpty)
+    }
+
+    @Test func aNewWindowAfterTheResetAlertsAgain() {
+        let first = UsageAlerts.update(usages: [usage([window(10080, used: 90, resetsAt: future)])],
+                                       threshold: 80, alerted: [:], now: epoch)
+        // The reset passed: the old number says nothing, so the key is released.
+        let afterReset = future.addingTimeInterval(60)
+        let stale = UsageAlerts.update(usages: [usage([window(10080, used: 90, resetsAt: future)])],
+                                       threshold: 80, alerted: first.alerted, now: afterReset)
+        #expect(stale.alerted.isEmpty && stale.alerts.isEmpty)
+        let next = UsageAlerts.update(
+            usages: [usage([window(10080, used: 85, resetsAt: afterReset.addingTimeInterval(7 * 86400))])],
+            threshold: 80, alerted: stale.alerted, now: afterReset)
+        #expect(next.alerts.count == 1)
+    }
+
+    @Test func changingTheThresholdStartsOver() {
+        let state = UsageAlertState(threshold: 80, marks: ["codex:a/weekly/": .init()])
+        #expect(state.marks(for: 80) == ["codex:a/weekly/": .init()])
+        #expect(state.marks(for: 90).isEmpty)
+        let usages = [usage([window(10080, used: 85, resetsAt: future)])]
+        // Raised to 90: 85% is no longer over the line, and nothing is remembered.
+        let raised = UsageAlerts.update(usages: usages, threshold: 90, alerted: state.marks(for: 90), now: epoch)
+        #expect(raised.alerts.isEmpty && raised.alerted.isEmpty)
+        // Lowered to 70: it counts as a fresh crossing.
+        let lowered = UsageAlerts.update(usages: usages, threshold: 70, alerted: state.marks(for: 70), now: epoch)
+        #expect(lowered.alerts.count == 1)
+    }
+}
+
+@Suite("Usage alert store")
+struct UsageAlertStoreTests {
+    @Test func roundTrips() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let store = UsageAlertStore(env: sb.env, fs: sb.fs)
+        #expect(store.load() == nil)
+        let marks: [String: UsageAlerts.Mark] = ["claude:cli/session/": .init(),
+                                                 "codex:m-1a2b3c4d/weekly/": .init(resetsAt: Date(timeIntervalSince1970: 1_800_000_000))]
+        let state = UsageAlertState(threshold: 80, marks: marks)
+        try store.save(state)
+        #expect(store.load() == state)
+        #expect(UsageAlertStore(env: sb.env, fs: sb.fs).load()?.marks(for: 80) == state.marks)
+        let mode = try FileManager.default.attributesOfItem(atPath: sb.env.usageAlertsFile.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+    }
+
+    @Test func aBrokenFileIsAnEmptyState() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try sb.fs.createDirectory(sb.env.storeDir)
+        try sb.fs.write(Data("{not json".utf8), to: sb.env.usageAlertsFile)
+        #expect(UsageAlertStore(env: sb.env, fs: sb.fs).load() == nil)
+        try sb.fs.write(Data(repeating: 0x20, count: UsageAlertStore.maximumBytes + 1), to: sb.env.usageAlertsFile)
+        #expect(UsageAlertStore(env: sb.env, fs: sb.fs).load() == nil)
+    }
+
+    @Test func theFileHoldsOnlyOpaqueKeys() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let store = UsageAlertStore(env: sb.env, fs: sb.fs)
+        try store.save(UsageAlertState(threshold: 85, marks: ["codex:m-1a2b3c4d/weekly/": .init()]))
+        let text = String(decoding: try Data(contentsOf: sb.env.usageAlertsFile), as: UTF8.self)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(Set(object.keys) == ["threshold", "marks"])
+        #expect(!text.contains("@"))
+        #expect(!text.contains("label"))
     }
 }
 
