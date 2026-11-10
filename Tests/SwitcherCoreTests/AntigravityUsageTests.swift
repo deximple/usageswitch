@@ -150,6 +150,18 @@ struct AntigravityVTParserTests {
         }
     }
 
+    @Test func aHugeDeleteKeepsTheRowWidth() {
+        // DCH larger than the rest of the row must not grow it; repeated, it grew without bound.
+        var buffer = AntigravityVTScreenBuffer(columns: 40, rows: 4)
+        buffer.feed(Data(("abcdefghij\u{1b}[3G" + String(repeating: "\u{1b}[10000P", count: 5) + "XY").utf8))
+        #expect(buffer.rowWidths.allSatisfy { $0 == 40 })
+        #expect(buffer.lines.first == "abXY")
+        var middle = AntigravityVTScreenBuffer(columns: 10, rows: 1)
+        middle.feed(Data("0123456789\u{1b}[3G\u{1b}[2P".utf8))
+        #expect(middle.lines.first == "01456789")
+        #expect(middle.rowWidths == [10])
+    }
+
     @Test func eraseCharacterClearsCells() {
         // `> /usage` followed by stray text, then cursor back to col 9 + ESC[39X blanks the
         // trailing cells and the exact `/usage` row returns (audit B-09).
@@ -941,8 +953,9 @@ struct AntigravityPTYTests {
         // The echo is replaced by a modal before Enter is written (audit B-09): the sink
         // receives the typed command but never 0x0d.
         let (directory, executable) = try script(contents:
-            "#!/bin/sh\nstty -echo -icanon -isig\nprintf '? for shortcuts\n'\n"
-            + "(sleep 0.05; printf '> /usage\n'; sleep 0.4; printf '\\rmenu overlay — pick a number: '\n) &\n"
+            "#!/bin/sh\nstty -echo -icanon -isig -icrnl\nprintf '? for shortcuts\n'\n"
+            // The overlay moves up onto the echo row and erases it, so the echo is really gone.
+            + "(sleep 0.05; printf '> /usage\n'; sleep 0.4; printf '\\033[1A\\r\\033[2Kmenu overlay — pick a number: '\n) &\n"
             + "dd bs=1 of=\"$INPUT_FILE\" 2>/dev/null\n")
         defer { try? FileManager.default.removeItem(at: directory) }
         let inputFile = directory.appendingPathComponent("input")

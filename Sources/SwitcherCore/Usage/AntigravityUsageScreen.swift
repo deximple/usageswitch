@@ -769,11 +769,17 @@ public struct AntigravityVTScreenBuffer: Sendable {
 
     /// DCH: drop n cells at the cursor and shift the rest of the row left.
     private mutating func deleteCharacters(_ count: Int) {
+        guard column < columns else { return }
+        // Never more than what is left of the row, so the row keeps exactly `columns` cells.
+        let deleted = min(count, columns - column)
         var rowCells = cells[row]
-        let tail = rowCells[min(columns, column + count)...]
-        rowCells.replaceSubrange(column..<columns, with: tail + Array(repeating: " ", count: count))
+        let tail = rowCells[(column + deleted)..<columns]
+        rowCells.replaceSubrange(column..<columns, with: tail + Array(repeating: " ", count: deleted))
         cells[row] = rowCells
     }
+
+    /// Cell count of every row, for tests: each must stay `columns`.
+    var rowWidths: [Int] { cells.map(\.count) }
 
     private mutating func eraseLine(_ mode: Int) {
         guard (0...2).contains(mode) else { return }
