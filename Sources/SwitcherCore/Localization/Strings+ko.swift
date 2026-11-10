@@ -316,8 +316,8 @@ extension Strings {
         .suggestionUrgentTitle: "긴급 모드를 사용할까요?",
         .suggestionUrgentMessage: "긴급 모드는 최상위 모델에서 최대 추론 강도를 허용합니다. 다음 Claude 5시간 재설정 시점에 균형 모드로 돌아가며, 재설정 시점을 모르면 5시간 후에 돌아갑니다.",
         .suggestionUrgentConfirm: "긴급 모드 사용",
-        .suggestionSituationHeadroom: "%@ 여유분 (%@ 남음)",
-        .suggestionSituationRemaining: "%@ 현재 남은 양 (%@)",
+        .suggestionSituationHeadroom: "%@ 여유분 (%d%% 남음)",
+        .suggestionSituationRemaining: "%@ 현재 남은 양 (%d%%)",
         .suggestionLine: "지금 %@을 고려하면 %@ → %@ → %@",
         .suggestionRecentEffort: " · 최근 주로 쓴 강도: %@",
         .suggestionEffortNone: "없음",
@@ -346,6 +346,7 @@ extension Strings {
         .apiEstimate: "예상 지출(최근 7일): %@",
         .apiDailyRate: "일평균 사용률: %@",
         .apiDaysLeft: "현재 속도 기준 약 %d일 남음",
+        .apiDayLeft: "현재 속도 기준 약 1일 남음",
         .apiNoPrice: "로그 또는 모델 가격이 없어 지출 예상액을 표시할 수 없습니다.",
         .apiEstimatesReadingLogs: "사용 로그를 읽는 중이라 아직 지출을 추정할 수 없습니다.",
         .apiSubscriptionRoom: "구독 사용량에 여유가 있습니다",
@@ -389,6 +390,8 @@ extension Strings {
         .usageLeft: "%d%% 남음",
         .usageUpdatedAgo: "%@ 전에 확인함",
         .usageNextUpdate: "%@ 후에 갱신",
+        .usageRefreshingSoon: "곧 갱신",
+        .usageUsedUp: "소진됨",
         .usageNow: "지금",
         .usageDurD: "%d일",
         .usageDurDH: "%1$d일 %2$d시간",
@@ -429,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "켜기",
         .usageRefreshHelp: "지금 사용량 다시 읽기",
         .usageRunsOut: "이 속도면 %@ 후 소진",
+        .usageRunsOutSoon: "이 속도면 1분 안에 소진",
         .usageGuideExpandedA11y: "펼쳐짐",
         .usageGuideCollapsedA11y: "접힘",
         .usageStaleA11y: "갱신이 필요한 사용량",
@@ -446,7 +450,7 @@ extension Strings {
               capture [--yes]                현재 Claude 로그인 저장
               enroll [--yes]                 새 계정 로그인 준비 (로그인 화면으로 재실행)
               rename <계정> <이름>|--reset   계정 이름 바꾸기 (--reset: 기본 이름으로)
-              remove <계정>                  저장된 로그인 삭제 (사용 중인 계정은 불가)
+              remove <계정> --yes            저장된 로그인 삭제 (사용 중인 계정은 불가)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Code 탭 CLI 의 계정 확인
               recover                        중단된 전환 복구
@@ -457,7 +461,7 @@ extension Strings {
               codex add                      Codex 계정 추가 (브라우저에서 로그인)
               codex adopt <홈>               이 Mac 에서 찾은 Codex 홈을 목록에 추가
               codex reauth <계정>            Codex 계정 재인증
-              codex remove <계정>            Codex 계정 제거 (찾은 홈은 목록에서만 뺌)
+              codex remove <계정> --yes      Codex 계정 제거 (찾은 홈은 목록에서만 뺌)
               codex rename <계정> <이름>|--reset
                                              Codex 계정 이름 바꾸기
               codex unhide                   목록에서 뺀 Codex 홈 다시 보기

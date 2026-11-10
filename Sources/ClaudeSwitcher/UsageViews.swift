@@ -72,8 +72,10 @@ struct UsageFooter: View {
                             Text(UsageText.updatedAgo(readAt: lastRead, now: context.date))
                                 .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
                         }
-                        Text(L10n.t(.usageNextUpdate,
-                                    UsageText.countdown(to: model.nextRefresh, from: context.date)))
+                        Text(model.nextRefresh.timeIntervalSince(context.date) < 60
+                            ? L10n.t(.usageRefreshingSoon)
+                            : L10n.t(.usageNextUpdate,
+                                     UsageText.countdown(to: model.nextRefresh, from: context.date)))
                             .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
                     }
                 }
@@ -94,6 +96,7 @@ struct UsageContent: View {
     @ObservedObject var codex: CodexModel
     @ObservedObject var tabs: TabSelection
     @State private var confirmingUrgentMode = false
+    @State private var taskDraft: Double? = nil
     var compact = false
 
     var body: some View {
@@ -276,8 +279,14 @@ struct UsageContent: View {
                 Text(L10n.t(.suggestionTaskSimple))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
                 Slider(value: Binding(
-                    get: { settings.suggestionTask },
-                    set: { settings.setSuggestionTask($0, snapshot: model.suggestionUsageSnapshot()) }), in: 0...1)
+                    get: { taskDraft ?? settings.suggestionTask },
+                    set: { taskDraft = $0 }), in: 0...1,
+                    onEditingChanged: { editing in
+                        if !editing, let draft = taskDraft {
+                            settings.setSuggestionTask(draft, snapshot: model.suggestionUsageSnapshot())
+                            taskDraft = nil
+                        }
+                    })
                     .accessibilityLabel(Text(L10n.t(.suggestionTaskLabel)))
                 Text(L10n.t(.suggestionTaskReasoning))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
@@ -319,10 +328,12 @@ struct UsageContent: View {
         switch situation {
         case .windowHeadroom:
             situationText = L10n.t(.suggestionSituationHeadroom,
-                                   UsageText.name(of: window), UsageText.left(window))
+                                   UsageText.name(of: window),
+                                   UsageText.percentLeft(window.usedPercent) ?? 0)
         case .remainingShare:
             situationText = L10n.t(.suggestionSituationRemaining,
-                                   UsageText.name(of: window), UsageText.left(window))
+                                   UsageText.name(of: window),
+                                   UsageText.percentLeft(window.usedPercent) ?? 0)
         }
         let line = L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
                           effortName(effort))
@@ -378,7 +389,9 @@ struct UsageContent: View {
             Group {
                 if let resetsAt = proposal.window.resetsAt {
                     if resetsAt > now {
-                        Text(L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now)))
+                        Text(resetsAt.timeIntervalSince(now) < 60
+                            ? L10n.t(.usageRefreshingSoon)
+                            : L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now)))
                     } else {
                         Text(L10n.t(.usageRefreshNeeded)).foregroundStyle(Theme.usageLow)
                     }
@@ -654,7 +667,10 @@ struct UsageBarRow: View {
     private var shownLeft: Int? { compact && stale ? nil : left }
     /// Estimated run-out in the full localized form, for help and accessibility.
     private var runOutText: String? {
-        earlyRunOut.map { L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now)) }
+        earlyRunOut.map {
+            $0.timeIntervalSince(now) < 60 ? L10n.t(.usageRunsOutSoon)
+                : L10n.t(.usageRunsOut, UsageText.countdown(to: $0, from: now))
+        }
     }
 
     /// Reset column text. The menu gets the compact form and ALWAYS the real reset time — the

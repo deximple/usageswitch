@@ -328,6 +328,8 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli                  # lista todos los comandos
 ```
 
+**Nuevo en 2.2.0:** `remove` y `codex remove` requieren `--yes` de confirmación — sin él salen con `needs_confirmation` (código 3) sin cambiar nada.
+
 `--cli usage` imprime lo que la app leyó y guardó por última vez. No contacta con ninguna herramienta ni con la red, así que abra UsageSwitch una vez primero. Los correos siempre van ocultos.
 
 <details>

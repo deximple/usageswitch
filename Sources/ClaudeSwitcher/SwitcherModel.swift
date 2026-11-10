@@ -122,7 +122,14 @@ final class SwitcherModel: ObservableObject {
                 self.recovering = false
             }
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
+        scheduleStatusPoll(visible: AppModel.anySurfaceVisible)
+    }
+
+    /// Poll cadence: 6 s while a window or the menu panel is visible, 30 s while all
+    /// surfaces are closed; re-armed by `AppModel.noteSurface` (audit P3).
+    func scheduleStatusPoll(visible: Bool) {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: visible ? 6 : 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshIfIdle() }
         }
     }
@@ -332,6 +339,14 @@ final class SwitcherModel: ObservableObject {
                     outcome = .success(L10n.t(.uiResultEnrollReady))
                 case .remove(let id):
                     try switcher.removeSaved(id)
+                    await MainActor.run {
+                        let keptBindings = self.claudeUsageProfiles.filter { $0.accountId != id }
+                        if keptBindings.count != self.claudeUsageProfiles.count {
+                            _ = self.setClaudeUsageProfiles(keptBindings)
+                        }
+                        let keptPins = self.usagePins.filter { !$0.contains(id) }
+                        if keptPins.count != self.usagePins.count { self.setUsagePins(keptPins) }
+                    }
                     outcome = .success(L10n.t(.uiRemoveSavedDone, names[id] ?? id))
                 }
             } catch {
@@ -509,9 +524,10 @@ final class SwitcherModel: ObservableObject {
             return
         }
         let switcher = self.switcher
+        let previousPhase = phase
         phase = .working(action: L10n.t(.usageRename))
         refreshGeneration += 1
-        defer { phase = .idle }
+        defer { phase = previousPhase }
         let renamedStatus = try await Task.detached {
             try switcher.renameAccount(id, to: normalized)
             return switcher.status()
@@ -688,7 +704,11 @@ final class SwitcherModel: ObservableObject {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            banner = Banner(kind: .error, text: L10n.t(.uiLaunchAtLoginFailed, error.localizedDescription))
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = L10n.t(.uiLaunchAtLoginFailed, error.localizedDescription)
+            NSApp.activate()
+            alert.runModal()
         }
         if enabled, SMAppService.mainApp.status == .requiresApproval {
             // Registered but blocked in System Settings: say so instead of letting the checkbox snap back silently.

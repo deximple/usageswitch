@@ -36,6 +36,6 @@ public enum MenuBarTitle {
     /// JSON/collector meaning (share consumed); what the bar shows is the REMAINING share.
     public static func usage(windowName: String, usedPercent: Double) -> String {
         UsageText.percentLeft(usedPercent)
-            .map { "\(windowName) \(L10n.t(.usageLeft, $0))" } ?? "\(windowName) —"
+            .map { "\(windowName) \($0 == 0 ? L10n.t(.usageUsedUp) : L10n.t(.usageLeft, $0))" } ?? "\(windowName) —"
     }
 }

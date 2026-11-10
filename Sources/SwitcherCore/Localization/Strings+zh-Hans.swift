@@ -316,8 +316,8 @@ extension Strings {
         .suggestionUrgentTitle: "使用紧急模式？",
         .suggestionUrgentMessage: "紧急模式允许使用前沿模型和最高推理强度。到下一个 Claude 五小时重置时切回平衡模式；如果重置时间未知，则在五小时后切回。",
         .suggestionUrgentConfirm: "使用紧急模式",
-        .suggestionSituationHeadroom: "%@余量（剩余%@）",
-        .suggestionSituationRemaining: "%@当前剩余（%@）",
+        .suggestionSituationHeadroom: "%@余量（剩余%d%%）",
+        .suggestionSituationRemaining: "%@当前剩余（%d%%）",
         .suggestionLine: "此刻考虑到%@：%@ → %@ → %@",
         .suggestionRecentEffort: " · 最近主要使用的强度：%@",
         .suggestionEffortNone: "无",
@@ -346,6 +346,7 @@ extension Strings {
         .apiEstimate: "估算支出（过去 7 天）：%@",
         .apiDailyRate: "平均每日费率：%@",
         .apiDaysLeft: "按当前费率约剩 %d 天",
+        .apiDayLeft: "按当前费率约剩 1 天",
         .apiNoPrice: "缺少使用日志或模型价格，无法估算支出。",
         .apiEstimatesReadingLogs: "正在读取用量日志，暂时无法估算支出。",
         .apiSubscriptionRoom: "订阅额度仍充足",
@@ -389,6 +390,8 @@ extension Strings {
         .usageLeft: "剩余 %d%%",
         .usageUpdatedAgo: "%@前更新",
         .usageNextUpdate: "%@后更新",
+        .usageRefreshingSoon: "即将更新",
+        .usageUsedUp: "已用尽",
         .usageNow: "现在",
         .usageDurD: "%d天",
         .usageDurDH: "%1$d天 %2$d小时",
@@ -429,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "开启",
         .usageRefreshHelp: "立即重新读取用量",
         .usageRunsOut: "按此速度 %@ 后耗尽",
+        .usageRunsOutSoon: "按此速度 1 分钟内耗尽",
         .usageGuideExpandedA11y: "已展开",
         .usageGuideCollapsedA11y: "已折叠",
         .usageStaleA11y: "用量需要刷新",
@@ -446,7 +450,7 @@ extension Strings {
               capture [--yes]                保存 Claude 当前的登录信息
               enroll [--yes]                 准备新的登录（重新启动并显示登录界面）
               rename <账户> <名称>|--reset   重命名账户（--reset：恢复默认名称）
-              remove <账户>                  移除已保存的登录信息（不能是正在使用的账户）
+              remove <账户> --yes            移除已保存的登录信息（不能是正在使用的账户）
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              检查 Code 标签页 CLI 的账户
               recover                        恢复中断的切换
@@ -457,7 +461,7 @@ extension Strings {
               codex add                      添加 Codex 账户（在浏览器中登录）
               codex adopt <主目录>           将在此 Mac 上找到的 Codex 主目录添加到列表
               codex reauth <账户>            重新登录 Codex 账户
-              codex remove <账户>            移除 Codex 账户（找到的主目录只从列表中移除）
+              codex remove <账户> --yes      移除 Codex 账户（找到的主目录只从列表中移除）
               codex rename <账户> <名称>|--reset
                                              重命名 Codex 账户
               codex unhide                   重新显示已移除的 Codex 主目录

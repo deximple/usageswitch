@@ -352,7 +352,7 @@ final class UsageModel: ObservableObject {
         let startedAt = Date()
         refreshStartedAt = startedAt
         lastReadStartedAt = startedAt
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ProductInfo.fallbackVersion
         let enabled = settings.enabledUsageProviders
         let bindings = settings.claudeUsageProfiles
         let geminiRefreshAllowed = settings.geminiTokenRefreshAllowed

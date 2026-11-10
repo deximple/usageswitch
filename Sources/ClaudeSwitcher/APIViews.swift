@@ -124,7 +124,7 @@ struct APIContent: View {
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                     if let remaining = usage.apiBudgetRemaining(for: vendor),
                        let days = APIBudgetMath.daysLeft(remainingUSD: remaining, dailyRateUSD: dailyRate) {
-                        Text(L10n.t(.apiDaysLeft, days))
+                        Text(days == 1 ? L10n.t(.apiDayLeft, 1) : L10n.t(.apiDaysLeft, days))
                             .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                     }
                 } else {

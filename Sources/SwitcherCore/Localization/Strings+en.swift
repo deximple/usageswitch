@@ -316,8 +316,8 @@ extension Strings {
         .suggestionUrgentTitle: "Use Urgent mode?",
         .suggestionUrgentMessage: "Urgent mode allows frontier models at max effort. It returns to Balanced at the next five-hour Claude reset, or after five hours if no reset is known.",
         .suggestionUrgentConfirm: "Use Urgent",
-        .suggestionSituationHeadroom: "%@ headroom (%@ remaining)",
-        .suggestionSituationRemaining: "current %@ remaining (%@)",
+        .suggestionSituationHeadroom: "%@ headroom (%d%% remaining)",
+        .suggestionSituationRemaining: "current %@ remaining (%d%%)",
         .suggestionLine: "Right now, with %@: %@ → %@ → %@",
         .suggestionRecentEffort: " · recently mostly: %@",
         .suggestionEffortNone: "None",
@@ -346,6 +346,7 @@ extension Strings {
         .apiEstimate: "Estimated spend (last 7 days): %@",
         .apiDailyRate: "Average daily rate: %@",
         .apiDaysLeft: "≈%d days left at this rate",
+        .apiDayLeft: "≈1 day left at this rate",
         .apiNoPrice: "No spend estimate is available because logs or model pricing are missing.",
         .apiEstimatesReadingLogs: "Still reading usage logs, so there is no spend estimate yet.",
         .apiSubscriptionRoom: "Subscription has room",
@@ -389,6 +390,8 @@ extension Strings {
         .usageLeft: "%d%% left",
         .usageUpdatedAgo: "updated %@ ago",
         .usageNextUpdate: "Next update in %@",
+        .usageRefreshingSoon: "Updating soon",
+        .usageUsedUp: "used up",
         .usageNow: "now",
         .usageDurD: "%dd",
         .usageDurDH: "%1$dd %2$dh",
@@ -429,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "Turn On",
         .usageRefreshHelp: "Read usage again now",
         .usageRunsOut: "may run out in %@",
+        .usageRunsOutSoon: "may run out within a minute",
         .usageGuideExpandedA11y: "Expanded",
         .usageGuideCollapsedA11y: "Collapsed",
         .usageStaleA11y: "Usage needs refresh",
@@ -447,7 +451,7 @@ extension Strings {
               enroll [--yes]                 Prepare a new sign-in (relaunch at the sign-in screen)
               rename <account> <name>|--reset
                                              Rename an account (--reset: back to the default name)
-              remove <account>               Remove a saved sign-in (not the account in use)
+              remove <account> --yes         Remove a saved sign-in (not the account in use)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Check the account of a Code-tab CLI
               recover                        Recover an interrupted switch
@@ -458,7 +462,7 @@ extension Strings {
               codex add                      Add a Codex account (sign in in the browser)
               codex adopt <home>             Add a Codex home found on this Mac to the list
               codex reauth <account>         Sign a Codex account in again
-              codex remove <account>         Remove a Codex account (found homes only leave the list)
+              codex remove <account> --yes   Remove a Codex account (found homes only leave the list)
               codex rename <account> <name>|--reset
                                              Rename a Codex account
               codex unhide                   Show removed Codex homes again

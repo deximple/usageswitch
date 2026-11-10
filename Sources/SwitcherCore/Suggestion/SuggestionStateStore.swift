@@ -193,8 +193,6 @@ public final class SuggestionStateStore: @unchecked Sendable {
         let observations = result.observations
         do {
             let date = SuggestionRetention.utcDay(now)
-            try SuggestionStorage.appendLines(observations, component: "observations",
-                                              day: date, directory: directory, fs: fs)
             let events = result.deltas.map(SuggestionStateEvent.delta)
                 + result.resets.map(SuggestionStateEvent.reset)
             try SuggestionStorage.appendLines(events, component: "events", day: date,
@@ -217,7 +215,7 @@ public final class SuggestionStateStore: @unchecked Sendable {
                 limitSnapshot()
                 try writeLastObservations()
             }
-            SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: reader)
+            SuggestionRetention.prune(directory: directory, fs: fs, now: now)
         } catch {
             return
         }
@@ -229,7 +227,7 @@ public final class SuggestionStateStore: @unchecked Sendable {
         do {
             try fs.createDirectory(directory)
             try appendEvent(event, now: now)
-            SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: reader)
+            SuggestionRetention.prune(directory: directory, fs: fs, now: now)
         } catch {
             return
         }
@@ -255,7 +253,7 @@ public final class SuggestionStateStore: @unchecked Sendable {
         do {
             try fs.createDirectory(directory)
             try appendEvent(.suggestionShown(candidate: candidate, at: now), now: now)
-            SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: reader)
+            SuggestionRetention.prune(directory: directory, fs: fs, now: now)
             let state = ShownState(candidate: candidate, at: now, accepted: false)
             try write(state, to: shownFile)
             shownState = state

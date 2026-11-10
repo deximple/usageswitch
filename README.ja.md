@@ -328,6 +328,8 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli                  # すべてのコマンドを表示
 ```
 
+**2.2.0 の変更:** `remove` と `codex remove` は確認用の `--yes` が必要です — ない場合は `needs_confirmation`（コード 3）で終了し、何も変更されません。
+
 `--cli usage` はアプリが最後に読み取って保存した内容を出力します。ツールやネットワークには一切接続しないので、先に UsageSwitch を一度開いてください。メールアドレスは常に伏せ字です。
 
 <details>

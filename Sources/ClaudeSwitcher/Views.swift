@@ -476,6 +476,9 @@ struct MenuView: View {
     @State private var chromeHeight: CGFloat = 140
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The menu panel counts as a visible surface for the status-poll cadence (audit P3).
+    private func notePanelVisible(_ visible: Bool) { AppModel.noteSurface(open: visible) }
+
     private var panelCap: CGFloat {
         let mouse = NSEvent.mouseLocation
         // `--snapshot-height` lifts the panel budget so README renders can show
@@ -556,6 +559,8 @@ struct MenuView: View {
         .modifier(ConfirmationModifier(model: model))
         .modifier(RenameModifier(model: model))
         .modifier(CodexAlertsModifier(model: codex))
+        .onAppear { notePanelVisible(true) }
+        .onDisappear { notePanelVisible(false) }
     }
 
     @ViewBuilder

@@ -316,8 +316,8 @@ extension Strings {
         .suggestionUrgentTitle: "緊急モードを使いますか？",
         .suggestionUrgentMessage: "緊急モードでは最上位モデルを最大の推論強度で使えます。次のClaudeの5時間リセット時にバランスモードへ戻り、リセット時刻が不明な場合は5時間後に戻ります。",
         .suggestionUrgentConfirm: "緊急モードを使う",
-        .suggestionSituationHeadroom: "%@の余裕（残り%@）",
-        .suggestionSituationRemaining: "%@の現在の残り（%@）",
+        .suggestionSituationHeadroom: "%@の余裕（残り%d%%）",
+        .suggestionSituationRemaining: "%@の現在の残り（%d%%）",
         .suggestionLine: "現在、%@を踏まえると %@ → %@ → %@",
         .suggestionRecentEffort: " · 最近よく使った強度: %@",
         .suggestionEffortNone: "なし",
@@ -346,6 +346,7 @@ extension Strings {
         .apiEstimate: "推定支出 (過去 7 日間): %@",
         .apiDailyRate: "1 日あたりの平均: %@",
         .apiDaysLeft: "現在のペースで約 %d 日分",
+        .apiDayLeft: "現在のペースで約 1 日分",
         .apiNoPrice: "ログまたはモデル価格がないため、支出額を推定できません。",
         .apiEstimatesReadingLogs: "使用ログを読み取り中のため、まだ支出を推定できません。",
         .apiSubscriptionRoom: "サブスクリプションに余裕があります",
@@ -389,6 +390,8 @@ extension Strings {
         .usageLeft: "残り %d%%",
         .usageUpdatedAgo: "%@前に更新",
         .usageNextUpdate: "%@後に更新",
+        .usageRefreshingSoon: "まもなく更新",
+        .usageUsedUp: "使い切り",
         .usageNow: "今",
         .usageDurD: "%d日",
         .usageDurDH: "%1$d日 %2$d時間",
@@ -429,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "オンにする",
         .usageRefreshHelp: "今すぐ使用量を読み直す",
         .usageRunsOut: "このペースなら%@で枯渇",
+        .usageRunsOutSoon: "このペースなら1分以内に枯渇",
         .usageGuideExpandedA11y: "展開中",
         .usageGuideCollapsedA11y: "折りたたみ",
         .usageStaleA11y: "使用量の更新が必要です",
@@ -447,7 +451,7 @@ extension Strings {
               enroll [--yes]                 新しいサインインを準備（サインイン画面で再起動）
               rename <アカウント> <名前>|--reset
                                              アカウント名を変更（--reset：既定の名前に戻す）
-              remove <アカウント>            保存済みサインインを削除（使用中のアカウントは不可）
+              remove <アカウント> --yes      保存済みサインインを削除（使用中のアカウントは不可）
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Code タブの CLI のアカウントを確認
               recover                        中断された切り替えを復旧
@@ -458,7 +462,7 @@ extension Strings {
               codex add                      Codex アカウントを追加（ブラウザでサインイン）
               codex adopt <ホーム>           この Mac で見つかった Codex ホームをリストに追加
               codex reauth <アカウント>      Codex アカウントに再サインイン
-              codex remove <アカウント>      Codex アカウントを削除（見つけたホームはリストから外すだけ）
+              codex remove <アカウント> --yes  Codex アカウントを削除（見つけたホームはリストから外すだけ）
               codex rename <アカウント> <名前>|--reset
                                              Codex アカウント名を変更
               codex unhide                   リストから外した Codex ホームを再表示

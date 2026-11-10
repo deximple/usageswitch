@@ -65,4 +65,22 @@ struct CLITests {
         #expect(out.contains("\"setAside\""))
         #expect(out.contains("needsConfirmation") == false)
     }
+
+    @Test func removeNeedsYes() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        // `remove` without --yes asks first — before touching the saved sign-in.
+        let (code, out, _) = run(sb, ["remove", "someone@example.com"])
+        #expect(code == 3)
+        #expect(out.contains("needs_confirmation"))
+        #expect(!sb.env.storeDir.appendingPathComponent("snapshots").path.isEmpty)
+    }
+
+    @Test func codexRemoveNeedsYes() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let (code, out, _) = run(sb, ["codex", "remove", "work"])
+        #expect(code == 3)
+        #expect(out.contains("needs_confirmation"))
+        // With --yes the guard passes; the removal itself then runs.
+        #expect(run(sb, ["codex", "remove", "work", "--yes"]).0 != 3)
+    }
 }

@@ -316,8 +316,8 @@ extension Strings {
         .suggestionUrgentTitle: "¿Usar el modo urgente?",
         .suggestionUrgentMessage: "El modo urgente permite modelos de frontera con el máximo nivel de esfuerzo. Vuelve al modo equilibrado en el próximo reinicio de cinco horas de Claude o, si no se conoce, al cabo de cinco horas.",
         .suggestionUrgentConfirm: "Usar modo urgente",
-        .suggestionSituationHeadroom: "margen de %@ (%@ restante)",
-        .suggestionSituationRemaining: "%@ restante ahora (%@)",
+        .suggestionSituationHeadroom: "margen de %@ (%d%% restante)",
+        .suggestionSituationRemaining: "%@ restante ahora (%d%%)",
         .suggestionLine: "Ahora, teniendo en cuenta %@: %@ → %@ → %@",
         .suggestionRecentEffort: " · esfuerzo más usado recientemente: %@",
         .suggestionEffortNone: "Ninguno",
@@ -346,6 +346,7 @@ extension Strings {
         .apiEstimate: "Gasto estimado (últimos 7 días): %@",
         .apiDailyRate: "Gasto diario medio: %@",
         .apiDaysLeft: "≈%d días restantes a este ritmo",
+        .apiDayLeft: "≈1 día restante a este ritmo",
         .apiNoPrice: "No hay una estimación porque faltan registros de uso o el precio del modelo.",
         .apiEstimatesReadingLogs: "Aún se están leyendo los registros de uso, así que todavía no hay estimación de gasto.",
         .apiSubscriptionRoom: "La suscripción aún tiene margen",
@@ -389,6 +390,8 @@ extension Strings {
         .usageLeft: "%d%% restante",
         .usageUpdatedAgo: "actualizado hace %@",
         .usageNextUpdate: "Próxima actualización en %@",
+        .usageRefreshingSoon: "Actualización próxima",
+        .usageUsedUp: "agotado",
         .usageNow: "ahora",
         .usageDurD: "%dd",
         .usageDurDH: "%1$dd %2$dh",
@@ -429,6 +432,7 @@ extension Strings {
         .usageCursorAlertOn: "Activar",
         .usageRefreshHelp: "Leer el uso de nuevo ahora",
         .usageRunsOut: "podría agotarse en %@",
+        .usageRunsOutSoon: "podría agotarse en menos de un minuto",
         .usageGuideExpandedA11y: "Expandida",
         .usageGuideCollapsedA11y: "Contraída",
         .usageStaleA11y: "Es necesario actualizar el uso",
@@ -447,7 +451,7 @@ extension Strings {
               enroll [--yes]                 Preparar un nuevo inicio de sesión (reabrir en la pantalla de inicio de sesión)
               rename <cuenta> <nombre>|--reset
                                              Cambiar el nombre de una cuenta (--reset: volver al nombre predeterminado)
-              remove <cuenta>                Eliminar una sesión guardada (no la de la cuenta en uso)
+              remove <cuenta> --yes          Eliminar una sesión guardada (no la de la cuenta en uso)
               probe-code [--trigger] [--since-launch] [--timeout N]
                                              Comprobar la cuenta de una CLI de la pestaña Code
               recover                        Recuperar un cambio interrumpido
@@ -458,7 +462,7 @@ extension Strings {
               codex add                      Añadir una cuenta de Codex (inicio de sesión en el navegador)
               codex adopt <carpeta>          Añadir a la lista una carpeta de Codex encontrada en este Mac
               codex reauth <cuenta>          Volver a iniciar sesión en una cuenta de Codex
-              codex remove <cuenta>          Eliminar una cuenta de Codex (las carpetas encontradas solo se quitan de la lista)
+              codex remove <cuenta> --yes    Eliminar una cuenta de Codex (las carpetas encontradas solo se quitan de la lista)
               codex rename <cuenta> <nombre>|--reset
                                              Cambiar el nombre de una cuenta de Codex
               codex unhide                   Volver a mostrar las carpetas de Codex quitadas

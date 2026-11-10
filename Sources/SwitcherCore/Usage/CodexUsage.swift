@@ -125,7 +125,7 @@ public struct CodexUsageCollector: Sendable {
     private let now: @Sendable () -> Date
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
-                codexCLI: URL, clientVersion: String = "2.0.0", workingDirectory: URL,
+                codexCLI: URL, clientVersion: String = ProductInfo.fallbackVersion, workingDirectory: URL,
                 bundledCLI: URL? = nil, userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.status = status; self.runner = runner; self.codexCLI = codexCLI; self.bundledCLI = bundledCLI

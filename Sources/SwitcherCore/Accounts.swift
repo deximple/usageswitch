@@ -48,8 +48,11 @@ public struct SwitcherAccount: Codable, Equatable, Identifiable, Sendable {
         [label, Self.defaultName(for: identity)] + (identity.email.map { [$0] } ?? [])
     }
 
-    /// Case-insensitive form used to compare names.
-    public static func fold(_ name: String) -> String { name.folding(options: [.caseInsensitive], locale: nil) }
+    /// Case-insensitive, compatibility-normalized form used to compare names: NFKC makes
+    /// lookalike encodings (full-width, ligatures, decomposed marks) fold to one key.
+    public static func fold(_ name: String) -> String {
+        name.precomposedStringWithCompatibilityMapping.folding(options: [.caseInsensitive], locale: nil)
+    }
 
     public func answers(to name: String) -> Bool {
         let wanted = Self.fold(name)
@@ -78,15 +81,50 @@ public enum AccountNames {
     public static func validated(_ raw: String?) throws -> String? {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.count <= maxLength, !trimmed.unicodeScalars.contains(where: isForbidden) else {
+        // Checked after NFKC, so a compatibility character that expands can't exceed the limit.
+        let normalized = trimmed.precomposedStringWithCompatibilityMapping
+        guard normalized.count <= maxLength, !hasForbiddenScalar(in: normalized) else {
             throw SwitcherError.invalidAccountName(maxLength: maxLength)
         }
-        return trimmed
+        return normalized
     }
 
-    /// Format characters such as emoji joiners are fine; bidi overrides could make one name look like another.
+    /// U+200D (ZWJ) is allowed only between emoji scalars; every other forbidden scalar
+    /// is rejected wherever it appears (audit P3).
+    static func hasForbiddenScalar(in name: String) -> Bool {
+        let scalars = Array(name.unicodeScalars)
+        for (index, scalar) in scalars.enumerated() {
+            if scalar.value == 0x200D {
+                // Variation selectors and skin-tone modifiers belong to the emoji before them
+                // (`❤️‍🔥`, `🏳️‍🌈`, `👩🏽‍💻`), so look past them for the base emoji.
+                var leftIndex = index - 1
+                while leftIndex >= 0, Self.isEmojiPresentationModifier(scalars[leftIndex]) { leftIndex -= 1 }
+                let left = leftIndex >= 0 ? scalars[leftIndex] : nil
+                let right = index + 1 < scalars.count ? scalars[index + 1] : nil
+                let emoji = { (s: Unicode.Scalar?) -> Bool in
+                    guard let s else { return false }
+                    return s.properties.isEmoji && s.value > 0x7F
+                }
+                if emoji(left) && emoji(right) { continue }
+                return true
+            }
+            if isForbidden(scalar) { return true }
+        }
+        return false
+    }
+
+    static func isEmojiPresentationModifier(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value == 0xFE0E || scalar.value == 0xFE0F || (0x1F3FB...0x1F3FF).contains(scalar.value)
+    }
+
+    /// Format characters such as emoji joiners are fine; bidi overrides, invisible width/zero-space
+    /// marks and tag characters could make one name look like another.
     static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
         if scalar.properties.generalCategory == .control || CharacterSet.newlines.contains(scalar) { return true }
-        return (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value)
+        if (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value) { return true }
+        if (0x200B...0x200C).contains(scalar.value)
+            || (0x200E...0x200F).contains(scalar.value) || scalar.value == 0x2060
+            || scalar.value == 0xFEFF || scalar.value == 0x061C { return true }
+        return (0xE0000...0xE007F).contains(scalar.value)
     }
 }
