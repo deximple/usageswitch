@@ -116,6 +116,8 @@ struct UsageContent: View {
         .onChange(of: model.pace) { _, _ in model.recordSuggestionShownIfNeeded() }
         .onChange(of: settings.suggestionMode) { _, _ in model.recordSuggestionShownIfNeeded() }
         .onChange(of: settings.suggestionTask) { _, _ in model.recordSuggestionShownIfNeeded() }
+        .onChange(of: settings.suggestionUrgentUntil) { _, _ in model.recordSuggestionShownIfNeeded() }
+        .onChange(of: settings.usageWarnPercent) { _, _ in model.recordSuggestionShownIfNeeded() }
         .alert(L10n.t(.suggestionUrgentTitle), isPresented: $confirmingUrgentMode) {
             Button(L10n.t(.uiCancel), role: .cancel) {}
             Button(L10n.t(.suggestionUrgentConfirm)) {
