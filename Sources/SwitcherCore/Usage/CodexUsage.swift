@@ -119,13 +119,18 @@ public struct CodexUsageCollector: Sendable {
     private let clientVersion: String
     /// Must already exist; never created or removed here.
     private let workingDirectory: URL
+    /// The user's home, for the interpreter PATH. An account's `home` is its Codex folder
+    /// (`~/.codex`, or one in the store), not a home with `.local/bin` and the like.
+    private let userHome: URL
     private let now: @Sendable () -> Date
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
                 codexCLI: URL, clientVersion: String = "2.0.0", workingDirectory: URL,
-                bundledCLI: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
+                bundledCLI: URL? = nil, userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.status = status; self.runner = runner; self.codexCLI = codexCLI; self.bundledCLI = bundledCLI
-        self.clientVersion = clientVersion; self.workingDirectory = workingDirectory; self.now = now
+        self.clientVersion = clientVersion; self.workingDirectory = workingDirectory
+        self.userHome = userHome; self.now = now
     }
 
     public func collect() -> [AccountUsage] {
@@ -159,7 +164,7 @@ public struct CodexUsageCollector: Sendable {
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
         var env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
-            ? UsageChildEnvironment.make(for: codexCLI, home: URL(fileURLWithPath: account.home))
+            ? UsageChildEnvironment.make(for: codexCLI, home: userHome)
             : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
         env["CODEX_HOME"] = account.home
         let request = UsageProcessRequest(
