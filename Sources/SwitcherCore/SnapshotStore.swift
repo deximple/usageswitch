@@ -79,6 +79,11 @@ public struct SnapshotStore: Sendable {
 
     /// Removes the token caches from a config.json kept in the store (displaced copies, original backup).
     public func stripTokenCaches(inConfigAt url: URL) {
+        Self.stripTokenCaches(inConfigAt: url, fs: fs)
+    }
+
+    /// The same, usable where no store instance exists (e.g. inside SwapEngine.install).
+    public static func stripTokenCaches(inConfigAt url: URL, fs: SafeFS) {
         guard let data = FileManager.default.contents(atPath: url.path),
               (try? ClaudeConfig(data: data))?.hasTokenCache == true,
               let stripped = try? ClaudeConfig.strippingTokenCaches(data) else { return }

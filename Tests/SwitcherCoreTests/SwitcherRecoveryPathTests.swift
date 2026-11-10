@@ -33,6 +33,154 @@ struct SwitcherRecoveryPathTests {
         #expect(!exists(rig.env.previousDir) && !rig.switcher.isLocked(), sourceLocation: sourceLocation)
     }
 
+    @Test func setAsidePendingJournalMovesEverythingIntact() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        // Only a damaged journal can be set aside; a readable one is settled by recovery.
+        let broken = Data("{unreadable".utf8)
+        try broken.write(to: env.journalFile)
+        try FileManager.default.createDirectory(at: env.stagingDir, withIntermediateDirectories: true)
+        try Data("staged".utf8).write(to: env.stagingDir.appendingPathComponent("config.json"))
+
+        let destination = try rig.switcher.setAsidePendingJournal().destination
+        #expect(destination.deletingLastPathComponent().path == env.displacedDir.path)
+        #expect(destination.lastPathComponent.hasPrefix("journal-"))
+        #expect(!rig.switcher.status().pendingJournal)
+        #expect(String(decoding: try Data(contentsOf: destination.appendingPathComponent("previous/Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+        #expect(fileData(destination.appendingPathComponent("swap-journal.json")) == broken)
+        #expect(!exists(env.stagingDir))
+    }
+
+    @Test func setAsidePendingJournalIsRefusedWhileClaudeRuns() throws {
+        let rig = try Rig.make(); defer { rig.cleanup() } // Claude running
+        try Data("{".utf8).write(to: rig.env.journalFile)
+        #expect(throws: SwitcherError.self) { try rig.switcher.setAsidePendingJournal() }
+        #expect(rig.env.journalFile.path == rig.env.journalFile.path) // untouched
+        #expect(exists(rig.env.journalFile))
+    }
+
+    @Test func setAsideWaitsForThePersonalBuildsUnfinishedSwap() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        try Data("{".utf8).write(to: rig.env.journalFile)
+        try rig.sandbox.write("{}", to: rig.env.legacyJournalFile)
+        #expect(switcherError { _ = try rig.switcher.setAsidePendingJournal() } == .legacyRecoveryPending)
+        #expect(exists(rig.env.journalFile))
+        let displaced = (try? FileManager.default.contentsOfDirectory(atPath: rig.env.displacedDir.path)) ?? []
+        #expect(!displaced.contains { $0.hasPrefix("journal-") })
+    }
+
+    @Test func aReadableJournalCannotBeSetAside() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        let journal = SwapEngine.Journal(state: "installing", applied: [])
+        try JSONEncoder().encode(journal).write(to: env.journalFile)
+
+        #expect(throws: SwitcherError.self) { try rig.switcher.setAsidePendingJournal() }
+        #expect(exists(env.journalFile))
+        #expect(String(decoding: try Data(contentsOf: env.previousDir.appendingPathComponent("Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+    }
+
+    @Test func journalUnreadableIsTrueOnlyForADamagedJournal() throws {
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        #expect(!rig.switcher.status().journalUnreadable)
+        // A readable pending journal is pending but not unreadable.
+        try JSONEncoder().encode(SwapEngine.Journal(state: "installing", applied: []))
+            .write(to: rig.env.journalFile)
+        #expect(rig.switcher.status().pendingJournal)
+        #expect(!rig.switcher.status().journalUnreadable)
+        // A damaged one is both.
+        try Data("{broken".utf8).write(to: rig.env.journalFile)
+        #expect(rig.switcher.status().journalUnreadable)
+    }
+
+    @Test func setAsideKeepsStagingFilesLeftMidSwap() throws {
+        // install() can stop between swap and move: staging/ then holds the original live
+        // file — possibly the only copy of an unsaved sign-in. Set-aside must keep it too.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.stagingDir, withIntermediateDirectories: true)
+        try Data("ORIGINAL-live-config".utf8).write(to: env.stagingDir.appendingPathComponent("config.json"))
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        try Data("{unreadable".utf8).write(to: env.journalFile)
+
+        let result = try rig.switcher.setAsidePendingJournal()
+        let staged = result.destination.appendingPathComponent("staging/config.json")
+        #expect(String(decoding: try Data(contentsOf: staged), as: UTF8.self) == "ORIGINAL-live-config")
+        #expect(!exists(env.stagingDir))  // moved, not deleted
+        #expect(exists(result.destination.appendingPathComponent("swap-journal.json")))
+    }
+
+    @Test func setAsideRestoresSuspendedRelaunchers() throws {
+        // A damaged swap journal with Claude's relaunchers still suspended: set-aside must
+        // re-bootstrap them — nothing else would until the next recovery.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        _ = try rig.switcher.relaunchers.suspendAll()
+        #expect(!rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))
+        try Data("{unreadable".utf8).write(to: env.journalFile)
+
+        let result = try rig.switcher.setAsidePendingJournal()
+        #expect(rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))
+        #expect(rig.switcher.relaunchers.journal().isEmpty)   // suspended-relaunchers.json gone
+        #expect(result.restoreNotes == [L10n.t(.recoverRelaunchersRestored, AgentFixture.keepaliveLabel)])
+        #expect(!result.needsAttention)
+    }
+
+    @Test func displacedConfigsHaveNoTokenCachesAfterRecovery() throws {
+        // A crash during verification leaves an "installed" journal: recovery commits it and
+        // must strip token caches out of every displaced config.json (B-01).
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        let displaced = env.displacedDir.appendingPathComponent("unsaved-1")
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        let cached = Data(#"{"oauth:tokenCache":{"token":"x"},"lastKnownAccountUuid":"a"}"#.utf8)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        try cached.write(to: env.previousDir.appendingPathComponent("config.json"))
+        var journal = SwapEngine.Journal(state: "installed", applied: [])
+        journal.keepPreviousAt = displaced.path
+        try JSONEncoder().encode(journal).write(to: env.journalFile)
+
+        _ = rig.switcher.recoverIfNeeded()
+
+        let config = try #require(try? ClaudeConfig.load(displaced.appendingPathComponent("config.json")))
+        #expect(!config.hasTokenCache)
+        #expect(String(decoding: try Data(contentsOf: displaced.appendingPathComponent("Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+    }
+
+    @Test func anUnreadableJournalFailsBeforeAnythingIsSuspendedOrQuit() throws {
+        // A damaged swap journal must stop every session before relaunchers are suspended
+        // or Claude is quit — the live files may be mid-swap (audit B-03).
+        let rig = try Rig.make(enrolled: [.b]); defer { rig.cleanup() }
+        try Data("{broken".utf8).write(to: rig.env.journalFile)
+        func bootouts() -> Int { rig.world.read { $0.commands }.filter { $0.count > 1 && $0[1] == "bootout" }.count }
+        let log = StepLog()
+        #expect(switcherError { _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false, progress: log.append) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(bootouts() == 0)
+        #expect(rig.world.mainPID != nil) // Claude is still running, untouched
+        #expect(!log.steps.contains(.suspendingRelaunchers))
+    }
+
+    @Test func captureAndEnrollmentAlsoFailOnAnUnreadableJournal() throws {
+        let rig = try Rig.make(); defer { rig.cleanup() }
+        try Data("{broken".utf8).write(to: rig.env.journalFile)
+        func bootouts() -> Int { rig.world.read { $0.commands }.filter { $0.count > 1 && $0[1] == "bootout" }.count }
+        #expect(switcherError { _ = try rig.switcher.captureCurrent(confirmed: false) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(switcherError { try rig.switcher.beginEnrollment(confirmed: false) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(bootouts() == 0)
+        #expect(rig.world.mainPID != nil)
+    }
+
     // MARK: Launch faults that persist through the rollback relaunch
 
     @Test func noVerdictThatPersistsLeavesRollbackUnverified() throws {

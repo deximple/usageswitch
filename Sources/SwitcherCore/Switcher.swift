@@ -286,6 +286,41 @@ public final class Switcher: @unchecked Sendable {
     @discardableResult
     public func recoverIfNeeded() -> [String] { runRecovery().notes }
 
+    /// Moves a damaged swap journal and everything it may still protect — `previous/`, `staging/`
+    /// (an interrupted swap can leave the only copy of a sign-in in it) — out of the way under
+    /// `displaced/journal-<epoch>`. Nothing is deleted: the kept files can be inspected or restored
+    /// by hand. With no journal left, Claude's suspended relaunchers are restored like recovery does.
+    /// Refused while Claude runs or while another session holds the lock.
+    @discardableResult
+    public func setAsidePendingJournal() throws -> (destination: URL, restoreNotes: [String], needsAttention: Bool) {
+        try acquireLock()
+        defer { releaseLock() }
+        // The 1.0 build's unfinished swap must recover first; restoring relaunchers now could start Claude on mixed files.
+        guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
+        guard processes.mainProcess() == nil else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
+        }
+        // Only a damaged journal may be set aside: a readable one is settled by normal
+        // recovery — rolling it back or committing it — never silently skipped.
+        guard swapper.journalIsUnreadable() else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonJournalReadable))
+        }
+        let destination = env.displacedDir.appendingPathComponent(
+            "journal-\(Int(clock.now().timeIntervalSince1970))")
+        try fs.createDirectory(env.displacedDir)
+        try fs.createDirectory(destination)
+        if SwapEngine.exists(env.previousDir) {
+            try fs.move(env.previousDir, to: destination.appendingPathComponent("previous"))
+        }
+        if SwapEngine.exists(env.stagingDir) {
+            try fs.move(env.stagingDir, to: destination.appendingPathComponent("staging"))
+        }
+        try fs.move(env.journalFile, to: destination.appendingPathComponent("swap-journal.json"))
+        var notes: [String] = []
+        let needsAttention = restoreSuspendedRelaunchers(notes: &notes)
+        return (destination, notes, needsAttention)
+    }
+
     private func runRecovery() -> (notes: [String], locked: Bool, failed: Bool) {
         do {
             try acquireLock()
@@ -316,7 +351,9 @@ public final class Switcher: @unchecked Sendable {
             do {
                 switch try swapper.resolvePending() {
                 case .rolledBack: notes.append(L10n.t(.recoverRolledBack))
-                case .committed: notes.append(L10n.t(.recoverCommitted))
+                case .committed:
+                    notes.append(L10n.t(.recoverCommitted))
+                    swapper.stripDisplacedTokenCaches()
                 case nil: break
                 }
             } catch {
@@ -329,6 +366,13 @@ public final class Switcher: @unchecked Sendable {
             if !relaunchers.journal().isEmpty { notes.append(L10n.t(.recoverRelaunchersHeld)) }
             return (notes, false, failed)
         }
+        _ = restoreSuspendedRelaunchers(notes: &notes)
+        return (notes, false, failed)
+    }
+
+    /// The tail recovery runs once no swap journal is left: restore Claude's suspended relaunchers
+    /// and report any left suspended. Returns true when something needs attention (audit B-03).
+    private func restoreSuspendedRelaunchers(notes: inout [String]) -> Bool {
         if relaunchers.journalIsUnreadable() { notes.append(L10n.t(.recoverRelauncherJournalUnreadable)) }
         let restored = relaunchers.restoreAll()
         if !restored.isEmpty { notes.append(L10n.t(.recoverRelaunchersRestored, restored.map(\.label).joined(separator: ", "))) }
@@ -337,7 +381,7 @@ public final class Switcher: @unchecked Sendable {
         if !stillSuspended.isEmpty {
             notes.append(L10n.t(.warnRelaunchersSuspended, stillSuspended.joined(separator: ", ")))
         }
-        return (notes, false, failed)
+        return relaunchers.journalIsUnreadable() || !stillSuspended.isEmpty
     }
 
     // MARK: - Switch
@@ -386,8 +430,8 @@ public final class Switcher: @unchecked Sendable {
             // A recapture of the same identity (forced re-apply) produces a fresher generation; use the newest.
             let install = store.latest(for: identity) ?? snapshot
             if install != snapshot { try store.verify(install) }
-            try stageAndInstall(cookiesFrom: install.dir, mutation: .restore(accountUuid: identity.accountUuid), stripAuthRows: false)
-            try swapper.setKeepPrevious(displaced)
+            try stageAndInstall(cookiesFrom: install.dir, mutation: .restore(accountUuid: identity.accountUuid),
+                                stripAuthRows: false, keepPreviousAt: displaced)
             try launchAndVerify(target: identity, previous: from, fault: fault, keepPreviousAt: displaced, progress: progress)
         }
         progress(.done)
@@ -441,8 +485,10 @@ public final class Switcher: @unchecked Sendable {
         try withExclusiveSession(confirmed: confirmed, progress: progress) { quit in
             let saved = try recaptureOutgoing(quitClean: quit.clean, accounts: all, emails: emails, progress: progress)
             // Never clear the only copy of a sign-in: proceed only if it was just saved, is already saved, or
-            // the live jar holds no valid sign-in.
-            if !saved, unsavedSignInName(accounts: all) != nil { throw SwitcherError.cannotSaveCurrentLogin }
+            // the live jar holds no valid sign-in. An unreadable jar is refused, not assumed empty (B-02).
+            if !saved, liveSignIn() == .unknown || unsavedSignInName(accounts: all) != nil {
+                throw SwitcherError.cannotSaveCurrentLogin
+            }
             progress(.backingUp)
             try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
             progress(.swapping)
@@ -509,6 +555,12 @@ public final class Switcher: @unchecked Sendable {
         guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
         try precheck()
 
+        // An unreadable swap journal means the live files may be mid-swap: fail before anything is
+        // suspended or Claude is quit, so nothing is made worse (audit B-03).
+        guard !swapper.journalIsUnreadable() else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonJournalCorrupt))
+        }
+
         progress(.suspendingRelaunchers)
         // Registered before suspending: a partial failure must still re-bootstrap the agents already booted out.
         // While a swap journal is unresolved the files may be mixed, so the relaunchers stay suspended.
@@ -563,11 +615,27 @@ public final class Switcher: @unchecked Sendable {
 
     // MARK: - Steps
 
+    /// What the live cookie jar says about the sign-in: a valid session, definitely none,
+    /// or unreadable — an unreadable jar is never "signed out" (audit B-02).
+    enum LiveSignIn { case valid, none, unknown }
+
+    func liveSignIn() -> LiveSignIn {
+        guard FileManager.default.fileExists(atPath: env.claudeCookies.path) else { return .none }
+        do {
+            guard let info = try CookieJar.sessionInfo(of: env.claudeCookies) else { return .none }
+            return info.isValid(at: clock.now()) ? .valid : .none
+        } catch { return .unknown }
+    }
+
     /// Non-nil when the live jar still holds a valid sessionKey that has no usable snapshot. "Signed in" is
     /// read from the jar itself, not inferred from logs, so an unknown identity is never treated as signed out.
     /// Returns a directory-safe name for keeping the files aside.
     func unsavedSignInName(accounts: [SwitcherAccount]) -> String? {
-        guard let info = try? CookieJar.sessionInfo(of: env.claudeCookies), info.isValid(at: clock.now()) else { return nil }
+        switch liveSignIn() {
+        case .none: return nil
+        case .unknown: return "unknown"
+        case .valid: break
+        }
         guard let active = activeIdentity() else { return "unknown" }
         let identity = identityFor(account: active.account, org: active.org, among: accounts)
         return store.hasUsableSnapshot(for: identity, now: clock.now()) ? nil : identity.key
@@ -585,12 +653,14 @@ public final class Switcher: @unchecked Sendable {
 
     /// Design D2-5: the live jar must hold a valid sessionKey row and no logout may follow the last sign-in.
     func recaptureGuardPasses() throws -> Bool {
-        guard let info = try? CookieJar.sessionInfo(of: env.claudeCookies), info.isValid(at: clock.now()) else { return false }
+        // An unreadable jar is not recaptured into a snapshot (B-02).
+        guard liveSignIn() == .valid else { return false }
         // Anchored on the last `Initialization succeeded`, not on token lookups (design D2-5).
         return log.signedInSinceLastInit()
     }
 
-    func stageAndInstall(cookiesFrom source: URL, mutation: ClaudeConfig.Mutation, stripAuthRows: Bool) throws {
+    func stageAndInstall(cookiesFrom source: URL, mutation: ClaudeConfig.Mutation, stripAuthRows: Bool,
+                         keepPreviousAt destination: URL? = nil) throws {
         let staging = try swapper.prepareStaging()
         for name in SnapshotItems.cookieGroup {
             let src = source.appendingPathComponent(name)
@@ -604,7 +674,8 @@ public final class Switcher: @unchecked Sendable {
         }
         try fs.write(try ClaudeConfig.mutated(liveConfig, mutation), to: staging.appendingPathComponent(SnapshotItems.config))
         do {
-            try swapper.install(names: [SnapshotItems.config] + SnapshotItems.cookieGroup)
+            try swapper.install(names: [SnapshotItems.config] + SnapshotItems.cookieGroup,
+                                keepPreviousAt: destination)
         } catch SwitcherError.swapInterrupted {
             // Something relaunched Claude mid-swap: quit it again and roll back while we still hold the session.
             if (try? quitClaude(progress: { _ in })) != nil, processes.mainProcess() == nil, (try? swapper.rollback()) != nil {

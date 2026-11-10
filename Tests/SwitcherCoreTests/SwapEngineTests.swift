@@ -106,7 +106,9 @@ struct SwapEngineTests {
         let sb = try Sandbox(); defer { sb.remove() }
         let engine = SwapEngine(env: sb.env, fs: sb.fs, isClaudeRunning: { false })
         try prepare(sb, engine: engine)
-        try engine.install(names: Self.names)
+        // Recorded in the first journal save (B-01): a crash before commit still lands previous/ here.
+        let keep = sb.env.displacedDir.appendingPathComponent("kept-1")
+        try engine.install(names: Self.names, keepPreviousAt: keep)
         let previous = fingerprint(sb.env.previousDir, Self.names)
         let forbidden = try sb.scratch("elsewhere").appendingPathComponent("kept")
         #expect(switcherError { try engine.commit(keepPreviousAt: forbidden) } != nil)
@@ -116,8 +118,6 @@ struct SwapEngineTests {
         #expect(text(sb.env.claudeCookies) == "new-cookies")
 
         // Recorded destination inside the store: the retry through resolvePending() keeps the copy.
-        let keep = sb.env.displacedDir.appendingPathComponent("kept-1")
-        try engine.setKeepPrevious(keep)
         #expect(try engine.resolvePending() == .committed)
         #expect(!engine.journalPresent && !exists(sb.env.previousDir))
         #expect(fingerprint(keep, Self.names) == previous)

@@ -66,6 +66,41 @@ struct SwitcherOutgoingSignInTests {
         #expect(!exists(rig.env.previousDir))
     }
 
+    // MARK: an unreadable live jar is never "signed out" (audit B-02)
+
+    @Test func anUnreadableLiveJarIsKeptAsideOnSwitch() throws {
+        let rig = try Rig.make(active: .a, enrolled: [.b]); defer { rig.cleanup() }
+        let original = Data("this is not a sqlite database".utf8)
+        try original.write(to: rig.env.claudeCookies)
+        let result = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false)
+        #expect(result.outcome == "switched")
+        let kept = URL(fileURLWithPath: try #require(result.displacedPrevious))
+        #expect(fileData(kept.appendingPathComponent("Cookies")) == original)
+        // The jar could not be read: it is kept aside, not treated as signed out and deleted.
+        #expect(!rig.switcher.swapper.journalPresent && !exists(rig.env.previousDir))
+    }
+
+    @Test func aJarWhoseSchemaChangedIsKeptAside() throws {
+        let rig = try Rig.make(active: .a, enrolled: [.b]); defer { rig.cleanup() }
+        let db = try TestDB(rig.env.claudeCookies, create: false)
+        try db.exec("ALTER TABLE cookies RENAME COLUMN is_httponly TO is_httponly2")
+        db.close()
+        let original = fileData(rig.env.claudeCookies)
+        let result = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false)
+        #expect(result.outcome == "switched")
+        let kept = URL(fileURLWithPath: try #require(result.displacedPrevious))
+        #expect(fileData(kept.appendingPathComponent("Cookies")) == original)
+    }
+
+    @Test func enrollmentRefusesWhenTheLiveJarCannotBeRead() throws {
+        let rig = try Rig.make(enrolled: []); defer { rig.cleanup() }
+        let original = Data("this is not a sqlite database".utf8)
+        try original.write(to: rig.env.claudeCookies)
+        #expect(switcherError { try rig.switcher.beginEnrollment(confirmed: false) }
+            == .cannotSaveCurrentLogin)
+        #expect(fileData(rig.env.claudeCookies) == original)
+    }
+
     // MARK: beginEnrollment never clears the only copy of a sign-in
 
     @Test func enrollmentRefusesWhenTheCurrentSignInCannotBeSaved() throws {

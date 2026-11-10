@@ -462,8 +462,7 @@ struct SwitcherSwitchTests {
         _ = try rig.switcher.swapper.prepareStaging()
         try rig.sandbox.fs.copy(try #require(rig.switcher.store.latest(for: FakeIdentity.b.identity)).dir.appendingPathComponent("Cookies"),
                                 to: rig.env.stagingDir.appendingPathComponent("Cookies"))
-        try rig.switcher.swapper.install(names: SnapshotItems.cookieGroup)
-        try rig.switcher.swapper.setKeepPrevious(keepAt)
+        try rig.switcher.swapper.install(names: SnapshotItems.cookieGroup, keepPreviousAt: keepAt)
         #expect(rig.switcher.swapper.pendingJournal()?.state == "installed")
         // Recovery commits the installed journal and honours the recorded destination.
         _ = rig.switcher.recoverIfNeeded()

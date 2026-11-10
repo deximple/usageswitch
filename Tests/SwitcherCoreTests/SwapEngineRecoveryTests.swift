@@ -32,6 +32,48 @@ struct SwapEngineRecoveryTests {
         .init(name: "Cookies-wal", point: .afterSave), .init(name: "Cookies-wal", point: .afterMove),
     ]
 
+    @Test func aCrashRightAfterInstallStillKeepsTheUnsavedSignIn() throws {
+        // From docs/evidence/full-audit-20261110-repro/KeepPreviousRepro.swift, expectation inverted (B-01):
+        // keepPreviousAt is in the first journal save, so a crash before the old setKeepPrevious call
+        // still lands the outgoing files in displaced/.
+        let sb = try Sandbox(); defer { sb.remove() }
+        let env = sb.env
+        let engine = SwapEngine(env: env, fs: sb.fs, isClaudeRunning: { false })
+        try Data("OUTGOING-config".utf8).write(to: env.claudeUserData.appendingPathComponent("config.json"))
+        try Data("OUTGOING-cookies".utf8).write(to: env.claudeUserData.appendingPathComponent("Cookies"))
+        let displaced = env.displacedDir.appendingPathComponent("unsaved-account-1")
+        let staging = try engine.prepareStaging()
+        try sb.fs.write(Data("TARGET-config".utf8), to: staging.appendingPathComponent("config.json"))
+        try sb.fs.write(Data("TARGET-cookies".utf8), to: staging.appendingPathComponent("Cookies"))
+        try engine.install(names: ["config.json", "Cookies"], keepPreviousAt: displaced)
+        #expect(engine.pendingJournal()?.keepPreviousAt == displaced.path)
+
+        // <- the process dies here. Next launch: recovery settles the journal.
+        #expect(try engine.resolvePending() == .committed)
+        #expect(String(decoding: try Data(contentsOf: displaced.appendingPathComponent("Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+        #expect(!FileManager.default.fileExists(atPath: env.previousDir.path))
+        #expect(engine.pendingJournal() == nil)
+    }
+
+    @Test func theFirstJournalSaveAlreadyCarriesTheDestination() throws {
+        // Claude launches before the first item is applied: install aborts but the journal
+        // written before the loop must already carry keepPreviousAt.
+        let sb = try Sandbox(); defer { sb.remove() }
+        let env = sb.env
+        let engine = SwapEngine(env: env, fs: sb.fs, isClaudeRunning: { true })
+        try Data("OUTGOING-config".utf8).write(to: env.claudeUserData.appendingPathComponent("config.json"))
+        try Data("OUTGOING-cookies".utf8).write(to: env.claudeUserData.appendingPathComponent("Cookies"))
+        let displaced = env.displacedDir.appendingPathComponent("unsaved-account-2")
+        let staging = try engine.prepareStaging()
+        try sb.fs.write(Data("TARGET-config".utf8), to: staging.appendingPathComponent("config.json"))
+        try sb.fs.write(Data("TARGET-cookies".utf8), to: staging.appendingPathComponent("Cookies"))
+        #expect(throws: SwitcherError.self) {
+            try engine.install(names: ["config.json", "Cookies"], keepPreviousAt: displaced)
+        }
+        #expect(engine.pendingJournal()?.keepPreviousAt == displaced.path)
+    }
+
     /// `legacy`: the journal was written before `originalDigest` existed, so recovery uses `stagedDigest`.
     @Test(arguments: SwapEngineRecoveryTests.crashCases, [false, true])
     func interruptedInstallRollsBackByteIdentical(_ crash: CrashCase, legacy: Bool) throws {
