@@ -136,9 +136,13 @@ public struct SuggestionLogPass: Equatable, Sendable {
     public let pendingAccounts: Set<APIKeyAccountKey>
     /// The UTC day this reader first read logs into the current store, when known.
     public let firstPassDay: String?
+    /// The pass could not complete: stored spend is partial and the estimator must not call it final.
+    public let failed: Bool
 
     public init(records: [SuggestionLogUsage], bytesRead: Int, pendingBytes: Int = 0,
-                pendingAccounts: Set<APIKeyAccountKey> = [], firstPassDay: String? = nil) {
+                pendingAccounts: Set<APIKeyAccountKey> = [], firstPassDay: String? = nil,
+                failed: Bool = false) {
+        self.failed = failed
         self.records = records
         self.bytesRead = bytesRead
         self.pendingBytes = pendingBytes
@@ -192,6 +196,9 @@ public final class SuggestionLogReader: @unchecked Sendable {
     private struct FileCursorState: Codable {
         var cursors: [String: Cursor]
         var firstPassDay: String?
+        /// After an unreadable-cursor recovery, days before this are already in the kept
+        /// store and must not be counted again on the rebuild pass.
+        var rebuildFromDay: String?
     }
 
     private enum CursorLoad {
@@ -371,25 +378,33 @@ public final class SuggestionLogReader: @unchecked Sendable {
                      priorityAccountRefs: Set<String> = []) -> SuggestionLogPass {
         lock.lock()
         defer { lock.unlock() }
-        guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: 0) }
+        guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: 0, failed: true) }
         do { try fs.createDirectory(directory) } catch {
-            return SuggestionLogPass(records: [], bytesRead: 0)
+            return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         }
         SuggestionRetention.prune(directory: directory, fs: fs, now: now, reader: boundedReader)
         var state: FileCursorState
         switch loadCursors() {
-        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
+        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now), rebuildFromDay: nil)
         case .loaded(let loaded): state = loaded
-        case .stalled: return SuggestionLogPass(records: [], bytesRead: 0)
+        case .stalled: return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         case .unreadable:
-            // Offsets are lost, so what was already counted is unknown: set the cursor file aside,
-            // drop the stored usage and let the next pass count everything once from the start.
-            // If the file cannot be set aside nothing is removed: the pass is skipped and tried again.
+            // Offsets are lost, so what was already counted is unknown: set the cursor file aside
+            // and rebuild only the days a re-read can fully reproduce — eligibleFiles reaches back
+            // 14 days by mtime, so any day inside rebuildFromDay is re-counted exactly once while
+            // older stored days are kept. If the file cannot be set aside nothing is removed.
             guard (try? fs.move(cursorFile, to: directory.appendingPathComponent(
                 "log-cursors.json.unreadable-\(Int(now.timeIntervalSince1970))"))) != nil
-            else { return SuggestionLogPass(records: [], bytesRead: 0) }
-            usageStore.removeAll()
-            return SuggestionLogPass(records: [], bytesRead: 0)
+            else { return SuggestionLogPass(records: [], bytesRead: 0, failed: true) }
+            let rebuildFromDay = SuggestionRetention.utcDay(now.addingTimeInterval(-13 * 86_400))
+            usageStore.removeDays(from: rebuildFromDay)
+            // Without the marker the next pass would load .missing and double-count the kept days.
+            state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now),
+                                    rebuildFromDay: rebuildFromDay)
+            if (try? saveCursors(state)) == nil {
+                usageStore.removeAll()
+            }
+            return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         }
         var cursors = state.cursors
         let files = eligibleFiles(roots: roots, now: now, priorityAccountRefs: priorityAccountRefs)
@@ -457,7 +472,9 @@ public final class SuggestionLogReader: @unchecked Sendable {
             }
         }
 
-        let records = totals.map { key, value in
+        let records = totals.filter { key, _ in
+            state.rebuildFromDay.map { key.day >= $0 } ?? true
+        }.map { key, value in
             SuggestionLogUsage(day: key.day, provider: key.provider, accountRef: key.accountRef,
                                model: key.model, effort: key.effort, turns: value.turns,
                                inputTokens: value.inputTokens, cachedInputTokens: value.cachedInputTokens,
@@ -470,11 +487,11 @@ public final class SuggestionLogReader: @unchecked Sendable {
                 < ($1.day, $1.provider.rawValue, $1.accountRef, $1.model, $1.effort ?? "", $1.toolVersion ?? "")
         }
 
-        guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: totalRead) }
+        guard !Task.isCancelled else { return SuggestionLogPass(records: [], bytesRead: totalRead, failed: true) }
         // Records and cursors go together: if either write fails, neither is kept and the next pass
         // reads the same bytes again.
         guard let appended = usageStore.append(records) else {
-            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay)
+            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay, failed: true)
         }
         // Old cursor files have no `lastSeenAt`; their clock starts now.
         state.cursors = cursors.compactMapValues { cursor in
@@ -484,7 +501,7 @@ public final class SuggestionLogReader: @unchecked Sendable {
         }
         do { try saveCursors(state) } catch {
             SuggestionStorage.rollBack(appended, fs: fs)
-            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay)
+            return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay, failed: true)
         }
         let pending = unread.values.filter { $0.bytes > 0 }
         return SuggestionLogPass(
@@ -891,6 +908,17 @@ private final class SuggestionLogUsageStore {
         } catch {
             SuggestionStorage.rollBack(appended, fs: fs)
             return nil
+        }
+    }
+
+    /// Removes stored usage files (current and archived) for every day on or after `fromDay`.
+    func removeDays(from fromDay: String) {
+        let archiveDirectory = directory.appendingPathComponent("archive", isDirectory: true)
+        for folder in [directory, archiveDirectory] {
+            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            for file in files where Self.day(in: file.lastPathComponent).map({ $0 >= fromDay }) == true {
+                try? fs.remove(file)
+            }
         }
     }
 

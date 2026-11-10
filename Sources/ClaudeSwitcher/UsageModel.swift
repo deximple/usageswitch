@@ -633,11 +633,11 @@ final class UsageModel: ObservableObject {
             let estimates = catalog.map {
                 APIUsageEstimator.estimate(records: reader.recentRecords(now: now, days: 35),
                                            apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now,
-                                           incompleteAccounts: pass.pendingAccounts,
+                                           incompleteAccounts: pass.failed ? apiKeyAccounts : pass.pendingAccounts,
                                            coverageStartDay: SuggestionLogPass.coverageStartDay(
                                                firstPassDay: pass.firstPassDay))
             } ?? [:]
-            return (reader.recentSummary(now: now), estimates, pass.pendingBytes > 0)
+            return (reader.recentSummary(now: now), estimates, pass.failed || pass.pendingBytes > 0)
         }
         suggestionLogTask = Task { @MainActor [weak self] in
             let result = await withTaskCancellationHandler(operation: {
