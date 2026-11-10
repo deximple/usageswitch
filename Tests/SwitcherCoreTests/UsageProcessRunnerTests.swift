@@ -50,6 +50,23 @@ struct UsageProcessRunnerTests {
         #expect(path.contains(NSHomeDirectory() + "/.local/bin"))
     }
 
+    @Test func aRelativeLauncherLinkAddsTheTargetsFolder() throws {
+        // npm links `bin/codex -> ../lib/node_modules/@openai/codex/bin/codex.js`.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uenv-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let target = root.appendingPathComponent("lib/pkg/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "#!/usr/bin/env node\n".write(to: target.appendingPathComponent("codex.js"), atomically: true, encoding: .utf8)
+        let launcher = bin.appendingPathComponent("codex")
+        try FileManager.default.createSymbolicLink(atPath: launcher.path, withDestinationPath: "../lib/pkg/bin/codex.js")
+        let path = try #require(UsageChildEnvironment.make(for: launcher, home: root)["PATH"])
+            .split(separator: ":").map { String($0) }
+        #expect(Array(path[0...1]) == [bin.path, target.path])
+    }
+
     @Test func nothingElseFromTheCallerEnvironmentIsAdded() throws {
         let root = FileManager.default.temporaryDirectory
         let env = UsageChildEnvironment.make(

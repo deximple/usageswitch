@@ -237,6 +237,8 @@ final class SwitcherModel: ObservableObject {
                     return
                 }
             }
+            // Still not ready after 10 s: say so rather than dropping the link silently.
+            banner = .init(kind: .info, text: L10n.t(.uiLinkBusy))
         }
     }
 

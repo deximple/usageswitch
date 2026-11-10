@@ -9,10 +9,10 @@ public enum UsageChildEnvironment {
     /// folders — deduplicated. Extras beat user bins so a call site can pin an interpreter.
     public static func make(for launcher: URL, home: URL, extraDirectories: [URL] = []) -> [String: String] {
         var environment = SystemClaudeAppControl.cleanEnvironment(from: ProcessInfo.processInfo.environment)
-        var dirs: [URL] = [launcher.deletingLastPathComponent()]
-        if let resolved = try? FileManager.default.destinationOfSymbolicLink(atPath: launcher.path) {
-            dirs.append(URL(fileURLWithPath: resolved, isDirectory: true).deletingLastPathComponent())
-        }
+        // Fully resolved, so a relative link target (npm writes `../lib/…`) is taken from the
+        // link's own folder, not from this process's working directory.
+        var dirs: [URL] = [launcher.deletingLastPathComponent(),
+                           launcher.resolvingSymlinksInPath().deletingLastPathComponent()]
         dirs += [URL(fileURLWithPath: "/usr/bin", isDirectory: true),
                  URL(fileURLWithPath: "/bin", isDirectory: true),
                  URL(fileURLWithPath: "/usr/sbin", isDirectory: true),
