@@ -520,6 +520,12 @@ public final class Switcher: @unchecked Sendable {
         guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
         try precheck()
 
+        // An unreadable swap journal means the live files may be mid-swap: fail before anything is
+        // suspended or Claude is quit, so nothing is made worse (audit B-03).
+        guard !swapper.journalIsUnreadable() else {
+            throw SwitcherError.swapFailed(L10n.t(.reasonJournalCorrupt))
+        }
+
         progress(.suspendingRelaunchers)
         // Registered before suspending: a partial failure must still re-bootstrap the agents already booted out.
         // While a swap journal is unresolved the files may be mixed, so the relaunchers stay suspended.

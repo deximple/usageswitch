@@ -55,6 +55,32 @@ struct SwitcherRecoveryPathTests {
                        as: UTF8.self) == "OUTGOING-cookies")
     }
 
+    @Test func anUnreadableJournalFailsBeforeAnythingIsSuspendedOrQuit() throws {
+        // A damaged swap journal must stop every session before relaunchers are suspended
+        // or Claude is quit — the live files may be mid-swap (audit B-03).
+        let rig = try Rig.make(enrolled: [.b]); defer { rig.cleanup() }
+        try Data("{broken".utf8).write(to: rig.env.journalFile)
+        func bootouts() -> Int { rig.world.read { $0.commands }.filter { $0.count > 1 && $0[1] == "bootout" }.count }
+        let log = StepLog()
+        #expect(switcherError { _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false, progress: log.append) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(bootouts() == 0)
+        #expect(rig.world.mainPID != nil) // Claude is still running, untouched
+        #expect(!log.steps.contains(.suspendingRelaunchers))
+    }
+
+    @Test func captureAndEnrollmentAlsoFailOnAnUnreadableJournal() throws {
+        let rig = try Rig.make(); defer { rig.cleanup() }
+        try Data("{broken".utf8).write(to: rig.env.journalFile)
+        func bootouts() -> Int { rig.world.read { $0.commands }.filter { $0.count > 1 && $0[1] == "bootout" }.count }
+        #expect(switcherError { _ = try rig.switcher.captureCurrent(confirmed: false) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(switcherError { try rig.switcher.beginEnrollment(confirmed: false) }
+            == .swapFailed(L10n.t(.reasonJournalCorrupt)))
+        #expect(bootouts() == 0)
+        #expect(rig.world.mainPID != nil)
+    }
+
     // MARK: Launch faults that persist through the rollback relaunch
 
     @Test func noVerdictThatPersistsLeavesRollbackUnverified() throws {
