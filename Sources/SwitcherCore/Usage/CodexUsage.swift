@@ -115,13 +115,15 @@ public struct CodexUsageCollector: Sendable {
     private let codexCLI: URL
     /// The version sent in the initialize `clientInfo` (the app's own version).
     private let clientVersion: String
+    /// Must already exist; never created or removed here.
+    private let workingDirectory: URL
     private let now: @Sendable () -> Date
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
-                codexCLI: URL, clientVersion: String = "2.0.0",
+                codexCLI: URL, clientVersion: String = "2.0.0", workingDirectory: URL,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.status = status; self.runner = runner; self.codexCLI = codexCLI
-        self.clientVersion = clientVersion; self.now = now
+        self.clientVersion = clientVersion; self.workingDirectory = workingDirectory; self.now = now
     }
 
     public func collect() -> [AccountUsage] {
@@ -153,15 +155,12 @@ public struct CodexUsageCollector: Sendable {
         }
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
-        let workDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("usageswitch-codex-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: workDir) }
+        guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
             environment: SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home)),
-            workingDirectory: workDir,
+            workingDirectory: workingDirectory,
             stdinLines: Self.stdinLines(version: clientVersion),
             stopWhen: { CodexRateLimitsParser.isAnswer($0) },
             timeout: 15)

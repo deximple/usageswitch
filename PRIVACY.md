@@ -51,6 +51,7 @@ All data stays in `~/Library/Application Support/com.jaysong.usageswitch/`. Usag
 |---|---|
 | `codex/` | One folder per account added with **Add Codex account**. Each holds: <ul><li>`home`, its Codex home. Codex's own CLI writes the account's `auth.json` there, as it does in `~/.codex`.</li><li>`app-data`, the Codex app's data for that account.</li></ul> |
 | `codex-app-data/` | The Codex app's data for homes added from **Found on this Mac**. A home that already has its own Codex app-data folder in `~/Library/Application Support` keeps using that one instead. |
+| `cli-workdir/` | Two empty folders (`claude/`, `codex/`). UsageSwitch starts the vendor CLIs there when it reads usage, so a CLI that records its working directory records one fixed entry. |
 | `codex-accounts.json` | Names, the homes you added from this Mac, and the homes you hid. |
 
 **Settings:** `settings.json` holds the language, display options, usage-connection grants, and any explicitly enabled saved-Claude-account profile bindings (account/organization IDs and the canonical profile path), not provider tokens. The profile path is not included in the usage snapshot. The window position and a few launch details are kept in macOS preferences (`com.jaysong.usageswitch`).

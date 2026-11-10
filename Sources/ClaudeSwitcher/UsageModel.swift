@@ -365,6 +365,12 @@ final class UsageModel: ObservableObject {
                 bundledCodexCLI: env.codexCLI)
             // Inventory first: uninstalled providers vanish before any subprocess starts.
             await MainActor.run { self.publishInventory(installed, generation: generation) }
+            // Fixed, empty folders the vendor CLIs start in. If they cannot be made, the Claude and
+            // Codex rows report a failed read instead of running from somewhere else.
+            let claudeWorkDir = env.cliWorkDir.appendingPathComponent("claude", isDirectory: true)
+            let codexWorkDir = env.cliWorkDir.appendingPathComponent("codex", isDirectory: true)
+            let fs = SafeFS(env: env)
+            for directory in [claudeWorkDir, codexWorkDir] { try? fs.createDirectory(directory) }
             let transport = SystemUsageHTTPTransport()
             let http = SystemUsageHTTP(transport: transport)
             let credentials = UsageFileCredentialReader()
@@ -380,13 +386,13 @@ final class UsageModel: ObservableObject {
                         // App-only Claude gets an empty path list: honest cliMissing, never a guessed binary.
                         let binaryPaths = installation.cli.map { [$0] } ?? []
                         var rows = [ClaudeUsageCollector(runner: runner,
-                            binaryPaths: binaryPaths).collect()]
+                            binaryPaths: binaryPaths, workingDirectory: claudeWorkDir).collect()]
                         let excludedRoots = [env.claudeUserData, env.storeDir]
                         for binding in activeBindings {
                             if Task.isCancelled { break }
                             if let row = ClaudeProfileUsageCollector(binding: binding, runner: runner,
                                 home: env.home, managed: .system, binaryPaths: binaryPaths,
-                                excludedRoots: excludedRoots).collect() {
+                                excludedRoots: excludedRoots, workingDirectory: claudeWorkDir).collect() {
                                 rows.append(row)
                             }
                         }
@@ -395,7 +401,7 @@ final class UsageModel: ObservableObject {
                         // App-only Codex falls back to the bundled path -> existing missing state.
                         return CodexUsageCollector(status: { CodexManager().status() },
                             runner: runner, codexCLI: installation.cli ?? env.codexCLI,
-                            clientVersion: version).collect()
+                            clientVersion: version, workingDirectory: codexWorkDir).collect()
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
                             http: http, home: env.home).collect()

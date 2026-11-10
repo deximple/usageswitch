@@ -5,6 +5,8 @@ import Testing
 @Suite("Codex usage")
 struct CodexUsageTests {
     let cli = URL(fileURLWithPath: "/fake/codex")
+    /// An existing folder; the collector neither creates nor removes it.
+    let workDir = FileManager.default.temporaryDirectory
 
     /// The redacted account the recorded fixtures attribute their reads to.
     static let fixtureAccountId = "00000000-0000-0000-0000-000000000000"
@@ -37,7 +39,8 @@ struct CodexUsageTests {
     }
 
     func collector(_ status: CodexStatus, runner: FakeUsageRunner) -> CodexUsageCollector {
-        CodexUsageCollector(status: { status }, runner: runner, codexCLI: cli, now: { Date(timeIntervalSince1970: 1_780_000_000) })
+        CodexUsageCollector(status: { status }, runner: runner, codexCLI: cli, workingDirectory: workDir,
+                            now: { Date(timeIntervalSince1970: 1_780_000_000) })
     }
 
     static func lines(_ fixture: String) -> [String] {
@@ -220,7 +223,17 @@ struct CodexUsageTests {
         #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: "2.0.0"))
         #expect(request.stdinLines?.first?.contains(#""version":"2.0.0""#) == true)
         #expect(request.timeout == 15)
-        #expect(FileManager.default.fileExists(atPath: request.workingDirectory.path) == false) // removed after the run
+        #expect(request.workingDirectory == workDir)
+        #expect(FileManager.default.fileExists(atPath: workDir.path)) // never removed
+    }
+
+    @Test func aMissingWorkingDirectoryFailsWithoutStartingCodex() {
+        let runner = fakeRunner(answering: [])
+        let missing = workDir.appendingPathComponent("no-such-dir-\(UUID().uuidString)", isDirectory: true)
+        let usages = CodexUsageCollector(status: { [self] in status([account("a1")]) }, runner: runner, codexCLI: cli,
+                                         workingDirectory: missing).collect()
+        #expect(usages.map(\.state) == [.failed(.refused)])
+        #expect(runner.requests.isEmpty)
     }
 
     @Test("stopWhen matches only the id-2 answer")

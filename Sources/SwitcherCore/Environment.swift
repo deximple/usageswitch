@@ -88,6 +88,9 @@ public struct SwitcherEnvironment: Sendable {
     /// Sign-ins that had to be swapped out without a saved snapshot are kept here (never auto-deleted).
     public var displacedDir: URL { storeDir.appendingPathComponent("displaced", isDirectory: true) }
     public var tmpDir: URL { storeDir.appendingPathComponent("tmp", isDirectory: true) }
+    /// Empty folders the vendor CLIs are started in (`claude`, `codex`). A fixed path, so a CLI that
+    /// records its working directory records one entry however often usage is read.
+    public var cliWorkDir: URL { storeDir.appendingPathComponent("cli-workdir", isDirectory: true) }
     public var journalFile: URL { storeDir.appendingPathComponent("swap-journal.json") }
     public var relauncherJournalFile: URL { storeDir.appendingPathComponent("suspended-relaunchers.json") }
     public var lockFile: URL { storeDir.appendingPathComponent("switch.lock") }
