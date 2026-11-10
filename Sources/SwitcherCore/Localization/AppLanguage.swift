@@ -132,10 +132,11 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
 
     /// The persisted `usageConnections` value for a consent set. Gemini's refresh
     /// opt-in rides along as a non-provider extra entry, so unrelated provider
-    /// toggles must round-trip it through here or they silently drop it.
+    /// toggles must round-trip it through here or they silently drop it. A provider's
+    /// disclosure marker is written with it.
     public static func usageConnectionsValue(providers: Set<UsageProvider>,
                                              geminiTokenRefresh: Bool) -> [String]? {
-        var values = providers.map(\.rawValue)
+        var values = providers.map(\.rawValue) + providers.compactMap(\.disclosureMarker)
         if geminiTokenRefresh, providers.contains(.gemini) {
             values.append("gemini.tokenRefresh")
         }
