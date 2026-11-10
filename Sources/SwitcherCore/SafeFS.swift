@@ -8,14 +8,18 @@ public struct SafeFS: Sendable {
     public let claudeUserData: URL
     /// Item names directly under Claude's userData that may be replaced.
     public let allowedUserDataItems: Set<String>
+    /// Test seam: fires after every mutation with "op path" — nil in production (audit B-13).
+    let afterOperation: (@Sendable (String) -> Void)?
 
-    public init(env: SwitcherEnvironment, allowUIGroup: Bool = false) {
+    public init(env: SwitcherEnvironment, allowUIGroup: Bool = false,
+                afterOperation: (@Sendable (String) -> Void)? = nil) {
         storeDir = env.storeDir.standardizedFileURL
         claudeUserData = env.claudeUserData.standardizedFileURL
         var items = Set(SnapshotItems.cookieGroup)
         items.insert(SnapshotItems.config)
         if allowUIGroup { items.formUnion(SnapshotItems.uiGroup) }
         allowedUserDataItems = items
+        self.afterOperation = afterOperation
     }
 
     // MARK: - Policy
@@ -61,6 +65,7 @@ public struct SafeFS: Sendable {
                 at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             _ = chmod(url.path, 0o700)
         } catch { throw SwitcherError.io("mkdir \(url.lastPathComponent): \(error.localizedDescription)") }
+        afterOperation?("createDirectory \(url.path)")
     }
 
     public func write(_ data: Data, to url: URL, permissions: Int16 = 0o600) throws {
@@ -79,6 +84,7 @@ public struct SafeFS: Sendable {
             try? FileManager.default.removeItem(at: tmp)
             throw SwitcherError.io("write \(url.lastPathComponent): \(error.localizedDescription)")
         }
+        afterOperation?("write \(url.path)")
     }
 
     /// Copies a file or directory. Destination must be allowed; source is only read.
@@ -91,6 +97,7 @@ public struct SafeFS: Sendable {
         } catch let e as SwitcherError { throw e } catch {
             throw SwitcherError.io("copy \(src.lastPathComponent): \(error.localizedDescription)")
         }
+        afterOperation?("copy \(src.path) \(dst.path)")
     }
 
     public func move(_ src: URL, to dst: URL) throws {
@@ -99,6 +106,7 @@ public struct SafeFS: Sendable {
         if rename(src.path, dst.path) != 0 {
             throw SwitcherError.io("move \(src.lastPathComponent): \(String(cString: strerror(errno)))")
         }
+        afterOperation?("move \(src.path) \(dst.path)")
     }
 
     /// Atomically exchanges two existing paths on the same volume (files or directories).
@@ -108,6 +116,7 @@ public struct SafeFS: Sendable {
         if renamex_np(a.path, b.path, UInt32(RENAME_SWAP)) != 0 {
             throw SwitcherError.io("swap \(a.lastPathComponent): \(String(cString: strerror(errno)))")
         }
+        afterOperation?("swap \(a.path) \(b.path)")
     }
 
     public func remove(_ url: URL) throws {
@@ -116,6 +125,7 @@ public struct SafeFS: Sendable {
         do { try FileManager.default.removeItem(at: url) } catch {
             throw SwitcherError.io("remove \(url.lastPathComponent): \(error.localizedDescription)")
         }
+        afterOperation?("remove \(url.path)")
     }
 
     /// Owner-only permissions for everything inside the switcher store.
@@ -132,5 +142,6 @@ public struct SafeFS: Sendable {
             guard lstat(child.path, &st) == 0, (st.st_mode & S_IFMT) != S_IFLNK else { continue }
             _ = chmod(child.path, (st.st_mode & S_IFMT) == S_IFDIR ? 0o700 : 0o600)
         }
+        afterOperation?("restrictPermissions \(url.path)")
     }
 }

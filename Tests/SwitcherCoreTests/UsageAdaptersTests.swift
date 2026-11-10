@@ -31,17 +31,53 @@ private func expectRejectedWithoutRetainedWindows(_ reading: AccountUsage?) {
     #expect(reading.retainingWindows(from: previous).windows.isEmpty)
 }
 
+/// Counts every request the session would send (audit B-13).
+private final class CountingURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var count = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.count += 1
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!,
+            statusCode: 200, httpVersion: nil, headerFields: ["Content-Length": "2"])!,
+            cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("ok".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite("HTTP transport")
 struct UsageTransportTests {
     @Test("non-https and disallowed hosts never reach the network")
     func allowlist() {
-        let t = SystemUsageHTTPTransport()
-        let http = UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!,
-                                    method: .get, timeout: 1)
-        #expect(t.send(http) == nil)
-        let bad = UsageHTTPRequest(url: URL(string: "https://api.test/x")!,
-                                   method: .get, timeout: 1)
-        #expect(t.send(bad) == nil)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CountingURLProtocol.self]
+        CountingURLProtocol.count = 0
+        let t = SystemUsageHTTPTransport(configuration: config)
+        // Exactly the six sanctioned hosts.
+        #expect(SystemUsageHTTPTransport.allowedHosts.count == 6)
+        // Each rejected request must die in the guard — zero URL traffic.
+        let rejections: [UsageHTTPRequest] = [
+            UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api.test/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh.evil.test/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://user:pw@api2.cursor.sh/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh:8443/x")!, method: .get, timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get,
+                             headers: ["X-Test": "a\rb"], timeout: 1),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get, timeout: 0),
+            UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!, method: .get,
+                             timeout: .nan),
+        ]
+        for (index, request) in rejections.enumerated() {
+            #expect(t.send(request) == nil, "rejection case \(index) must return nil")
+        }
+        #expect(CountingURLProtocol.count == 0)
+        // An allowed host reaches the session exactly once.
+        _ = t.send(UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                    method: .get, timeout: 2))
+        #expect(CountingURLProtocol.count == 1)
     }
 
     @Test("Google OAuth token endpoint is allowlisted for Antigravity")
@@ -527,10 +563,36 @@ final class RedirectProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
+        // The 302 is the final answer: after the delegate refuses the redirect the
+        // original request completes at once — no timeout involved (audit B-13).
         let r = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
                                 headerFields: ["Location": "https://evil.example"])!
         client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: "https://evil.example")!),
                             redirectResponse: r)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Serves exactly `bytes` bytes, declared via Content-Length or streamed as chunks
+/// without a declared length (audit B-13).
+final class BodySizeProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) fileprivate static var bytes = 0
+    nonisolated(unsafe) fileprivate static var chunked = false
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let headers: [String: String] = Self.chunked ? [:] : ["Content-Length": "\(Self.bytes)"]
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                       httpVersion: nil, headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        var left = Self.bytes
+        while left > 0 {
+            let chunk = min(65_536, left)
+            client?.urlProtocol(self, didLoad: Data(count: chunk))
+            left -= chunk
+        }
+        client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }
@@ -547,8 +609,28 @@ struct ProviderEdgeTests {
         let t = SystemUsageHTTPTransport(configuration: c)
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
+        // The refused redirect completes immediately — nil, without the old 5 s wait.
         #expect(t.send(req) == nil)
         #expect(RedirectProtocol.targetHit.value == false)
+    }
+
+    @Test("the 1 MiB body cap: exactly at the limit returns, one byte over drops")
+    func bodyLimit() {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [BodySizeProtocol.self]
+        let t = SystemUsageHTTPTransport(configuration: c)
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                 method: .get, timeout: 30)
+        for chunked in [false, true] {
+            BodySizeProtocol.chunked = chunked
+            for (bytes, expectNil) in [(1_048_576, false), (1_048_577, true)] {
+                BodySizeProtocol.bytes = bytes
+                let response = t.send(req)
+                #expect((response == nil) == expectNil,
+                        "chunked=\(chunked) bytes=\(bytes)")
+                if !expectNil { #expect(response?.body.count == bytes) }
+            }
+        }
     }
 
     @Test("grok lookalike auth origin supplies no token")
@@ -742,8 +824,8 @@ extension GrokAdapterTests {
 struct SignInReasonTests {
     @Test("noSignIn names the provider; signInExpired names the CLI command")
     func reasons() {
-        L10n.language = .en
-        #expect(UsageText.problem(.noSignIn, provider: .grok).contains("Grok"))
+        #expect(UsageText.problem(.noSignIn, provider: .grok)
+            == L10n.string(.usageReasonNoSignIn, language: L10n.language, ["Grok"]))
         #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
         #expect(UsageText.cliCommand(.antigravity) == "agy")
@@ -751,9 +833,8 @@ struct SignInReasonTests {
 
     @Test("signInRejected names the tool's own login command")
     func signInRejected() {
-        L10n.language = .en
         #expect(UsageText.problem(.signInRejected, provider: .devin)
-            == "Sign-in not accepted — run devin auth login once in Terminal")
+            == L10n.string(.usageReasonSignInRejected, language: L10n.language, ["devin auth login"]))
         #expect(UsageText.cliCommand(.claude) == "claude auth login")
         #expect(UsageText.cliCommand(.codex) == "codex login")
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
@@ -865,16 +946,25 @@ struct GeminiRefreshTests {
 
 @Suite("Gemini OAuth client scan")
 struct GeminiOAuthScanTests {
-    private func package(_ files: [(name: String, body: String, sizePad: Int)]) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gcli-\(UUID().uuidString)/@google/gemini-cli")
+    /// Returns (cli path, gcli- tree root) — the caller defers removal of the root.
+    private func package(_ files: [(name: String, body: String, sizePad: Int)]) throws -> (URL, URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gcli-\(UUID().uuidString)")
+        let dir = root.appendingPathComponent("@google/gemini-cli")
         let bundle = dir.appendingPathComponent("bundle")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         for f in files {
-            try (f.body + String(repeating: " ", count: f.sizePad)).write(
-                to: bundle.appendingPathComponent(f.name), atomically: true, encoding: .utf8)
+            let target = bundle.appendingPathComponent(f.name)
+            try f.body.write(to: target, atomically: true, encoding: .utf8)
+            if f.sizePad > 0 {
+                // Only the size matters — extend with zeros instead of materializing MBs.
+                let fd = open(target.path, O_WRONLY)
+                precondition(fd >= 0)
+                precondition(ftruncate(fd, off_t(f.body.utf8.count + f.sizePad)) == 0)
+                close(fd)
+            }
         }
-        return dir.appendingPathComponent("bin/gemini")
+        return (dir.appendingPathComponent("bin/gemini"), root)
     }
 
     private let id = FakeGoogleClient.id("123-abc")
@@ -883,13 +973,15 @@ struct GeminiOAuthScanTests {
     @Test("three identical copies are accepted and cached")
     func identical() throws {
         let body = #"var OAUTH_CLIENT_ID = "\#(id)"; var OAUTH_CLIENT_SECRET = "\#(secret)";"#
-        let cli = try package([("a.js", body, 0), ("b.js", body, 0), ("c.js", body, 0)])
+        let (cli, root) = try package([("a.js", body, 0), ("b.js", body, 0), ("c.js", body, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
     }
 
     @Test("an in-place bundle rewrite is rescanned by the same finder")
     func rescansInPlaceUpdate() throws {
-        let cli = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        let (cli, root) = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         let finder = GeminiOAuthClientFinder()
         #expect(finder.client(for: cli)?.id == id)
         let file = cli.deletingLastPathComponent().deletingLastPathComponent()
@@ -915,10 +1007,15 @@ struct GeminiOAuthScanTests {
         let a = #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
         let b = #"OAUTH_CLIENT_ID = "\#(FakeGoogleClient.id("999-zzz"))"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
         let bad = #"OAUTH_CLIENT_ID = "not-an-id"; OAUTH_CLIENT_SECRET = "not-a-secret";"#
-        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", a, 0), ("b.js", b, 0)])) == nil)
-        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", bad, 0)])) == nil)
+        let (cliAB, rootAB) = try package([("a.js", a, 0), ("b.js", b, 0)])
+        defer { try? FileManager.default.removeItem(at: rootAB) }
+        #expect(GeminiOAuthClientFinder().client(for: cliAB) == nil)
+        let (cliBad, rootBad) = try package([("a.js", bad, 0)])
+        defer { try? FileManager.default.removeItem(at: rootBad) }
+        #expect(GeminiOAuthClientFinder().client(for: cliBad) == nil)
         // an oversized file is skipped — the valid pair in the small file still wins
-        let cli = try package([("big.js", bad, 33 * 1024 * 1024), ("a.js", a, 0)])
+        let (cli, root) = try package([("big.js", bad, 33 * 1024 * 1024), ("a.js", a, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
     }
 }
@@ -1007,8 +1104,9 @@ struct GeminiRetiredTests {
 
     @Test("reason strings: Gemini-retired vs generic notEligible")
     func text() {
-        L10n.language = .en
-        #expect(UsageText.problem(.notEligible, provider: .gemini).contains("Antigravity"))
-        #expect(UsageText.problem(.notEligible, provider: .grok).contains("Grok"))
+        #expect(UsageText.problem(.notEligible, provider: .gemini)
+            == L10n.string(.usageReasonGeminiRetired, language: L10n.language))
+        #expect(UsageText.problem(.notEligible, provider: .grok)
+            == L10n.string(.usageReasonNotEligible, language: L10n.language, ["Grok"]))
     }
 }
