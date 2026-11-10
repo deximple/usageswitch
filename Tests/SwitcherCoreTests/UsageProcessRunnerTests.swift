@@ -15,6 +15,67 @@ struct UsageProcessRunnerTests {
                             stdinLines: stdinLines, stopWhen: stopWhen, timeout: timeout)
     }
 
+    @Test func aNodeShebangLauncherStartsWithTheCollectorEnvironment() throws {
+        // audit B-05: a `#!/usr/bin/env node` launcher needs its interpreter on PATH — the pinned
+        // system PATH exited 127.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uenv-\(UUID().uuidString)", isDirectory: true)
+        let dirA = root.appendingPathComponent("a", isDirectory: true)
+        let dirB = root.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: dirA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dirB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let node = dirA.appendingPathComponent("node")
+        try "#!/bin/sh\necho started\n".write(to: node, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: node.path)
+        let launcher = dirB.appendingPathComponent("codex")
+        try "#!/usr/bin/env node\n".write(to: launcher, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+
+        let env = UsageChildEnvironment.make(for: launcher, home: root, extraDirectories: [dirA])
+        let req = UsageProcessRequest(executable: launcher, arguments: [], environment: env,
+                                      workingDirectory: root, timeout: 10)
+        let result = runner.run(req)
+        #expect(result.outcome == .exited(0))
+        #expect(result.lines == ["started"])
+    }
+
+    @Test func theLauncherDirectoryComesFirstAndSystemDirectoriesStay() throws {
+        let root = FileManager.default.temporaryDirectory
+        let launcher = root.appendingPathComponent("codex")
+        let env = UsageChildEnvironment.make(for: launcher, home: FileManager.default.homeDirectoryForCurrentUser)
+        let path = try #require(env["PATH"]).split(separator: ":").map { String($0) }
+        #expect(path[0] == root.path)
+        #expect(Array(path[1...4]) == ["/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+        #expect(path.contains(NSHomeDirectory() + "/.local/bin"))
+    }
+
+    @Test func aRelativeLauncherLinkAddsTheTargetsFolder() throws {
+        // npm links `bin/codex -> ../lib/node_modules/@openai/codex/bin/codex.js`.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uenv-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let target = root.appendingPathComponent("lib/pkg/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "#!/usr/bin/env node\n".write(to: target.appendingPathComponent("codex.js"), atomically: true, encoding: .utf8)
+        let launcher = bin.appendingPathComponent("codex")
+        try FileManager.default.createSymbolicLink(atPath: launcher.path, withDestinationPath: "../lib/pkg/bin/codex.js")
+        let path = try #require(UsageChildEnvironment.make(for: launcher, home: root)["PATH"])
+            .split(separator: ":").map { String($0) }
+        #expect(Array(path[0...1]) == [bin.path, target.path])
+    }
+
+    @Test func nothingElseFromTheCallerEnvironmentIsAdded() throws {
+        let root = FileManager.default.temporaryDirectory
+        let env = UsageChildEnvironment.make(
+            for: root.appendingPathComponent("codex"),
+            home: FileManager.default.homeDirectoryForCurrentUser)
+        #expect(env["ANTHROPIC_API_KEY"] == nil)
+        #expect(env["OPENAI_API_KEY"] == nil)
+    }
+
     @Test("stdin lines are written and stay open; the matching line stops the run")
     func stoppedOnMatch() {
         // cat echoes each stdin line back — line 2 is the answer being waited for.

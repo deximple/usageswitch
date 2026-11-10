@@ -113,17 +113,24 @@ public struct CodexUsageCollector: Sendable {
     private let status: @Sendable () -> CodexStatus
     private let runner: any UsageProcessRunner
     private let codexCLI: URL
+    /// The app's embedded CLI: it is a real binary, not a script launcher (audit B-05).
+    private let bundledCLI: URL?
     /// The version sent in the initialize `clientInfo` (the app's own version).
     private let clientVersion: String
     /// Must already exist; never created or removed here.
     private let workingDirectory: URL
+    /// The user's home, for the interpreter PATH. An account's `home` is its Codex folder
+    /// (`~/.codex`, or one in the store), not a home with `.local/bin` and the like.
+    private let userHome: URL
     private let now: @Sendable () -> Date
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
                 codexCLI: URL, clientVersion: String = "2.0.0", workingDirectory: URL,
+                bundledCLI: URL? = nil, userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                 now: @escaping @Sendable () -> Date = { Date() }) {
-        self.status = status; self.runner = runner; self.codexCLI = codexCLI
-        self.clientVersion = clientVersion; self.workingDirectory = workingDirectory; self.now = now
+        self.status = status; self.runner = runner; self.codexCLI = codexCLI; self.bundledCLI = bundledCLI
+        self.clientVersion = clientVersion; self.workingDirectory = workingDirectory
+        self.userHome = userHome; self.now = now
     }
 
     public func collect() -> [AccountUsage] {
@@ -156,10 +163,14 @@ public struct CodexUsageCollector: Sendable {
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
+        var env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
+            ? UsageChildEnvironment.make(for: codexCLI, home: userHome)
+            : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
+        env["CODEX_HOME"] = account.home
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
-            environment: SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home)),
+            environment: env,
             workingDirectory: workingDirectory,
             stdinLines: Self.stdinLines(version: clientVersion),
             stopWhen: { CodexRateLimitsParser.isAnswer($0) },

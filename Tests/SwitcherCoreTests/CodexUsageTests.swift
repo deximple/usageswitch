@@ -220,6 +220,10 @@ struct CodexUsageTests {
         #expect(request.executable == cli)
         #expect(request.arguments == ["--disable", "plugins", "app-server"])
         #expect(request.environment["CODEX_HOME"] == "/tmp/codex-home")
+        // The interpreter PATH is built from the user's home, never from the Codex folder (B-05).
+        let path = (request.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        #expect(path.contains(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path))
+        #expect(!path.contains { $0.hasPrefix("/tmp/codex-home") })
         #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: "2.0.0"))
         #expect(request.stdinLines?.first?.contains(#""version":"2.0.0""#) == true)
         #expect(request.timeout == 15)

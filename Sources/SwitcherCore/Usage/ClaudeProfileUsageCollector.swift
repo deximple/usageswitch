@@ -98,7 +98,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         guard identityA.accountUuid == binding.accountUuid && identityA.orgUuid == binding.orgUuid
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
 
-        var environment = ClaudeUsageCollector.environment()
+        var environment = ClaudeUsageCollector.environment(for: binary, home: home)
         environment["CLAUDE_CONFIG_DIR"] = profile.path
         let authResultA = Self.authStatus(runner: runner, binary: binary, environment: environment,
                                           workingDirectory: workingDirectory)

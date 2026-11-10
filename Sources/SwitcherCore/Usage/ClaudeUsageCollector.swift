@@ -54,7 +54,8 @@ public struct ClaudeUsageCollector: Sendable {
         let toolVersion = Self.toolVersion(of: binary)
         guard !managed.shuts(claudeFolder: home.appendingPathComponent(".claude", isDirectory: true))
         else { return finish(.unavailable(.managed), toolVersion: toolVersion) }
-        let read = Self.readUsage(runner: runner, binary: binary, environment: Self.environment(),
+        let read = Self.readUsage(runner: runner, binary: binary,
+                                environment: Self.environment(for: binary, home: home),
                                   workingDirectory: workingDirectory, timeout: 60, now: now)
         return finish(read.state, read.windows, toolVersion: toolVersion)
     }
@@ -100,9 +101,10 @@ public struct ClaudeUsageCollector: Sendable {
     }
 
     /// The Dock-like environment minus CLAUDE_CONFIG_DIR (the default sign-in lives in ~/.claude),
-    /// plus the flags that keep the run quiet and local.
-    static func environment() -> [String: String] {
-        var environment = SystemClaudeAppControl.cleanEnvironment(from: ProcessInfo.processInfo.environment)
+    /// plus the flags that keep the run quiet and local — with a PATH that can find a script
+    /// launcher's interpreter (audit B-05).
+    static func environment(for binary: URL, home: URL) -> [String: String] {
+        var environment = UsageChildEnvironment.make(for: binary, home: home)
         environment["CLAUDE_CONFIG_DIR"] = nil
         environment["DISABLE_AUTOUPDATER"] = "1"
         environment["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
