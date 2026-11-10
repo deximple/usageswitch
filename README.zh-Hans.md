@@ -198,7 +198,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | Cursor | Cursor 的钥匙串项，然后 `~/.cursor/auth.json` | `api2.cursor.sh` | 每次刷新一次请求。过期令牌不发送请求。浏览器 `cursor-agent login` 约维持 60 天；API 密钥登录约 1 小时。不读取 Grok Bot 和按需付费。 |
 | Grok | Grok CLI 的登录文件 | `cli-chat-proxy.grok.com` | 实验性。 |
 | Gemini | Gemini CLI 的钥匙串项，然后 `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | 若访问令牌过期，UsageSwitch 用已保存的刷新令牌和已安装 Gemini CLI 自带的登录客户端获取仅保存于内存的临时令牌。不回写任何内容。每次刷新最多三次请求。 |
-| Antigravity | 在隐藏终端中从你的主目录运行的 `agy` 本体（最多每 9 分钟一次）；agy 的钥匙串项在每次刷新时读取 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` 以其正常设置启动，包括你配置的任何 MCP 服务器。UsageSwitch 从不回答 agy 的提示。macOS 可能会弹出一次钥匙串访问授权。 |
+| Antigravity | 在隐藏终端中从你的主目录运行的 `agy` 本体（最多每 9 分钟一次）；agy 的钥匙串项（钥匙串没有时读取 `~/.gemini/jetski-standalone-oauth-token`）在每次刷新时读取 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` 以其正常设置启动，包括你配置的任何 MCP 服务器。UsageSwitch 从不回答 agy 的提示。macOS 可能会弹出一次钥匙串访问授权。 |
 | Devin | Devin CLI 的凭据和版本 | `server.codeium.com` | 需要受支持的 Devin CLI 版本。 |
 | OpenCode Go | OpenCode `auth.json` 中的 `opencode-go` 条目 | `opencode.ai` | 仅 Go 套餐，不含其他 OpenCode 用量。 |
 

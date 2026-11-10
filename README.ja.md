@@ -198,7 +198,7 @@ UsageSwitch は、毎回の読み取りの前後でプロファイルが同じ�
 | Cursor | Cursor のキーチェーン項目、続いて `~/.cursor/auth.json` | `api2.cursor.sh` | 更新ごとに 1 リクエスト。期限切れトークンではリクエストを送りません。ブラウザの `cursor-agent login` は約 60 日、API キーサインインは約 1 時間持ちます。Grok Bot とオンデマンド料金は読み取りません。 |
 | Grok | Grok CLI のサインインファイル | `cli-chat-proxy.grok.com` | 実験的。 |
 | Gemini | Gemini CLI のキーチェーン項目、続いて `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | アクセストークンが期限切れの場合、UsageSwitch は保存済み更新トークンとインストール済み Gemini CLI 自身のサインインクライアントで、メモリにだけ保持する一時トークンを取得します。何も書き戻しません。更新ごとに最大 3 リクエスト。 |
-| Antigravity | ホームフォルダから隠しターミナルで実行される `agy` 自体（最大 9 分ごと）。agy のキーチェーン項目は更新のたびに読み取ります | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` は通常の設定で起動し、設定済みの MCP サーバーも含みます。UsageSwitch は agy のプロンプトに答えません。macOS がキーチェーンアクセスを一度尋ねることがあります。 |
+| Antigravity | ホームフォルダから隠しターミナルで実行される `agy` 自体（最大 9 分ごと）。agy のキーチェーン項目（キーチェーンにない場合は `~/.gemini/jetski-standalone-oauth-token`）を更新のたびに読み取ります | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` は通常の設定で起動し、設定済みの MCP サーバーも含みます。UsageSwitch は agy のプロンプトに答えません。macOS がキーチェーンアクセスを一度尋ねることがあります。 |
 | Devin | Devin CLI の認証情報とバージョン | `server.codeium.com` | 対応する Devin CLI バージョンが必要。 |
 | OpenCode Go | OpenCode の `auth.json` 内の `opencode-go` エントリ | `opencode.ai` | Go プランのみ。他の OpenCode 使用量は対象外。 |
 

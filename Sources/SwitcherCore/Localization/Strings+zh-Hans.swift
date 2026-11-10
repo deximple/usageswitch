@@ -151,7 +151,7 @@ extension Strings {
         .uiCursorDashboard: "打开 Cursor 控制台",
         .uiUsageConnections: "用量连接",
         .uiConnectUsageTitle: "连接 %@ 用量",
-        .uiConnectAntigravityBody: "UsageSwitch 从你的主目录在隐藏终端中运行 agy 以读取 /usage，在应用运行期间最多每 9 分钟一次。agy 使用其常规配置启动，其中可能包括你配置的 MCP 服务器。UsageSwitch 不会回答 agy 的任何提示，包括文件夹信任提示。此外，每次刷新时它还会读取 agy 的 gemini 钥匙串登录信息（macOS 可能会请求允许），以发现账户变更并在内存中获取临时访问令牌，然后向 cloudcode-pa.googleapis.com 发送只读配额请求；令牌过期时会在 oauth2.googleapis.com 续期。如果无法读取 agy 的屏幕，则改为显示该 API 返回的配额数值。令牌不会保存，agy 配置不会被更改，也不会发送模型请求或运行模型任务。",
+        .uiConnectAntigravityBody: "UsageSwitch 从你的主目录在隐藏终端中运行 agy 以读取 /usage，在应用运行期间最多每 9 分钟一次。agy 使用其常规配置启动，其中可能包括你配置的 MCP 服务器。UsageSwitch 不会回答 agy 的任何提示，包括文件夹信任提示。此外，每次刷新时它还会读取 agy 的 gemini 钥匙串登录信息（macOS 可能会请求允许；钥匙串没有时则读取 ~/.gemini/jetski-standalone-oauth-token），以发现账户变更并在内存中获取临时访问令牌，然后向 cloudcode-pa.googleapis.com 发送只读配额请求；令牌过期时会在 oauth2.googleapis.com 续期。如果无法读取 agy 的屏幕，则改为显示该 API 返回的配额数值。令牌不会保存，agy 配置不会被更改，也不会发送模型请求或运行模型任务。",
         .uiConnectGeminiBody: "UsageSwitch 会从 macOS 钥匙串读取 Gemini CLI 的登录信息（macOS 可能会请求允许），钥匙串中没有时则从 ~/.gemini/oauth_creds.json 读取，并向 cloudcode-pa.googleapis.com 发送只读配额请求。如果已保存的访问令牌已过期，它会使用已安装 Gemini CLI 的登录客户端和已保存的刷新令牌，在 oauth2.googleapis.com 获取临时访问令牌，并仅保存在内存中。不会写回登录信息，也不会执行任务或登录。",
         .uiConnectGrokBody: "UsageSwitch 会读取 Grok CLI 的登录文件（~/.grok/auth.json），并在每次刷新时向 cli-chat-proxy.grok.com 发送一次只读用量请求。不会执行任务、刷新令牌或登录。",
         .uiConnectDevinBody: "UsageSwitch 会读取 Devin CLI 的凭据（~/.local/share/devin 或 ~/.config/devin 下的 credentials.toml），运行 `devin --version` 以获知 CLI 版本，并在每次刷新时向 server.codeium.com 发送一次包含该版本的只读用量请求。不会执行任务、刷新令牌或登录。",
