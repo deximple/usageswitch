@@ -659,40 +659,11 @@ final class UsageModel: ObservableObject {
     }
 
     private func suggestionLogRoots(env: SwitcherEnvironment) -> [SuggestionLogRoot] {
-        var roots: [SuggestionLogRoot] = []
-        var seen = Set<String>()
-        func append(_ provider: UsageProvider, _ accountRef: String, _ directory: URL) {
-            let identity = "\(provider.rawValue)\u{0}\(accountRef)\u{0}\(directory.standardizedFileURL.path)"
-            guard seen.insert(identity).inserted else { return }
-            roots.append(SuggestionLogRoot(provider: provider, accountRef: accountRef,
-                                           directory: directory))
-        }
-
-        append(.claude, "cli", env.home.appendingPathComponent(".claude", isDirectory: true))
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
-        for binding in claudeBindings where registeredClaudeIds.contains(binding.accountId) {
-            let accountRef = "app:\(binding.accountId)"
-            guard SuggestionLogRootPolicy.includes(provider: .claude,
-                                                    accountRef: accountRef, usages: usages) else {
-                continue
-            }
-            append(.claude, accountRef,
-                   URL(fileURLWithPath: binding.profilePath, isDirectory: true))
-        }
-
-        if SuggestionLogRootPolicy.includes(provider: .codex, accountRef: "standard", usages: usages) {
-            append(.codex, "standard", env.codexStandardHome)
-        }
-        if let codex = AppModel.codex.status {
-            for account in codex.accounts + codex.found {
-                guard SuggestionLogRootPolicy.includes(provider: .codex,
-                                                        accountRef: account.id, usages: usages) else {
-                    continue
-                }
-                append(.codex, account.id, URL(fileURLWithPath: account.home, isDirectory: true))
-            }
-        }
-        return roots
+        return SuggestionLogRoots.make(home: env.home, claudeBindings: claudeBindings,
+                                       registeredClaudeIDs: registeredClaudeIds,
+                                       codexAccounts: AppModel.codex.status?.accounts ?? [],
+                                       usages: usages)
     }
 
     /// Pace compares each fresh ok window with the previous sample of the same window. Samples are
