@@ -57,7 +57,7 @@ often with more than one account each.
 |---|---|
 | 📊 **Every limit at a glance** | Session, daily, weekly and monthly limits for each account, shown as the share you have **left** and the time until it resets. |
 | 🧭 **Only what you actually use** | The list shows the tools installed on this Mac and the accounts you registered. A tool you don't have never appears, and nothing is read for it. For Claude and Codex, the local usage logs behind the Guide and the API tab are always read — that part can't be turned off. |
-| 💡 **A hint, never an autopilot** | The **Guide** — driven by those always-on local log reads — suggests which account — and which model and effort — fits what's left. It never switches, launches or signs in on its own. |
+| 💡 **A hint, never an autopilot** | The **Guide** suggests which account, model and effort fit what's left, using those local log reads. It never switches, launches or signs in on its own. |
 | 🔁 **Switch in one click** | Swap the Claude Desktop sign-in between saved accounts (verified, with automatic rollback), and run Codex accounts side by side in separate windows. |
 | 🔒 **Private by design** | No analytics, telemetry or background updater. Emails are masked. The six optional tools stay off until you turn each one on. |
 
