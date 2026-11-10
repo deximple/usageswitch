@@ -96,6 +96,7 @@ struct UsageContent: View {
     @ObservedObject var codex: CodexModel
     @ObservedObject var tabs: TabSelection
     @State private var confirmingUrgentMode = false
+    @State private var taskDraft: Double? = nil
     var compact = false
 
     var body: some View {
@@ -278,8 +279,14 @@ struct UsageContent: View {
                 Text(L10n.t(.suggestionTaskSimple))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
                 Slider(value: Binding(
-                    get: { settings.suggestionTask },
-                    set: { settings.setSuggestionTask($0, snapshot: model.suggestionUsageSnapshot()) }), in: 0...1)
+                    get: { taskDraft ?? settings.suggestionTask },
+                    set: { taskDraft = $0 }), in: 0...1,
+                    onEditingChanged: { editing in
+                        if !editing, let draft = taskDraft {
+                            settings.setSuggestionTask(draft, snapshot: model.suggestionUsageSnapshot())
+                            taskDraft = nil
+                        }
+                    })
                     .accessibilityLabel(Text(L10n.t(.suggestionTaskLabel)))
                 Text(L10n.t(.suggestionTaskReasoning))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)

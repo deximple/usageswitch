@@ -325,7 +325,9 @@ struct ClaudeSwitcherApp: App {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.isBusy ? "arrow.triangle.2.circlepath" : "person.2.circle")
-                if let title = barTitle { Text(title) }
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    if let title = barTitle { Text(title) }
+                }
             }
             .accessibilityLabel(barTitle.map { "\(ProductInfo.name), \($0)" } ?? ProductInfo.name)
         }
