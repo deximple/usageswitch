@@ -42,6 +42,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
     private let managed: ClaudeManagedSettings
     private let binaryPaths: [URL]
     private let excludedRoots: [URL]
+    private let workingDirectory: URL
     private let now: @Sendable () -> Date
 
     public init(binding: ClaudeProfileBinding, runner: any UsageProcessRunner,
@@ -49,6 +50,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
                 managed: ClaudeManagedSettings = .system,
                 binaryPaths: [URL]? = nil,
                 excludedRoots: [URL],
+                workingDirectory: URL,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.binding = binding
         self.runner = runner
@@ -56,6 +58,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         self.managed = managed
         self.binaryPaths = binaryPaths ?? ClaudeUsageCollector.defaultBinaryPaths(home: home)
         self.excludedRoots = excludedRoots
+        self.workingDirectory = workingDirectory
         self.now = now
     }
 
@@ -97,7 +100,8 @@ public struct ClaudeProfileUsageCollector: Sendable {
 
         var environment = ClaudeUsageCollector.environment()
         environment["CLAUDE_CONFIG_DIR"] = profile.path
-        let authResultA = Self.authStatus(runner: runner, binary: binary, environment: environment)
+        let authResultA = Self.authStatus(runner: runner, binary: binary, environment: environment,
+                                          workingDirectory: workingDirectory)
         guard !Task.isCancelled else { return nil }
         let authA: AuthStatus
         switch authResultA {
@@ -111,7 +115,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
         guard !Task.isCancelled else { return nil }
 
         let parsed = ClaudeUsageCollector.readUsage(runner: runner, binary: binary,
-            environment: environment, timeout: 60, now: now)
+            environment: environment, workingDirectory: workingDirectory, timeout: 60, now: now)
         guard !Task.isCancelled else { return nil }
 
         guard ClaudeProfileDirectory.validate(path: binding.profilePath, home: home,
@@ -125,7 +129,8 @@ public struct ClaudeProfileUsageCollector: Sendable {
               identityB == identityA, identityB.accountUuid == binding.accountUuid,
               identityB.orgUuid == binding.orgUuid
         else { return finish(.failed(.accountMismatch), toolVersion: toolVersion) }
-        let authResultB = Self.authStatus(runner: runner, binary: binary, environment: environment)
+        let authResultB = Self.authStatus(runner: runner, binary: binary, environment: environment,
+                                          workingDirectory: workingDirectory)
         guard !Task.isCancelled else { return nil }
         let authB: AuthStatus
         switch authResultB {
@@ -182,16 +187,11 @@ public struct ClaudeProfileUsageCollector: Sendable {
     }
 
     private static func authStatus(runner: any UsageProcessRunner, binary: URL,
-                                   environment: [String: String]) -> AuthResult {
-        let workDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("usageswitch-claude-auth-\(UUID().uuidString)", isDirectory: true)
-        guard (try? FileManager.default.createDirectory(at: workDir,
-                withIntermediateDirectories: true)) != nil
-        else { return .problem(.unavailable(.refused)) }
-        defer { try? FileManager.default.removeItem(at: workDir) }
+                                   environment: [String: String], workingDirectory: URL) -> AuthResult {
+        guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return .problem(.failed(.refused)) }
         let result = runner.run(UsageProcessRequest(executable: binary,
             arguments: ["auth", "status", "--json"], environment: environment,
-            workingDirectory: workDir, timeout: 20))
+            workingDirectory: workingDirectory, timeout: 20))
         switch result.outcome {
         case .timedOut: return .problem(.failed(.timeout))
         case .failedToStart: return .problem(.unavailable(.cliMissing))

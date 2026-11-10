@@ -60,8 +60,125 @@ struct ClaudeLogTests {
         try LogFixture.appendLines(dir.appendingPathComponent("main.log"), [(at(20), "new-a")])
         let log = ClaudeLog(logsDir: dir)
         #expect(log.lines(since: at(10.7)).map { $0.text.components(separatedBy: "[info] ").last } == ["old-b", "new-a"])
-        #expect(log.read("main.log", tailBytes: 6) == "new-a\n")
+        // A tail that starts mid-line drops that fragment; one that starts on a line boundary keeps the line.
+        #expect(log.read("main.log", tailBytes: 6) == "")
+        let whole = try #require(log.read("main.log"))
+        #expect(log.read("main.log", tailBytes: whole.utf8.count) == whole)
+        #expect(log.read("main.log", tailBytes: 1_000_000) == whole)
         #expect(log.read("main9.log") == nil)
+    }
+
+    // MARK: - Tail-first reads (audit A-02)
+
+    /// About `megabytes` MB of ordinary log lines.
+    func filler(megabytes: Double) -> String {
+        let line = LogFixture.line(at(0), "noise " + String(repeating: "x", count: 150)) + "\n"
+        return String(repeating: line, count: Int(megabytes * 1_000_000) / line.utf8.count)
+    }
+
+    func observedLog(_ sb: Sandbox) -> (log: ClaudeLog, bytes: ReadCounter) {
+        let bytes = ReadCounter()
+        var log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        log.onRead = { name, count in for _ in 0..<max(count / 1024, 1) { bytes.record(name) } }
+        return (log, bytes)
+    }
+
+    @Test func latestIdentityFindsTheSignalInTheTail() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, LogFixture.line(at(0), LogFixture.initLine(.a)) + "\n" + filler(megabytes: 5))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(9), LogFixture.cacheKeyLine(.b)), (at(10), "noise")])
+        let (log, bytes) = observedLog(sb)
+        #expect(log.latestIdentity() == ClaudeLog.IdentitySignal(
+            timestamp: at(9), accountUuid: FakeIdentity.b.account, orgUuid: FakeIdentity.b.org, loggedOutAfter: false))
+        #expect(log.signedInSinceLastInit())
+        // Two tail reads for latestIdentity; signedInSinceLastInit had to fall back to the whole 5 MB once.
+        #expect(bytes.count("main.log") < 6 * 1024)
+    }
+
+    @Test func latestIdentityReadsOnlyTheTailWhenTheSignalIsThere() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 5))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(9), LogFixture.cacheKeyLine(.b))])
+        let (log, bytes) = observedLog(sb)
+        #expect(log.latestIdentity()?.accountUuid == FakeIdentity.b.account)
+        #expect(bytes.count("main.log") <= ClaudeLog.tailBytes / 1024)
+    }
+
+    @Test func latestIdentityFallsBackToTheWholeFileWhenTheTailHasNone() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.cacheKeyLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        #expect(log.latestIdentity() == ClaudeLog.IdentitySignal(
+            timestamp: at(1), accountUuid: FakeIdentity.a.account, orgUuid: FakeIdentity.a.org, loggedOutAfter: false))
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutAfterTheSignalIsSeenInTheTail() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a)), (at(2), "Navigated to /logout")])
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        #expect(log.latestIdentity()?.loggedOutAfter == true)
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutInTheTailCountsWhenTheSignalIsOnlyInTheHead() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "Navigated to /logout")])
+        let log = ClaudeLog(logsDir: sb.env.claudeLogsDir)
+        let signal = try #require(log.latestIdentity())
+        #expect(signal.accountUuid == FakeIdentity.a.account)
+        #expect(signal.loggedOutAfter)
+        #expect(!log.signedInSinceLastInit())
+    }
+
+    @Test func aLogoutInANewerFileStillCountsForASignalInARotatedOne() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.claudeLogsDir.appendingPathComponent("main1.log"), [(at(1), LogFixture.initLine(.a))])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "Navigated to /logout")])
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        #expect(ClaudeLog(logsDir: sb.env.claudeLogsDir).latestIdentity()?.loggedOutAfter == true)
+    }
+
+    @Test func signalsAreNotRecomputedWhileTheFileIsUnchanged() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a))])
+        let (log, bytes) = observedLog(sb)
+        let signals = ClaudeLogSignals(log: log)
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.a.account)
+        #expect(!signals.current().nativeMultiAccount)
+        let afterFirst = bytes.count("main.log")
+        #expect(afterFirst > 0)
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.a.account)
+        #expect(bytes.count("main.log") == afterFirst)
+
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "GET " + ClaudeLog.multiAccountMarker), (at(3), LogFixture.cacheKeyLine(.b))])
+        let changed = signals.current()
+        #expect(changed.latestIdentity?.accountUuid == FakeIdentity.b.account)
+        #expect(changed.nativeMultiAccount)
+        #expect(bytes.count("main.log") > afterFirst)
+    }
+
+    @Test func theMultiAccountMarkerIsFoundAcrossAppendsAndResetOnRotation() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let signals = ClaudeLogSignals(log: ClaudeLog(logsDir: sb.env.claudeLogsDir))
+        #expect(!signals.current().nativeMultiAccount) // no log at all
+        // The marker is split across two appends.
+        let marker = ClaudeLog.multiAccountMarker
+        try LogFixture.append(sb.env.mainLog, LogFixture.line(at(1), "GET " + String(marker.prefix(6))))
+        #expect(!signals.current().nativeMultiAccount)
+        try LogFixture.append(sb.env.mainLog, String(marker.dropFirst(6)) + "\n")
+        #expect(signals.current().nativeMultiAccount)
+        try LogFixture.appendLines(sb.env.mainLog, [(at(2), "noise")])
+        #expect(signals.current().nativeMultiAccount) // stays true for this file
+        // Rotation: a new main.log without the marker.
+        try FileManager.default.moveItem(at: sb.env.mainLog, to: sb.env.claudeLogsDir.appendingPathComponent("main1.log"))
+        try LogFixture.appendLines(sb.env.mainLog, [(at(3), "fresh file")])
+        #expect(!signals.current().nativeMultiAccount)
     }
 
     @Test func latestIdentityPrefersNewestSignal() throws {

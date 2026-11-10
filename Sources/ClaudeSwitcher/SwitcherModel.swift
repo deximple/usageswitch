@@ -76,6 +76,7 @@ final class SwitcherModel: ObservableObject {
     private let switcher: Switcher
     private var timer: Timer?
     private var refreshGeneration = 0
+    private var statusReadsInFlight = 0
 
     init(switcher: Switcher = Switcher(), demo: SwitcherStatus? = nil, demoPhase: Phase = .idle,
          demoSteps: [SwitchStep] = [], demoBanner: Banner? = nil) {
@@ -138,6 +139,8 @@ final class SwitcherModel: ObservableObject {
         expireSuggestionUrgentModeIfNeeded(
             now: Date(), snapshot: AppModel.usage.suggestionUsageSnapshot())
         if case .working = phase { return }
+        // A slow status read must not pile up behind the timer.
+        guard statusReadsInFlight == 0 else { return }
         refresh()
     }
 
@@ -146,9 +149,11 @@ final class SwitcherModel: ObservableObject {
         refreshGeneration += 1
         let generation = refreshGeneration
         let switcher = self.switcher
+        statusReadsInFlight += 1
         Task.detached(priority: .userInitiated) {
             let s = switcher.status()
             await MainActor.run {
+                self.statusReadsInFlight -= 1
                 if generation == self.refreshGeneration { self.apply(s) }
             }
         }

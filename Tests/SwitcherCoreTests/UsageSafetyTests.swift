@@ -62,7 +62,8 @@ struct CodexIdentityTests {
     private func collector(_ accounts: [CodexAccount], runner: FakeUsageRunner) -> CodexUsageCollector {
         CodexUsageCollector(status: { CodexStatus(installed: true, version: "1.0",
                                                 accounts: accounts, found: [], hiddenCount: 0) },
-                            runner: runner, codexCLI: URL(fileURLWithPath: "/usr/bin/true"))
+                            runner: runner, codexCLI: URL(fileURLWithPath: "/usr/bin/true"),
+                            workingDirectory: FileManager.default.temporaryDirectory)
     }
 
     private func account(_ id: String, _ mode: CodexIdentity.Mode,

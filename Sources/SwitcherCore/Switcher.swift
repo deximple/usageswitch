@@ -86,6 +86,7 @@ public final class Switcher: @unchecked Sendable {
     public let runner: CommandRunner
     public let clock: Clock
     public let log: ClaudeLog
+    let logSignals: ClaudeLogSignals
     public let store: SnapshotStore
     public let swapper: SwapEngine
     public let relaunchers: RelauncherGuard
@@ -122,7 +123,9 @@ public final class Switcher: @unchecked Sendable {
         self.app = app
         self.runner = runner
         self.clock = clock
-        log = ClaudeLog(logsDir: env.claudeLogsDir)
+        let log = ClaudeLog(logsDir: env.claudeLogsDir)
+        self.log = log
+        logSignals = ClaudeLogSignals(log: log)
         store = SnapshotStore(env: env, fs: fs)
         swapper = SwapEngine(env: env, fs: fs, isClaudeRunning: { processes.anyClaudeNamedProcess() })
         relaunchers = RelauncherGuard(env: env, fs: fs, runner: runner)
@@ -231,7 +234,7 @@ public final class Switcher: @unchecked Sendable {
     public func activeIdentity() -> (account: String, org: String)? {
         guard let config = try? ClaudeConfig.load(env.claudeConfigJSON),
               let known = config.lastKnownAccountUuid,
-              let signal = log.latestIdentity(),
+              let signal = logSignals.current().latestIdentity,
               signal.accountUuid == known, !signal.loggedOutAfter else { return nil }
         return (signal.accountUuid, signal.orgUuid)
     }
@@ -249,8 +252,9 @@ public final class Switcher: @unchecked Sendable {
 
     /// Emails of the accounts that Claude's running Code-tab sessions are signed in as (read before Claude quits,
     /// so a newly saved sign-in is named by its email rather than an id prefix).
-    func codeSessionEmails() -> [String: String] {
-        let procs = table.all()
+    func codeSessionEmails() -> [String: String] { codeSessionEmails(in: table.all()) }
+
+    func codeSessionEmails(in procs: [ProcInfo]) -> [String: String] {
         guard let main = processes.mainProcesses(in: procs).first else { return [:] }
         var emails: [String: String] = [:]
         for cli in processes.codeSessionCLIs(in: procs, main: main) {
@@ -644,12 +648,14 @@ public final class Switcher: @unchecked Sendable {
     }
 
     func waitForVerdict(cursor: ClaudeLog.Cursor, target: AccountIdentity) -> LaunchVerdict {
-        let deadline = clock.now().addingTimeInterval(options.launchVerifyTimeout + options.settle)
+        let start = clock.now()
+        let deadline = start.addingTimeInterval(options.launchVerifyTimeout + options.settle)
         while true {
             cursor.poll()
+            let now = clock.now()
             let verdict = LaunchVerdict.evaluate(
                 lines: cursor.collected, targetAccount: target.accountUuid, targetOrg: target.orgUuid,
-                now: clock.now(), settle: options.settle)
+                now: now, settle: options.settle)
             switch verdict {
             case .success:
                 if let main = processes.mainProcess() {
@@ -668,7 +674,17 @@ public final class Switcher: @unchecked Sendable {
                 return verdict
             case .failure: return verdict
             case .pending:
-                if clock.now() >= deadline { return .pending }
+                // An init line observed in time always gets its full settle: since A-01 the
+                // verdict measures settle from the poll time, which can be up to one poll
+                // interval after the launch-verify window ends.
+                let settling = cursor.collected
+                    .first(where: { ClaudeLog.parseInit($0) != nil })
+                    .flatMap(\.observedAt)
+                    .map { observed in
+                        observed <= start.addingTimeInterval(options.launchVerifyTimeout + options.pollInterval)
+                            && now < observed.addingTimeInterval(options.settle)
+                    } ?? false
+                if now >= deadline && !settling { return .pending }
                 clock.sleep(options.pollInterval)
             }
         }
