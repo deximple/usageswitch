@@ -341,6 +341,25 @@ struct SuggestionLogReaderTests {
         #expect(byDay[SuggestionRetention.utcDay(now.addingTimeInterval(-20 * 86_400))] == 40)
     }
 
+    @Test func aCursorFileWithoutAFirstPassDayStartsCoverageAtTheUpdate() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        _ = logReader.read(roots: [logRoot], now: now)
+        // Simulate a 2.1.4 cursor file: cursors only, no firstPassDay.
+        let cursorData = try Data(contentsOf: cursorFile(root))
+        var object = try #require(JSONSerialization.jsonObject(with: cursorData) as? [String: Any])
+        object.removeValue(forKey: "firstPassDay")
+        try JSONSerialization.data(withJSONObject: object).write(to: cursorFile(root))
+
+        let pass = logReader.read(roots: [logRoot], now: now)
+        #expect(pass.firstPassDay == SuggestionRetention.utcDay(now))
+        // It was saved: a pass the next day still reports the update day.
+        let later = logReader.read(roots: [logRoot], now: now.addingTimeInterval(86_400))
+        #expect(later.firstPassDay == SuggestionRetention.utcDay(now))
+    }
+
     @Test func anUnfinishedLastLineIsNotABacklog() throws {
         let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let logRoot = try claudeRoot(root)

@@ -383,7 +383,11 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var state: FileCursorState
         switch loadCursors() {
         case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
-        case .loaded(let loaded): state = loaded
+        case .loaded(let loaded):
+            state = loaded
+            // A 2.1.4 cursor file has no first-pass day: coverage is unknown and could hide a
+            // partial store. Conservatively start it at the update; the cursors' save sticks it.
+            if state.firstPassDay == nil { state.firstPassDay = SuggestionRetention.utcDay(now) }
         case .stalled: return SuggestionLogPass(records: [], bytesRead: 0, failed: true)
         case .unreadable:
             // Offsets are lost, so what was already counted is unknown: set the cursor file aside,
