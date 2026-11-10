@@ -158,9 +158,10 @@ public struct CodexUsageCollector: Sendable {
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
-        let env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
+        var env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
             ? UsageChildEnvironment.make(for: codexCLI, home: URL(fileURLWithPath: account.home))
             : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
+        env["CODEX_HOME"] = account.home
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
