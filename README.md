@@ -181,7 +181,7 @@ A row without numbers always says why. Here is what each message means and what 
 | **Cursor** | Monthly total, plus *Cursor Models* and *Other Models* | Cursor's usage API, using the `cursor-agent` sign-in | ⚙︎ › Usage Connections |
 | **Grok** | Weekly limit | The Grok CLI's usage endpoint | ⚙︎ › Usage Connections |
 | **Gemini** | Per-model input and output limits | Gemini Code Assist quota, using the Gemini CLI sign-in | ⚙︎ › Usage Connections |
-| **Antigravity** | Model-group limits (for example *Gemini Models*) | `agy`'s `/usage` screen, with a read-only quota API as fallback | ⚙︎ › Usage Connections |
+| **Antigravity** | Model-group limits (for example *Gemini Models*) | `agy`'s `/usage` screen, plus a read-only quota API on every refresh (also the fallback when the screen can't be read) | ⚙︎ › Usage Connections |
 | **Devin** | The quota the Devin CLI reports | The Devin CLI's user status | ⚙︎ › Usage Connections |
 | **OpenCode Go** | Rolling 5-hour, weekly and monthly limits | OpenCode's Go usage endpoint | ⚙︎ › Usage Connections |
 
@@ -199,7 +199,7 @@ Every optional connection reads the tool's own local sign-in, keeps it in memory
 | Cursor | Cursor's Keychain entry, then `~/.cursor/auth.json` | `api2.cursor.sh` | One request per refresh. An expired token sends no request. A browser `cursor-agent login` lasts about 60 days; an API-key sign-in about an hour. Grok Bot and on-demand spending are not read. |
 | Grok | The Grok CLI sign-in file | `cli-chat-proxy.grok.com` | Experimental. |
 | Gemini | Gemini CLI's Keychain item, then `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | If the access token has expired, UsageSwitch uses the stored refresh token with the installed Gemini CLI's own sign-in client to get a temporary token held only in memory. It never writes anything back. Up to three requests per refresh. |
-| Antigravity | `agy` itself, run in a hidden terminal from your home folder (at most every 9 minutes); fallback: agy's Keychain item | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` starts with its normal settings, including any MCP servers you set up. UsageSwitch never answers agy's prompts. macOS may ask once to allow Keychain access. |
+| Antigravity | `agy` itself, run in a hidden terminal from your home folder (at most every 9 minutes); agy's Keychain item (or `~/.gemini/jetski-standalone-oauth-token` when the Keychain has none), read on every refresh | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` starts with its normal settings, including any MCP servers you set up. UsageSwitch never answers agy's prompts. macOS may ask once to allow Keychain access. |
 | Devin | The Devin CLI's credentials and version | `server.codeium.com` | Needs a supported Devin CLI version. |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` | Go plan only, not other OpenCode usage. |
 

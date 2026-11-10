@@ -14,13 +14,62 @@ struct ClaudeUsageTests {
     /// A collector reading from a temp home, empty managed-settings folders, and an explicit
     /// binary list (the real system locations must never leak into a test).
     func collector(home: URL, binaryPaths: [URL], runner: FakeUsageRunner,
-                   managedFolder: URL? = nil, preferences: URL? = nil) -> ClaudeUsageCollector {
+                   managedFolder: URL? = nil, preferences: URL? = nil,
+                   workingDirectory: URL = FileManager.default.temporaryDirectory) -> ClaudeUsageCollector {
         let scratch = home.appendingPathComponent("scratch", isDirectory: true)
         let managed = ClaudeManagedSettings(
             folder: managedFolder ?? scratch.appendingPathComponent("ClaudeCode", isDirectory: true),
             preferences: preferences ?? scratch.appendingPathComponent("ManagedPreferences", isDirectory: true))
         return ClaudeUsageCollector(runner: runner, home: home, managed: managed,
-                                    binaryPaths: binaryPaths, now: { readAt })
+                                    binaryPaths: binaryPaths, workingDirectory: workingDirectory, now: { readAt })
+    }
+
+    // MARK: - Working directory (audit A-03)
+
+    static let okAnswer = #"{"type":"result","subtype":"success","is_error":false,"result":"You are currently using your subscription to power your Claude Code usage"}"#
+
+    func temporaryUsageSwitchItems() -> Int {
+        ((try? FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)) ?? [])
+            .filter { $0.hasPrefix("usageswitch-") }.count
+    }
+
+    @Test func everyReadUsesTheSameWorkingDirectory() throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let workDir = home.appendingPathComponent("cli-workdir/claude", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        let runner = fakeRunner(answering: Self.okAnswer)
+        let collector = collector(home: home, binaryPaths: [try makeBinary(home: home)], runner: runner,
+                                  workingDirectory: workDir)
+        _ = collector.collect()
+        _ = collector.collect()
+        #expect(runner.requests.map(\.workingDirectory) == [workDir, workDir])
+        #expect(FileManager.default.fileExists(atPath: workDir.path)) // never removed
+    }
+
+    @Test func aReadCreatesNothingUnderTheTemporaryDirectory() throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let before = temporaryUsageSwitchItems()
+        let runner = FakeUsageRunner()
+        let seenDuringRun = LockedBox(0)
+        runner.respond = { [self] _ in
+            seenDuringRun.set(temporaryUsageSwitchItems())
+            return UsageProcessResult(lines: Self.lines(Self.okAnswer), outcome: .stopped)
+        }
+        _ = collector(home: home, binaryPaths: [try makeBinary(home: home)], runner: runner, workingDirectory: home).collect()
+        #expect(runner.requests.count == 1)
+        #expect(seenDuringRun.get() == before)
+        #expect(temporaryUsageSwitchItems() == before)
+    }
+
+    @Test func aMissingWorkingDirectoryIsNotReportedAsAMissingCLI() throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let runner = fakeRunner(answering: Self.okAnswer)
+        let missing = home.appendingPathComponent("no-such-dir", isDirectory: true)
+        let usage = collector(home: home, binaryPaths: [try makeBinary(home: home)], runner: runner,
+                              workingDirectory: missing).collect()
+        #expect(usage.state == .failed(.refused))
+        #expect(runner.requests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: missing.path)) // the collector never creates it
     }
 
     func fakeRunner(answering fixture: String, outcome: UsageProcessResult.Outcome = .stopped) -> FakeUsageRunner {
@@ -240,4 +289,12 @@ struct ClaudeUsageTests {
         #expect(request.stdinLines == nil)
         #expect(request.timeout == 60)
     }
+}
+
+final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func set(_ new: Value) { lock.lock(); value = new; lock.unlock() }
+    func get() -> Value { lock.lock(); defer { lock.unlock() }; return value }
 }

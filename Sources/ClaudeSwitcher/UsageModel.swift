@@ -36,7 +36,7 @@ final class UsageModel: ObservableObject {
     private var suggestionStateTask: Task<Void, Never>?
     private var suggestionLogReader: SuggestionLogReader?
     private var suggestionLogTask: Task<Void, Never>?
-    private var lastSuggestionLogReadAt: Date?
+    private var logReadGate = SuggestionLogReadGate()
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
     private(set) var claudeBindings: [ClaudeProfileBinding]
@@ -47,7 +47,11 @@ final class UsageModel: ObservableObject {
     /// Last ok sample per window key, for pace. Session-scoped: a restart starts over.
     private var previousSamples: [String: UsagePace.Sample] = [:]
     /// Window keys that already alerted, per `UsageAlerts` hysteresis rules.
-    private var alertedKeys: Set<String> = []
+    /// Limits already warned about. Loaded from the store on first use, saved when it changes.
+    private var alertState: UsageAlertState?
+    /// Set when the store write failed; cleared when a later save succeeds.
+    private var alertStateNeedsSave = false
+    private var alertStateLoaded = false
     private let antigravityTokenCache = AntigravityAccessTokenCache()
     private let geminiTokenCache = GeminiAccessTokenCache()
     private let geminiClientFinder = GeminiOAuthClientFinder()
@@ -218,12 +222,11 @@ final class UsageModel: ObservableObject {
         suggestionStateTask = nil
         suggestionLogTask = nil
         suggestionLogReader = nil
-        lastSuggestionLogReadAt = nil
+        logReadGate.invalidate()
         suggestionLogHints = [:]
         apiUsageEstimates = [:]
         pace = [:]
         previousSamples = [:]
-        alertedKeys = []
     }
 
     private func stateStore(env: SwitcherEnvironment = .live()) -> SuggestionStateStore {
@@ -242,7 +245,8 @@ final class UsageModel: ObservableObject {
         guard let budget = settings.apiBudget(for: vendor),
               let estimate = apiUsageEstimates[vendor],
               estimate.hasAPIKeyAccounts, estimate.spendIsComplete else { return nil }
-        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now)
+        return APIBudgetMath.remaining(budget, spending: estimate.dailySpend, now: now,
+                                       coverageStartDay: estimate.coverageStartDay)
     }
 
     func apiUsageBalanceHint(for usage: AccountUsage, shownWindows: [UsageWindow],
@@ -365,6 +369,12 @@ final class UsageModel: ObservableObject {
                 bundledCodexCLI: env.codexCLI)
             // Inventory first: uninstalled providers vanish before any subprocess starts.
             await MainActor.run { self.publishInventory(installed, generation: generation) }
+            // Fixed, empty folders the vendor CLIs start in. If they cannot be made, the Claude and
+            // Codex rows report a failed read instead of running from somewhere else.
+            let claudeWorkDir = env.cliWorkDir.appendingPathComponent("claude", isDirectory: true)
+            let codexWorkDir = env.cliWorkDir.appendingPathComponent("codex", isDirectory: true)
+            let fs = SafeFS(env: env)
+            for directory in [claudeWorkDir, codexWorkDir] { try? fs.createDirectory(directory) }
             let transport = SystemUsageHTTPTransport()
             let http = SystemUsageHTTP(transport: transport)
             let credentials = UsageFileCredentialReader()
@@ -380,13 +390,13 @@ final class UsageModel: ObservableObject {
                         // App-only Claude gets an empty path list: honest cliMissing, never a guessed binary.
                         let binaryPaths = installation.cli.map { [$0] } ?? []
                         var rows = [ClaudeUsageCollector(runner: runner,
-                            binaryPaths: binaryPaths).collect()]
+                            binaryPaths: binaryPaths, workingDirectory: claudeWorkDir).collect()]
                         let excludedRoots = [env.claudeUserData, env.storeDir]
                         for binding in activeBindings {
                             if Task.isCancelled { break }
                             if let row = ClaudeProfileUsageCollector(binding: binding, runner: runner,
                                 home: env.home, managed: .system, binaryPaths: binaryPaths,
-                                excludedRoots: excludedRoots).collect() {
+                                excludedRoots: excludedRoots, workingDirectory: claudeWorkDir).collect() {
                                 rows.append(row)
                             }
                         }
@@ -395,7 +405,7 @@ final class UsageModel: ObservableObject {
                         // App-only Codex falls back to the bundled path -> existing missing state.
                         return CodexUsageCollector(status: { CodexManager().status() },
                             runner: runner, codexCLI: installation.cli ?? env.codexCLI,
-                            clientVersion: version).collect()
+                            clientVersion: version, workingDirectory: codexWorkDir).collect()
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
                             http: http, home: env.home).collect()
@@ -469,6 +479,7 @@ final class UsageModel: ObservableObject {
         abandonCurrentRefresh()
         generation += 1
         suggestionLogTask?.cancel()
+        logReadGate.invalidate()
         suggestionStore?.invalidateBefore(generation)
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
         if !enabled.contains(.gemini) { geminiTokenCache.clear() }
@@ -489,6 +500,7 @@ final class UsageModel: ObservableObject {
         abandonCurrentRefresh()
         generation += 1
         suggestionLogTask?.cancel()
+        logReadGate.invalidate()
         suggestionStore?.invalidateBefore(generation)
         let next = Dictionary(uniqueKeysWithValues: bindings.map { ($0.accountId, $0) })
         for old in claudeBindings where next[old.accountId] != old {
@@ -537,7 +549,11 @@ final class UsageModel: ObservableObject {
         let prefix = rowID + "/"
         pace = pace.filter { !$0.key.hasPrefix(prefix) }
         previousSamples = previousSamples.filter { !$0.key.hasPrefix(prefix) }
-        alertedKeys = alertedKeys.filter { !$0.hasPrefix(prefix) }
+        if let state = loadedAlertState() {
+            let next = UsageAlertState(threshold: state.threshold,
+                                       marks: state.marks.filter { !$0.key.hasPrefix(prefix) })
+            if next != state { saveAlertState(next) }
+        }
     }
 
     private func publishInventory(_ installed: [UsageInstallation], generation: Int) {
@@ -570,7 +586,7 @@ final class UsageModel: ObservableObject {
             guard !Task.isCancelled else { return }
             store.record(fresh, now: now, generation: generation)
         }
-        scheduleSuggestionLogRead(now: now, generation: generation, env: env)
+        scheduleSuggestionLogRead(now: now, env: env)
         // The `--cli usage` file: display-safe identity, authentication and window
         // data only — labels always email-masked, never credentials or raw emails.
         if AppModel.shared.status != nil {
@@ -590,27 +606,25 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    private func scheduleSuggestionLogRead(now: Date, generation: Int,
-                                           env: SwitcherEnvironment) {
-        if let lastSuggestionLogReadAt,
-           now.timeIntervalSince(lastSuggestionLogReadAt) < 10 * 60 {
-            return
-        }
+    private func scheduleSuggestionLogRead(now: Date, env: SwitcherEnvironment) {
+        guard logReadGate.shouldStart(now: now) else { return }
+        let token = logReadGate.begin()
         let reader = suggestionLogReader ?? SuggestionLogReader(
             env: env, fs: SafeFS(env: env), catalog: Self.suggestionCatalog)
         suggestionLogReader = reader
-        lastSuggestionLogReadAt = now
         let roots = suggestionLogRoots(env: env)
         let apiKeyAccounts = Set(usages.compactMap { usage -> APIKeyAccountKey? in
             guard usage.authentication == .apiKey,
                   let key = reader.accountRefKey(for: usage.accountRef) else { return nil }
             return APIKeyAccountKey(provider: usage.provider, accountKey: key)
         })
+        // Logs behind a spend estimate are read first.
+        let priorityAccountRefs = Set(usages.filter { $0.authentication == .apiKey }.map(\.accountRef))
         let catalog = Self.suggestionCatalog
         let stateStore = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
         suggestionStore = stateStore
         let backgroundTask = Task.detached(priority: .utility) {
-            _ = reader.read(roots: roots, now: now)
+            let pass = reader.read(roots: roots, now: now, priorityAccountRefs: priorityAccountRefs)
             for record in reader.recentRecords(now: now) {
                 guard !Task.isCancelled else { break }
                 guard let observedAt = record.lastUsedAt else { continue }
@@ -620,9 +634,12 @@ final class UsageModel: ObservableObject {
             }
             let estimates = catalog.map {
                 APIUsageEstimator.estimate(records: reader.recentRecords(now: now, days: 35),
-                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now)
+                                           apiKeyAccounts: apiKeyAccounts, catalog: $0, now: now,
+                                           incompleteAccounts: pass.failed ? apiKeyAccounts : pass.pendingAccounts,
+                                           coverageStartDay: SuggestionLogPass.coverageStartDay(
+                                               firstPassDay: pass.firstPassDay))
             } ?? [:]
-            return (reader.recentSummary(now: now), estimates)
+            return (reader.recentSummary(now: now), estimates, pass.failed || pass.pendingBytes > 0)
         }
         suggestionLogTask = Task { @MainActor [weak self] in
             let result = await withTaskCancellationHandler(operation: {
@@ -630,7 +647,9 @@ final class UsageModel: ObservableObject {
             }, onCancel: {
                 backgroundTask.cancel()
             })
-            guard let self, self.generation == generation else { return }
+            // A usage refresh that started meanwhile does not make this result stale.
+            guard let self, self.logReadGate.finish(token: token, now: Date(), backlog: result.2)
+            else { return }
             self.suggestionLogHints = result.0
             self.apiUsageEstimates = result.1
         }
@@ -696,12 +715,33 @@ final class UsageModel: ObservableObject {
         pace = readings
     }
 
+    /// The remembered warnings, read from the store the first time they are needed.
+    private func loadedAlertState() -> UsageAlertState? {
+        guard !isDemo else { return nil }
+        if !alertStateLoaded {
+            alertStateLoaded = true
+            let env = SwitcherEnvironment.live()
+            alertState = UsageAlertStore(env: env, fs: SafeFS(env: env)).load()
+        }
+        return alertState
+    }
+
+    /// Memory and store change together, so a restart never brings back a key that was cleared.
+    /// When a write fails the memory copy still advances, so the retry flag keeps asking for a save.
+    private func saveAlertState(_ state: UsageAlertState) {
+        alertState = state
+        let env = SwitcherEnvironment.live()
+        alertStateNeedsSave = (try? UsageAlertStore(env: env, fs: SafeFS(env: env)).save(state)) == nil
+    }
+
     private func deliverAlerts(now: Date) {
-        guard settings.usageAlertsEnabled else { return }
-        let (alerts, alerted) = UsageAlerts.update(usages: usages,
-                                                 threshold: Double(settings.usageWarnPercent),
-                                                 alerted: alertedKeys, now: now)
-        alertedKeys = alerted
+        guard settings.usageAlertsEnabled, !isDemo else { return }
+        let saved = loadedAlertState()
+        let threshold = Double(settings.usageWarnPercent)
+        let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
+                                                 alerted: saved?.marks(for: threshold) ?? [:], now: now)
+        let next = UsageAlertState(threshold: threshold, marks: alerted)
+        if next != saved || alertStateNeedsSave { saveAlertState(next) }
         if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
     }
 }

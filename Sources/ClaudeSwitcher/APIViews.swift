@@ -132,7 +132,7 @@ struct APIContent: View {
                             .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                     }
                 } else {
-                    Text(L10n.t(.apiNoPrice))
+                    Text(L10n.t(estimate?.isReadingLogs == true ? .apiEstimatesReadingLogs : .apiNoPrice))
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
             }

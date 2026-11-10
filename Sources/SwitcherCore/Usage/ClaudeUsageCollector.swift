@@ -15,19 +15,23 @@ public struct ClaudeUsageCollector: Sendable {
     private let home: URL
     private let managed: ClaudeManagedSettings
     private let binaryPaths: [URL]
+    private let workingDirectory: URL
     private let now: @Sendable () -> Date
 
     /// `home` is the real home by default; tests pass a temp home. `binaryPaths` overrides the
-    /// discovery list (home-relative candidates plus the two system locations).
+    /// discovery list (home-relative candidates plus the two system locations). `workingDirectory`
+    /// must already exist; the collector never creates or removes it.
     public init(runner: any UsageProcessRunner,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 managed: ClaudeManagedSettings = .system,
                 binaryPaths: [URL]? = nil,
+                workingDirectory: URL,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.runner = runner
         self.home = home
         self.managed = managed
         self.binaryPaths = binaryPaths ?? Self.defaultBinaryPaths(home: home)
+        self.workingDirectory = workingDirectory
         self.now = now
     }
 
@@ -51,19 +55,16 @@ public struct ClaudeUsageCollector: Sendable {
         guard !managed.shuts(claudeFolder: home.appendingPathComponent(".claude", isDirectory: true))
         else { return finish(.unavailable(.managed), toolVersion: toolVersion) }
         let read = Self.readUsage(runner: runner, binary: binary, environment: Self.environment(),
-                                  timeout: 60, now: now)
+                                  workingDirectory: workingDirectory, timeout: 60, now: now)
         return finish(read.state, read.windows, toolVersion: toolVersion)
     }
 
     static func readUsage(runner: any UsageProcessRunner, binary: URL,
-                          environment: [String: String], timeout: TimeInterval,
+                          environment: [String: String], workingDirectory: URL, timeout: TimeInterval,
                           now: @Sendable () -> Date) -> (state: UsageState, windows: [UsageWindow]) {
-        let workDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("usageswitch-claude-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: workDir) }
+        guard isDirectory(workingDirectory) else { return (.failed(.refused), []) }
         let request = UsageProcessRequest(executable: binary, arguments: Self.arguments,
-            environment: environment, workingDirectory: workDir,
+            environment: environment, workingDirectory: workingDirectory,
             stopWhen: { ClaudeUsageOutput.stops($0) || ClaudeUsageOutput.answers($0) },
             timeout: timeout)
         let result = runner.run(request)
@@ -84,6 +85,11 @@ public struct ClaudeUsageCollector: Sendable {
             }
         }
     }
+    }
+
+    static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// The version in the binary's resolved path (`…/versions/<v>`), else nil.

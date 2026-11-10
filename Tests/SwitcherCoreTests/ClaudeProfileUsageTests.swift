@@ -91,7 +91,8 @@ private final class ProfileAuthResponses: @unchecked Sendable {
 
 private func profileCollector(home: URL, profile: URL, binary: URL,
                               runner: FakeUsageRunner,
-                              managed: ClaudeManagedSettings? = nil) -> ClaudeProfileUsageCollector {
+                              managed: ClaudeManagedSettings? = nil,
+                              workingDirectory: URL = FileManager.default.temporaryDirectory) -> ClaudeProfileUsageCollector {
     let scratch = home.appendingPathComponent("scratch", isDirectory: true)
     return ClaudeProfileUsageCollector(
         binding: ClaudeProfileBinding(accountId: "saved-1", accountUuid: "account-1",
@@ -102,6 +103,7 @@ private func profileCollector(home: URL, profile: URL, binary: URL,
             preferences: scratch.appendingPathComponent("preferences")),
         binaryPaths: [binary],
         excludedRoots: [home.appendingPathComponent("store", isDirectory: true)],
+        workingDirectory: workingDirectory,
         now: { profileReadAt })
 }
 
@@ -198,6 +200,31 @@ struct ClaudeProfileDirectoryTests {
 
 @Suite("Claude CLI profile usage")
 struct ClaudeProfileUsageTests {
+    @Test func authStatusAndUsageShareTheInjectedWorkingDirectory() throws {
+        let home = try profileTestDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent("profile", isDirectory: true)
+        try makeClaudeProfile(profile)
+        let binary = try makeProfileBinary(home: home)
+        let workDir = home.appendingPathComponent("cli-workdir", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        let runner = profileRunner(home: home, profile: profile,
+            statusJSONs: [profileAuthJSON(profile), profileAuthJSON(profile)],
+            onUsage: { try? makeClaudeProfile(profile, startups: 2) })
+        let result = try #require(profileCollector(home: home, profile: profile, binary: binary, runner: runner,
+                                                   workingDirectory: workDir).collect())
+        #expect(result.state == .ok)
+        #expect(runner.requests.map(\.workingDirectory) == [workDir, workDir, workDir])
+        #expect(FileManager.default.fileExists(atPath: workDir.path))
+
+        let missing = home.appendingPathComponent("no-such-dir", isDirectory: true)
+        let idle = profileRunner(home: home, profile: profile)
+        let refused = try #require(profileCollector(home: home, profile: profile, binary: binary, runner: idle,
+                                                    workingDirectory: missing).collect())
+        #expect(refused.state == .failed(.refused))
+        #expect(idle.requests.isEmpty)
+    }
+
     @Test("happy path performs auth, usage, auth in order with the profile environment")
     func happyPathAndDefaultCollectorEnvironment() throws {
         let home = try profileTestDirectory()
@@ -227,7 +254,8 @@ struct ClaudeProfileUsageTests {
         _ = ClaudeUsageCollector(runner: defaultRunner, home: home,
             managed: ClaudeManagedSettings(folder: home.appendingPathComponent("managed"),
                                            preferences: home.appendingPathComponent("preferences")),
-            binaryPaths: [binary], now: { profileReadAt }).collect()
+            binaryPaths: [binary], workingDirectory: FileManager.default.temporaryDirectory,
+            now: { profileReadAt }).collect()
         #expect(defaultRunner.requests.first?.environment["CLAUDE_CONFIG_DIR"] == nil)
         #expect(runner.requests[1].timeout == defaultRunner.requests.first?.timeout)
     }

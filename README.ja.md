@@ -180,7 +180,7 @@ UsageSwitch は、毎回の読み取りの前後でプロファイルが同じ�
 | **Cursor** | 月次合計に加え *Cursor Models* と *Other Models* | Cursor の使用量 API、`cursor-agent` のサインインを使用 | ⚙︎ › 使用量の接続 |
 | **Grok** | 週間の上限 | Grok CLI の使用量エンドポイント | ⚙︎ › 使用量の接続 |
 | **Gemini** | モデル別の入出力上限 | Gemini Code Assist クォータ、Gemini CLI のサインインを使用 | ⚙︎ › 使用量の接続 |
-| **Antigravity** | モデルグループの上限（例：*Gemini Models*） | `agy` の `/usage` 画面、フォールバックは読み取り専用クォータ API | ⚙︎ › 使用量の接続 |
+| **Antigravity** | モデルグループの上限（例：*Gemini Models*） | `agy` の `/usage` 画面と、更新のたびに呼び出す読み取り専用クォータ API（画面を読み取れない場合はこの値を表示） | ⚙︎ › 使用量の接続 |
 | **Devin** | Devin CLI が報告するクォータ | Devin CLI のユーザーステータス | ⚙︎ › 使用量の接続 |
 | **OpenCode Go** | ローリング 5 時間・週間・月間の上限 | OpenCode の Go 使用量エンドポイント | ⚙︎ › 使用量の接続 |
 
@@ -198,7 +198,7 @@ UsageSwitch は、毎回の読み取りの前後でプロファイルが同じ�
 | Cursor | Cursor のキーチェーン項目、続いて `~/.cursor/auth.json` | `api2.cursor.sh` | 更新ごとに 1 リクエスト。期限切れトークンではリクエストを送りません。ブラウザの `cursor-agent login` は約 60 日、API キーサインインは約 1 時間持ちます。Grok Bot とオンデマンド料金は読み取りません。 |
 | Grok | Grok CLI のサインインファイル | `cli-chat-proxy.grok.com` | 実験的。 |
 | Gemini | Gemini CLI のキーチェーン項目、続いて `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | アクセストークンが期限切れの場合、UsageSwitch は保存済み更新トークンとインストール済み Gemini CLI 自身のサインインクライアントで、メモリにだけ保持する一時トークンを取得します。何も書き戻しません。更新ごとに最大 3 リクエスト。 |
-| Antigravity | ホームフォルダから隠しターミナルで実行される `agy` 自体（最大 9 分ごと）。フォールバック：agy のキーチェーン項目 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` は通常の設定で起動し、設定済みの MCP サーバーも含みます。UsageSwitch は agy のプロンプトに答えません。macOS がキーチェーンアクセスを一度尋ねることがあります。 |
+| Antigravity | ホームフォルダから隠しターミナルで実行される `agy` 自体（最大 9 分ごと）。agy のキーチェーン項目（キーチェーンにない場合は `~/.gemini/jetski-standalone-oauth-token`）を更新のたびに読み取ります | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` は通常の設定で起動し、設定済みの MCP サーバーも含みます。UsageSwitch は agy のプロンプトに答えません。macOS がキーチェーンアクセスを一度尋ねることがあります。 |
 | Devin | Devin CLI の認証情報とバージョン | `server.codeium.com` | 対応する Devin CLI バージョンが必要。 |
 | OpenCode Go | OpenCode の `auth.json` 内の `opencode-go` エントリ | `opencode.ai` | Go プランのみ。他の OpenCode 使用量は対象外。 |
 
