@@ -329,6 +329,8 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli                  # 전체 명령 목록
 ```
 
+**2.2.0 변경:** `remove`와 `codex remove`는 확인용 `--yes`가 필요합니다 — 없으면 `needs_confirmation`(코드 3)으로 끝나고 아무것도 바뀌지 않습니다.
+
 `--cli usage`는 앱이 마지막으로 읽어 저장한 값을 출력합니다. 도구나 네트워크에 연결하지 않으므로 먼저 UsageSwitch를 한 번 열어 두세요. 이메일은 언제나 가려서 출력합니다.
 
 <details>

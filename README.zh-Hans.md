@@ -328,6 +328,8 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 "$APP" --cli                  # 列出所有命令
 ```
 
+**2.2.0 变更：** `remove` 和 `codex remove` 需要 `--yes` 确认——不带该参数会以 `needs_confirmation`（退出码 3）结束，且不做任何更改。
+
 `--cli usage` 输出应用最近读取并保存的内容。它不接触任何工具或网络，所以先打开 UsageSwitch 一次。邮箱始终打码。
 
 <details>
