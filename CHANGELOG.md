@@ -1,5 +1,59 @@
 # Changelog
 
+## 2.2.0 — finishing the 2026-11 audit
+
+**Breaking (command line):**
+- `--cli remove` and `--cli codex remove` now require `--yes`. Without it they exit with
+  code 3 and change nothing.
+
+**Usage:**
+- Command-line tools installed with npm, bun or Volta (for example `~/.npm-global/bin/codex`)
+  now run when usage is read. Before, they couldn't find `node` and showed "Usage read was
+  refused".
+- "May run out in …" needs real evidence: at least 2 points over 10 minutes, or one jump of
+  5 points. Before, a single 1-point step in Codex's whole-number percentages projected a run-out.
+- Antigravity's hidden terminal is hardened: unusual control sequences can't crash it or make
+  it press Enter in the wrong place, and a Keychain timeout no longer shows the previous
+  account's numbers. Pins and warnings saved under the API's spelling of a limit keep matching.
+- A Cursor percentage outside 0–100 is reported as a changed response instead of being
+  clamped. An Antigravity limit of an unknown kind is shown instead of dropped.
+- Turning a connection off removes its numbers from `usage-snapshot.json` at once.
+- A linked Claude CLI profile is also checked against the saved account's email.
+
+**Claude and Codex accounts:**
+- A switch link opened while UsageSwitch is quit opens the confirmation once the app is ready.
+  A link that can't be handled says so instead of disappearing.
+- If `codex-accounts.json` can't be read, the Codex tab says so and hidden homes stay hidden.
+- Removing a Codex account checks its folder before anything is logged out or moved to the
+  Trash. An account whose folder is already gone can still be removed.
+- Codex homes that were only found on this Mac (not added) are no longer read for the Guide.
+
+**API tab:**
+- The Standard/Strong vault setting is gone. Both behaved the same; adding, showing and
+  deleting a key always asks for Touch ID or your password.
+- A shown key hides itself after 60 seconds or when the window closes. A key whose details
+  can't be read is listed so you can delete it.
+- The daily rate counts the days the logs actually cover. Anthropic, Google and xAI say their
+  spend can't be estimated from local logs.
+
+**Everyday polish:**
+- No more "80% left remaining", "Next update in now" or "≈1 days left". A limit at 99.5% or
+  more shows as used up, and a run-out under a minute says so.
+- Account names can't contain invisible or direction-changing characters (emoji such as 👩‍💻
+  still work).
+- With no window or menu open, status is checked every 30 seconds instead of every 6.
+- The Guide no longer writes daily observation files that nothing read, and a damaged
+  learning salt resets the learning data instead of turning learning off.
+- Cursor's API address can no longer be changed through an environment variable.
+
+**Behind the scenes:**
+- New tests for the network guard, every crash point of a real switch, CLI exit codes and the
+  1 MiB response limit. CI adds a weekly ThreadSanitizer run, a universal release build,
+  per-file coverage floors, Dependabot and actions pinned to commits.
+- `scripts/audit.sh` checks all sources for writes outside the store guard, plus more secret
+  patterns.
+- PRIVACY.md and the READMEs now list every file UsageSwitch writes and every value it reads.
+
 ## 2.1.6 — no more constant redrawing, safer rare switch failures
 
 - With the main window open, CPU use no longer climbs after each usage refresh. The refresh
