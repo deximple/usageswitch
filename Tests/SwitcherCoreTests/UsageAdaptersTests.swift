@@ -824,8 +824,8 @@ extension GrokAdapterTests {
 struct SignInReasonTests {
     @Test("noSignIn names the provider; signInExpired names the CLI command")
     func reasons() {
-        L10n.language = .en
-        #expect(UsageText.problem(.noSignIn, provider: .grok).contains("Grok"))
+        #expect(UsageText.problem(.noSignIn, provider: .grok)
+            == L10n.string(.usageReasonNoSignIn, language: .en, ["Grok"]))
         #expect(UsageText.problem(.signInExpired, provider: .gemini).contains("gemini"))
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
         #expect(UsageText.cliCommand(.antigravity) == "agy")
@@ -833,9 +833,8 @@ struct SignInReasonTests {
 
     @Test("signInRejected names the tool's own login command")
     func signInRejected() {
-        L10n.language = .en
         #expect(UsageText.problem(.signInRejected, provider: .devin)
-            == "Sign-in not accepted — run devin auth login once in Terminal")
+            == L10n.string(.usageReasonSignInRejected, language: .en, ["devin auth login"]))
         #expect(UsageText.cliCommand(.claude) == "claude auth login")
         #expect(UsageText.cliCommand(.codex) == "codex login")
         #expect(UsageText.cliCommand(.cursor) == "cursor-agent login")
@@ -947,16 +946,25 @@ struct GeminiRefreshTests {
 
 @Suite("Gemini OAuth client scan")
 struct GeminiOAuthScanTests {
-    private func package(_ files: [(name: String, body: String, sizePad: Int)]) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gcli-\(UUID().uuidString)/@google/gemini-cli")
+    /// Returns (cli path, gcli- tree root) — the caller defers removal of the root.
+    private func package(_ files: [(name: String, body: String, sizePad: Int)]) throws -> (URL, URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gcli-\(UUID().uuidString)")
+        let dir = root.appendingPathComponent("@google/gemini-cli")
         let bundle = dir.appendingPathComponent("bundle")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         for f in files {
-            try (f.body + String(repeating: " ", count: f.sizePad)).write(
-                to: bundle.appendingPathComponent(f.name), atomically: true, encoding: .utf8)
+            let target = bundle.appendingPathComponent(f.name)
+            try f.body.write(to: target, atomically: true, encoding: .utf8)
+            if f.sizePad > 0 {
+                // Only the size matters — extend with zeros instead of materializing MBs.
+                let fd = open(target.path, O_WRONLY)
+                precondition(fd >= 0)
+                precondition(ftruncate(fd, off_t(f.body.utf8.count + f.sizePad)) == 0)
+                close(fd)
+            }
         }
-        return dir.appendingPathComponent("bin/gemini")
+        return (dir.appendingPathComponent("bin/gemini"), root)
     }
 
     private let id = FakeGoogleClient.id("123-abc")
@@ -965,13 +973,15 @@ struct GeminiOAuthScanTests {
     @Test("three identical copies are accepted and cached")
     func identical() throws {
         let body = #"var OAUTH_CLIENT_ID = "\#(id)"; var OAUTH_CLIENT_SECRET = "\#(secret)";"#
-        let cli = try package([("a.js", body, 0), ("b.js", body, 0), ("c.js", body, 0)])
+        let (cli, root) = try package([("a.js", body, 0), ("b.js", body, 0), ("c.js", body, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
     }
 
     @Test("an in-place bundle rewrite is rescanned by the same finder")
     func rescansInPlaceUpdate() throws {
-        let cli = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        let (cli, root) = try package([("a.js", #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         let finder = GeminiOAuthClientFinder()
         #expect(finder.client(for: cli)?.id == id)
         let file = cli.deletingLastPathComponent().deletingLastPathComponent()
@@ -997,10 +1007,15 @@ struct GeminiOAuthScanTests {
         let a = #"OAUTH_CLIENT_ID = "\#(id)"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
         let b = #"OAUTH_CLIENT_ID = "\#(FakeGoogleClient.id("999-zzz"))"; OAUTH_CLIENT_SECRET = "\#(secret)";"#
         let bad = #"OAUTH_CLIENT_ID = "not-an-id"; OAUTH_CLIENT_SECRET = "not-a-secret";"#
-        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", a, 0), ("b.js", b, 0)])) == nil)
-        #expect(GeminiOAuthClientFinder().client(for: try package([("a.js", bad, 0)])) == nil)
+        let (cliAB, rootAB) = try package([("a.js", a, 0), ("b.js", b, 0)])
+        defer { try? FileManager.default.removeItem(at: rootAB) }
+        #expect(GeminiOAuthClientFinder().client(for: cliAB) == nil)
+        let (cliBad, rootBad) = try package([("a.js", bad, 0)])
+        defer { try? FileManager.default.removeItem(at: rootBad) }
+        #expect(GeminiOAuthClientFinder().client(for: cliBad) == nil)
         // an oversized file is skipped — the valid pair in the small file still wins
-        let cli = try package([("big.js", bad, 33 * 1024 * 1024), ("a.js", a, 0)])
+        let (cli, root) = try package([("big.js", bad, 33 * 1024 * 1024), ("a.js", a, 0)])
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(GeminiOAuthClientFinder().client(for: cli)?.id == id)
     }
 }
@@ -1089,8 +1104,9 @@ struct GeminiRetiredTests {
 
     @Test("reason strings: Gemini-retired vs generic notEligible")
     func text() {
-        L10n.language = .en
-        #expect(UsageText.problem(.notEligible, provider: .gemini).contains("Antigravity"))
-        #expect(UsageText.problem(.notEligible, provider: .grok).contains("Grok"))
+        #expect(UsageText.problem(.notEligible, provider: .gemini)
+            == L10n.string(.usageReasonGeminiRetired, language: .en))
+        #expect(UsageText.problem(.notEligible, provider: .grok)
+            == L10n.string(.usageReasonNotEligible, language: .en, ["Grok"]))
     }
 }

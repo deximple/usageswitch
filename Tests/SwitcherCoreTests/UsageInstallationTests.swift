@@ -160,7 +160,7 @@ struct UsageInstallationTests {
     }
 
     @Test("visible helper drops absent providers, preserves rows, no placeholders")
-    func visible() {
+    func visible() { defer { cleanup() }
         let usages = [
             AccountUsage(id: "a", provider: .claude, accountRef: "r1", label: "A", plan: nil,
                          windows: [], state: .ok, readAt: Date(), toolVersion: nil),
