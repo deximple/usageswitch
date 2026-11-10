@@ -74,7 +74,7 @@ extension Switcher {
         let active = activeIdentity()
         let now = clock.now()
 
-        let codeEmails = codeSessionEmails()
+        let codeEmails = codeSessionEmails(in: procs)
         let rows: [AccountStatus] = all.compactMap { account in
             let identity = account.identity
             // Listed accounts always have a generation; one removed a moment ago is simply left out.
@@ -107,7 +107,7 @@ extension Switcher {
             codeSessions: main.map { processes.codeSessionCLIs(in: procs, main: $0).count } ?? 0)
 
         var warnings: [String] = []
-        let native = (log.read("main.log").map { $0.contains(ClaudeLog.multiAccountMarker) }) ?? false
+        let native = logSignals.current().nativeMultiAccount
         if native { warnings.append(L10n.t(.warnNativeMultiAccount)) }
         if main != nil && active == nil { warnings.append(L10n.t(.warnActiveUnknown)) }
         if swapper.journalPresent {

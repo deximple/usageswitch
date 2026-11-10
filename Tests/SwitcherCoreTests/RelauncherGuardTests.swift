@@ -258,7 +258,118 @@ struct RelauncherGuardTests {
         #expect(Set(s.guardian.untrustedEntries().map(\.label)) == Set(s.guardian.journal().map(\.label)))
     }
 
+    // MARK: - Bounded plist reads and the status scan cache (audit A-02)
+
+    @Test func aPlistLargerThanOneMebibyteIsSkipped() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let label = "com.user.claude-huge"
+        let plist = try AgentFixture.writePlist(env: sb.env, label: label, plist: [
+            "Label": label, "ProgramArguments": ["/usr/bin/open", "-a", "Claude"],
+            "Padding": String(repeating: "x", count: 1_100_000),
+        ])
+        #expect(((try? FileManager.default.attributesOfItem(atPath: plist.path)[.size]) as? Int ?? 0) > 1_048_576)
+        #expect(RelauncherGuard(env: sb.env, fs: sb.fs, runner: FakeWorld(env: sb.env)).discover().isEmpty)
+    }
+
+    @Test func aPlistThatIsASymlinkToDevZeroDoesNotStallTheScan() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try FileManager.default.createSymbolicLink(
+            atPath: sb.env.launchAgentsDir.appendingPathComponent("zero.plist").path, withDestinationPath: "/dev/zero")
+        let guardian = RelauncherGuard(env: sb.env, fs: sb.fs, runner: FakeWorld(env: sb.env))
+        let started = Date()
+        let result = guardian.scan()
+        #expect(result.relaunchers.isEmpty)
+        #expect(result.unverified.isEmpty)
+        #expect(Date().timeIntervalSince(started) < 1)
+    }
+
+    struct CountingSetup {
+        let sb: Sandbox
+        let guardian: RelauncherGuard
+        let script: URL
+        let plist: URL
+        let reads: ReadCounter
+    }
+
+    func countingSetup() throws -> CountingSetup {
+        let sb = try Sandbox()
+        let label = "com.user.claude-counted"
+        let scriptsDir = sb.root.appendingPathComponent("scripts")
+        try FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
+        let script = scriptsDir.appendingPathComponent("\(label).sh")
+        try Data("open -a Claude\n".utf8).write(to: script)
+        let plist = try AgentFixture.writePlist(env: sb.env, label: label, plist: [
+            "Label": label, "ProgramArguments": [script.path],
+        ])
+        let world = FakeWorld(env: sb.env)
+        world.addAgent(label: label, plist: plist, loaded: true)
+        let reads = ReadCounter()
+        let reader = BoundedReader { path in
+            reads.record(path)
+            return BoundedReader.readSmallText(path)
+        }
+        return CountingSetup(sb: sb, guardian: RelauncherGuard(env: sb.env, fs: sb.fs, runner: world, reader: reader),
+                             script: script, plist: plist, reads: reads)
+    }
+
+    @Test func discoverReusesAScanWhileNothingChanged() throws {
+        let s = try countingSetup(); defer { s.sb.remove() }
+        #expect(s.guardian.discover().map(\.label) == ["com.user.claude-counted"])
+        #expect(s.guardian.discover().map(\.label) == ["com.user.claude-counted"])
+        #expect(s.reads.count(s.script.path) == 1)
+    }
+
+    @Test func discoverRescansWhenAPlistChanges() throws {
+        let s = try countingSetup(); defer { s.sb.remove() }
+        _ = s.guardian.discover()
+        try AgentFixture.writePlist(env: s.sb.env, label: "com.user.claude-counted", plist: [
+            "Label": "com.user.claude-counted", "ProgramArguments": ["/bin/echo", "nothing to see"],
+        ])
+        #expect(s.guardian.discover().isEmpty)
+    }
+
+    @Test func discoverRescansWhenAPlistIsAdded() throws {
+        let s = try countingSetup(); defer { s.sb.remove() }
+        _ = s.guardian.discover()
+        try AgentFixture.writePlist(env: s.sb.env, label: "com.user.claude-second", plist: [
+            "Label": "com.user.claude-second", "ProgramArguments": ["/usr/bin/open", "-a", "Claude"],
+        ])
+        #expect(s.guardian.discover().map(\.label) == ["com.user.claude-counted", "com.user.claude-second"])
+    }
+
+    @Test func discoverRescansWhenAReferencedScriptChanges() throws {
+        let s = try countingSetup(); defer { s.sb.remove() }
+        _ = s.guardian.discover()
+        try Data("open -a Safari\n".utf8).write(to: s.script)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 120)], ofItemAtPath: s.script.path)
+        #expect(s.guardian.discover().isEmpty)
+        #expect(s.reads.count(s.script.path) == 2)
+    }
+
+    @Test func suspendAllAlwaysScansFresh() throws {
+        let s = try countingSetup(); defer { s.sb.remove() }
+        _ = s.guardian.discover()
+        _ = s.guardian.discover()
+        #expect(try s.guardian.suspendAll().map(\.label) == ["com.user.claude-counted"])
+        #expect(s.reads.count(s.script.path) == 2)
+    }
+
     @Test func uniquedKeepsFirstOccurrenceOrder() {
         #expect([3, 1, 3, 2, 1].uniqued() == [3, 1, 2])
+    }
+}
+
+final class ReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [String: Int] = [:]
+
+    func record(_ path: String) {
+        lock.lock(); defer { lock.unlock() }
+        paths[path, default: 0] += 1
+    }
+
+    func count(_ path: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return paths[path] ?? 0
     }
 }

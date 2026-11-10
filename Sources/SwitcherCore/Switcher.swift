@@ -86,6 +86,7 @@ public final class Switcher: @unchecked Sendable {
     public let runner: CommandRunner
     public let clock: Clock
     public let log: ClaudeLog
+    let logSignals: ClaudeLogSignals
     public let store: SnapshotStore
     public let swapper: SwapEngine
     public let relaunchers: RelauncherGuard
@@ -122,7 +123,9 @@ public final class Switcher: @unchecked Sendable {
         self.app = app
         self.runner = runner
         self.clock = clock
-        log = ClaudeLog(logsDir: env.claudeLogsDir)
+        let log = ClaudeLog(logsDir: env.claudeLogsDir)
+        self.log = log
+        logSignals = ClaudeLogSignals(log: log)
         store = SnapshotStore(env: env, fs: fs)
         swapper = SwapEngine(env: env, fs: fs, isClaudeRunning: { processes.anyClaudeNamedProcess() })
         relaunchers = RelauncherGuard(env: env, fs: fs, runner: runner)
@@ -231,7 +234,7 @@ public final class Switcher: @unchecked Sendable {
     public func activeIdentity() -> (account: String, org: String)? {
         guard let config = try? ClaudeConfig.load(env.claudeConfigJSON),
               let known = config.lastKnownAccountUuid,
-              let signal = log.latestIdentity(),
+              let signal = logSignals.current().latestIdentity,
               signal.accountUuid == known, !signal.loggedOutAfter else { return nil }
         return (signal.accountUuid, signal.orgUuid)
     }
@@ -249,8 +252,9 @@ public final class Switcher: @unchecked Sendable {
 
     /// Emails of the accounts that Claude's running Code-tab sessions are signed in as (read before Claude quits,
     /// so a newly saved sign-in is named by its email rather than an id prefix).
-    func codeSessionEmails() -> [String: String] {
-        let procs = table.all()
+    func codeSessionEmails() -> [String: String] { codeSessionEmails(in: table.all()) }
+
+    func codeSessionEmails(in procs: [ProcInfo]) -> [String: String] {
         guard let main = processes.mainProcesses(in: procs).first else { return [:] }
         var emails: [String: String] = [:]
         for cli in processes.codeSessionCLIs(in: procs, main: main) {

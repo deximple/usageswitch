@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum BoundedRead: Equatable {
@@ -102,12 +103,34 @@ public final class BoundedReader: @unchecked Sendable {
         return result.get().map(BoundedRead.data) ?? .unreadable
     }
 
+    /// Small text only: at most 64 KiB and no NUL byte.
     public static func readSmallText(_ path: String) -> Data? {
-        let fm = FileManager.default
-        guard let attrs = try? fm.attributesOfItem(atPath: path),
-              (attrs[.size] as? NSNumber)?.intValue ?? 0 < 65_536,
-              let data = fm.contents(atPath: path),
-              !data.contains(0) else { return nil }
+        readBounded(path, limit: 65_536, allowBinary: false)
+    }
+
+    /// Reads a regular file smaller than `limit` bytes and nothing else. The size is taken from the opened
+    /// file, so a symlink is measured by its target, and devices, FIFOs and directories are refused
+    /// without reading them.
+    public static func readBounded(_ path: String, limit: Int, allowBinary: Bool) -> Data? {
+        let fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size < off_t(limit) else { return nil }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            data.append(contentsOf: buffer[0..<count])
+            // The file grew past the limit after fstat.
+            guard data.count < limit else { return nil }
+        }
+        if !allowBinary, data.contains(0) { return nil }
         return data
     }
 }

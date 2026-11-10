@@ -6,6 +6,32 @@ public struct Relauncher: Codable, Equatable, Sendable {
     public let plistPath: String
 }
 
+/// Remembers the last clean scan for status polling. A scan is reused only while every plist and every
+/// file it inspected still has the same size and modification time. Switching never reads this cache.
+final class RelauncherScanCache: @unchecked Sendable {
+    struct Entry {
+        let plistNames: [String]
+        /// Every path the scan inspected, in scan order.
+        let paths: [String]
+        /// `RelauncherGuard.fingerprint(of:)` for each of `paths`, taken just before it was read.
+        let fingerprints: [String]
+        let relaunchers: [Relauncher]
+    }
+
+    private let lock = NSLock()
+    private var entry: Entry?
+
+    func get() -> Entry? {
+        lock.lock(); defer { lock.unlock() }
+        return entry
+    }
+
+    func store(_ entry: Entry?) {
+        lock.lock(); defer { lock.unlock() }
+        self.entry = entry
+    }
+}
+
 /// Detects, suspends (bootout) and restores (bootstrap) Claude-relaunching LaunchAgents. Plists are never
 /// edited; suspension is journaled so a crash mid-switch is repaired on the next start.
 public struct RelauncherGuard: Sendable {
@@ -13,28 +39,56 @@ public struct RelauncherGuard: Sendable {
     let fs: SafeFS
     let runner: CommandRunner
     let reader: BoundedReader
+    let cache: RelauncherScanCache
     static let launchctl = "/bin/launchctl"
+    static let plistReadLimit = 1_048_576
 
     public init(env: SwitcherEnvironment, fs: SafeFS, runner: CommandRunner, reader: BoundedReader = .shared) {
         self.env = env
         self.fs = fs
         self.runner = runner
         self.reader = reader
+        self.cache = RelauncherScanCache()
     }
 
+    /// For status display. Reuses the previous scan while nothing it looked at has changed.
     public func discover() -> [Relauncher] {
-        scan().relaunchers
+        let names = plistNames()
+        if let cached = cache.get(), cached.plistNames == names,
+           cached.paths.map(Self.fingerprint(of:)) == cached.fingerprints {
+            return cached.relaunchers
+        }
+        let result = scan()
+        // A scan that could not verify something is never remembered.
+        cache.store(result.unverified.isEmpty && plistNames() == names
+            ? RelauncherScanCache.Entry(plistNames: names, paths: result.inspected.map(\.path),
+                                        fingerprints: result.inspected.map(\.fingerprint),
+                                        relaunchers: result.relaunchers)
+            : nil)
+        return result.relaunchers
     }
 
-    func scan() -> (relaunchers: [Relauncher], unverified: [String]) {
-        let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: env.launchAgentsDir.path) else { return ([], []) }
+    private func plistNames() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: env.launchAgentsDir.path)) ?? [])
+            .filter { $0.hasSuffix(".plist") }.sorted()
+    }
+
+    /// Size and modification time of what `path` resolves to; never opens the file.
+    static func fingerprint(of path: String) -> String {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return "missing" }
+        return "\(info.st_size):\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec):\(info.st_ino)"
+    }
+
+    func scan() -> (relaunchers: [Relauncher], unverified: [String], inspected: [(path: String, fingerprint: String)]) {
         var relaunchers: [Relauncher] = []
         var unverified: [String] = []
-        for name in names.sorted() where name.hasSuffix(".plist") {
+        var inspected: [(path: String, fingerprint: String)] = []
+        for name in plistNames() {
             let url = env.launchAgentsDir.appendingPathComponent(name)
+            inspected.append((url.path, Self.fingerprint(of: url.path)))
             let plistData: Data
-            switch reader.read(atPath: url.path, using: { FileManager.default.contents(atPath: $0) }) {
+            switch reader.read(atPath: url.path, using: { BoundedReader.readBounded($0, limit: Self.plistReadLimit, allowBinary: true) }) {
             case let .data(data):
                 plistData = data
             case .unreadable:
@@ -51,6 +105,7 @@ public struct RelauncherGuard: Sendable {
             var scriptTimedOut = false
             for arg in args where arg.hasPrefix("/") {
                 // Only small text scripts are inspected; binaries (NUL bytes) are skipped.
+                inspected.append((arg, Self.fingerprint(of: arg)))
                 switch reader.read(atPath: arg) {
                 case let .data(body):
                     if !body.contains(0) { text += "\n" + String(decoding: body, as: UTF8.self) }
@@ -65,7 +120,7 @@ public struct RelauncherGuard: Sendable {
                 relaunchers.append(Relauncher(label: label, plistPath: url.path))
             }
         }
-        return (relaunchers, unverified)
+        return (relaunchers, unverified, inspected)
     }
 
     /// Lines are pre-filtered with cheap substring checks and length-capped so the regexes stay linear.

@@ -39,6 +39,7 @@ final class CodexModel: ObservableObject {
     private var timer: Timer?
     /// Each refresh gets a number; a slower, older one never overwrites a newer result.
     private var refreshGeneration = 0
+    private var statusReadsInFlight = 0
     /// Signalled by background work as soon as the manager is done (before the result reaches the main actor).
     private var workDone: DispatchSemaphore?
 
@@ -57,7 +58,8 @@ final class CodexModel: ObservableObject {
     var isBusy: Bool { phase != .idle }
 
     func refreshIfIdle() {
-        guard phase == .idle else { return }
+        // A slow status read must not pile up behind the timer.
+        guard phase == .idle, statusReadsInFlight == 0 else { return }
         refresh()
     }
 
@@ -66,9 +68,13 @@ final class CodexModel: ObservableObject {
         refreshGeneration += 1
         let generation = refreshGeneration
         let manager = self.manager
+        statusReadsInFlight += 1
         Task.detached(priority: .userInitiated) {
             let status = manager.status()
-            await MainActor.run { if generation == self.refreshGeneration { self.status = status } }
+            await MainActor.run {
+                self.statusReadsInFlight -= 1
+                if generation == self.refreshGeneration { self.status = status }
+            }
         }
     }
 
