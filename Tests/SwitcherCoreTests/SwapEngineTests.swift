@@ -3,6 +3,23 @@ import Foundation
 import Testing
 @testable import SwitcherCore
 
+/// Lock-protected sandbox copies made by the `afterOperation` hook (audit B-13).
+private final class SnapshotList: @unchecked Sendable {
+    private let lock = NSLock()
+    private let root: URL
+    private var _copies: [URL] = []
+    init(root: URL) { self.root = root }
+    var copies: [URL] { lock.lock(); defer { lock.unlock() }; return _copies }
+    func capture() {
+        lock.lock(); defer { lock.unlock() }
+        let copy = root.deletingLastPathComponent()
+            .appendingPathComponent("\(root.lastPathComponent)-s\(_copies.count)")
+        try? FileManager.default.copyItem(at: root, to: copy)
+        _copies.append(copy)
+    }
+    func removeAll() { copies.forEach { try? FileManager.default.removeItem(at: $0) } }
+}
+
 @Suite("SwapEngine")
 struct SwapEngineTests {
     static let names = [SnapshotItems.config] + SnapshotItems.cookieGroup
@@ -24,6 +41,80 @@ struct SwapEngineTests {
 
     static func sha256(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Rebuilds `sb`'s environment rooted at a snapshot copy of the sandbox.
+    private func rebasedEnv(_ root: URL, like sb: Sandbox) -> SwitcherEnvironment {
+        func rebase(_ url: URL) -> URL {
+            root.appendingPathComponent(String(url.path.dropFirst(sb.root.path.count + 1)),
+                                        isDirectory: true)
+        }
+        return SwitcherEnvironment(
+            home: rebase(sb.env.home), claudeAppURL: rebase(sb.env.claudeAppURL),
+            claudeUserData: rebase(sb.env.claudeUserData),
+            claudeLogsDir: rebase(sb.env.claudeLogsDir),
+            launchAgentsDir: rebase(sb.env.launchAgentsDir),
+            storeDir: rebase(sb.env.storeDir))
+    }
+
+    @Test("a crash between any two filesystem operations resolves cleanly (audit B-13)")
+    func aCrashBetweenAnyTwoOperationsResolvesCleanly() throws {
+        let extra = ["Preferences", "Cookies-wal", "Cookies-journal"]
+        // Snapshot the sandbox after EVERY filesystem op of a real engine call; each
+        // copy is then resolved by a fresh engine as if the process died there.
+        func matrix(_ label: String,
+                    _ act: (_ sb: Sandbox, _ engine: SwapEngine) throws ->
+                            (before: [String: Data?], after: [String: Data?])) throws {
+            let sb = try Sandbox(); defer { sb.remove() }
+            let snaps = SnapshotList(root: sb.root)
+            let watch = SafeFS(env: sb.env, afterOperation: { _ in snaps.capture() })
+            defer { snaps.removeAll() }
+            let engine = SwapEngine(env: sb.env, fs: watch, isClaudeRunning: { false })
+            let (before, after) = try act(sb, engine)
+            #expect(!snaps.copies.isEmpty, "\(label) produced no filesystem operations")
+            for (i, snap) in snaps.copies.enumerated() {
+                let snapEnv = rebasedEnv(snap, like: sb)
+                let hadNoJournal = !exists(snapEnv.journalFile)
+                let fresh = SwapEngine(env: snapEnv, fs: SafeFS(env: snapEnv),
+                                       isClaudeRunning: { false })
+                try? fresh.resolvePending()
+                let live = fingerprint(snapEnv.claudeUserData, Self.names + extra)
+                for name in Self.names + extra {
+                    let data = live[name] ?? nil
+                    #expect(data == before[name] ?? nil || data == after[name] ?? nil,
+                            "\(label) snap \(i): \(name) is neither before nor after bytes")
+                }
+                // Pending work must be fully settled; a snapshot with no journal carries
+                // only preparation leftovers (staging/previous created before the journal
+                // write), which resolvePending rightly leaves alone.
+                #expect(!exists(snapEnv.journalFile), "\(label) snap \(i) left a journal")
+                #expect(!exists(snapEnv.previousDir) || hadNoJournal,
+                        "\(label) snap \(i) left previous/ behind")
+            }
+        }
+
+        let plainEngine = { (sb: Sandbox) in SwapEngine(env: sb.env, fs: sb.fs, isClaudeRunning: { false }) }
+        try matrix("install") { sb, engine in
+            try prepare(sb, engine: plainEngine(sb))
+            let before = fingerprint(sb.env.claudeUserData, Self.names + extra)
+            try engine.install(names: Self.names)
+            return (before, fingerprint(sb.env.claudeUserData, Self.names + extra))
+        }
+        try matrix("rollback") { sb, engine in
+            try prepare(sb, engine: plainEngine(sb))
+            try plainEngine(sb).install(names: Self.names)
+            let before = fingerprint(sb.env.claudeUserData, Self.names + extra)
+            try engine.rollback()
+            return (before, fingerprint(sb.env.claudeUserData, Self.names + extra))
+        }
+        try matrix("commit") { sb, engine in
+            try prepare(sb, engine: plainEngine(sb))
+            try plainEngine(sb).install(names: Self.names)
+            let keep = sb.env.displacedDir.appendingPathComponent("kept-previous", isDirectory: true)
+            let before = fingerprint(sb.env.claudeUserData, Self.names + extra)
+            try engine.commit(keepPreviousAt: keep)
+            return (before, fingerprint(sb.env.claudeUserData, Self.names + extra))
+        }
     }
 
     @Test func installSwapsCreatesRemovesAndJournals() throws {
