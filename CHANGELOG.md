@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.6 — no more constant redrawing, safer rare switch failures
+
+- With the main window open, CPU use no longer climbs after each usage refresh. The refresh
+  button's spinning animation never stopped, so the window was redrawn every frame (about
+  14 seconds of CPU per minute after a few refreshes on the owner Mac). The button now
+  shows a small progress indicator while a read runs.
+- Switching Claude accounts is safer in rare failure cases:
+  - If UsageSwitch stops right after replacing Claude's files, a sign-in that wasn't saved
+    is still kept in `displaced/`.
+  - If Claude's cookie database can't be read, it is treated as unknown, never as signed
+    out: a switch keeps it aside, and saving a new sign-in is refused.
+  - A damaged switch record now stops a switch before Claude is quit. Before, Claude was
+    quit and left off on every attempt.
+- A damaged switch record can be set aside, with the button under its warning in the main
+  window or with `UsageSwitch --cli recover --set-aside --yes`. The record and the files it
+  kept move to `displaced/journal-<date>`; nothing is deleted.
+
 ## 2.1.5 — lighter, quieter, and more accurate
 
 - Claude account switching and saving work with a Japanese, Buddhist, ROC, Persian or

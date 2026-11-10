@@ -229,8 +229,10 @@ final class UsageModel: ObservableObject {
         previousSamples = [:]
     }
 
-    private func stateStore(env: SwitcherEnvironment = .live()) -> SuggestionStateStore {
+    /// `.live()` resolves installed apps via file lookups — build it once, not per call.
+    private func stateStore() -> SuggestionStateStore {
         if let suggestionStore { return suggestionStore }
+        let env = SwitcherEnvironment.live()
         let store = SuggestionStateStore(env: env, fs: SafeFS(env: env))
         suggestionStore = store
         return store
