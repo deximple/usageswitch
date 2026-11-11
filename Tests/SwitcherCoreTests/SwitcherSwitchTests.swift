@@ -284,8 +284,10 @@ struct SwitcherSwitchTests {
         let rig = try Rig.make(); defer { rig.cleanup() }
         rig.world.update { $0.launchError = .launchFailed("LaunchServices refused") }
         let before = rig.liveFingerprint()
+        // A launch that fails after the swap reports what the rollback did — never a bare
+        // launchFailed that hides it (audit P3).
         #expect(switcherError { _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false) }
-            == .launchFailed("LaunchServices refused"))
+            == .verificationFailed("Couldn't launch Claude: LaunchServices refused", rollback: .unverified))
         #expect(rig.liveFingerprint() == before)
         #expect(rig.switcher.swapper.pendingJournal() == nil)
         #expect(rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))

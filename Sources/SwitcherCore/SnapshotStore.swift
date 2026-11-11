@@ -100,16 +100,28 @@ public struct SnapshotStore: Sendable {
         Self.generations(in: identityDir(identity))
     }
 
-    /// Generations stored in one identity folder, newest first.
+    /// Generations stored in one identity folder, newest first. Order comes from the `gen-N`
+    /// directory name, so a manifest with a stale or inflated number cannot jump the queue (audit P3).
     static func generations(in dir: URL) -> [Snapshot] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        return names.compactMap { name -> Snapshot? in
-            guard name.hasPrefix("gen-"), Int(name.dropFirst(4)) != nil else { return nil }
+        return names.compactMap { name -> (Int, Snapshot)? in
+            guard name.hasPrefix("gen-"), let n = Int(name.dropFirst(4)) else { return nil }
             let genDir = dir.appendingPathComponent(name, isDirectory: true)
             guard let data = FileManager.default.contents(atPath: genDir.appendingPathComponent(Self.manifestName).path),
                   let manifest = try? Self.decoder.decode(SnapshotManifest.self, from: data) else { return nil }
-            return Snapshot(dir: genDir, manifest: manifest)
-        }.sorted { $0.manifest.generation > $1.manifest.generation }
+            return (n, Snapshot(dir: genDir, manifest: manifest))
+        }.sorted { $0.0 > $1.0 }.map(\.1)
+    }
+
+    /// The next generation number, from `gen-N` directory names — a manifest that cannot be
+    /// parsed or that lies about its number must not cause a number to be reused (audit P3).
+    static func nextGenerationNumber(in dir: URL) -> Int {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let maxGen = names.compactMap { name -> Int? in
+            guard name.hasPrefix("gen-") else { return nil }
+            return Int(name.dropFirst(4))
+        }.max() ?? 0
+        return maxGen + 1
     }
 
     public func latest(for identity: AccountIdentity) -> Snapshot? { generations(for: identity).first }
@@ -247,8 +259,8 @@ public struct SnapshotStore: Sendable {
 
     /// Copies the cookie group out of `userData` (Claude must be fully quit) into a new generation.
     public func capture(from userData: URL, identity: AccountIdentity, claudeVersion: String?, now: Date = Date()) throws -> Snapshot {
-        let next = (generations(for: identity).first?.manifest.generation ?? 0) + 1
         let base = identityDir(identity)
+        let next = Self.nextGenerationNumber(in: base)
         let dir = base.appendingPathComponent("gen-\(next)", isDirectory: true)
         let partial = base.appendingPathComponent(".gen-\(next)-partial-\(UUID().uuidString)", isDirectory: true)
         try fs.createDirectory(env.storeDir)
@@ -327,15 +339,46 @@ public struct SnapshotStore: Sendable {
         try fs.createDirectory(env.storeDir)
         try fs.createDirectory(env.backupsDir)
         try fs.createDirectory(partial)
-        let names = SnapshotItems.cookieGroup + [SnapshotItems.config] + SnapshotItems.uiGroup + SnapshotItems.originalBackupExtras
-        for name in names {
-            let src = userData.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: src.path) {
-                try fs.copy(src, to: partial.appendingPathComponent(name))
+        do {
+            let names = SnapshotItems.cookieGroup + [SnapshotItems.config] + SnapshotItems.uiGroup + SnapshotItems.originalBackupExtras
+            for name in names {
+                let src = userData.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: src.path) {
+                    try fs.copy(src, to: partial.appendingPathComponent(name))
+                }
+            }
+            stripTokenCaches(inConfigAt: partial.appendingPathComponent(SnapshotItems.config))
+            try fs.move(partial, to: dir)
+            return dir
+        } catch {
+            try? fs.remove(partial)   // a half-made backup is debris, not a backup (audit P3)
+            throw error
+        }
+    }
+
+    /// Leftovers of interrupted writes are never valid data: a partial copy is either renamed
+    /// into place or it is debris. Called under the switch lock during recovery (audit P3).
+    public func removeInterruptedDebris() {
+        func names(in dir: URL) -> [String] {
+            (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        }
+        func sweep(_ dir: URL, where match: (String) -> Bool) {
+            for name in names(in: dir) where match(name) {
+                try? fs.remove(dir.appendingPathComponent(name))
             }
         }
-        stripTokenCaches(inConfigAt: partial.appendingPathComponent(SnapshotItems.config))
-        try fs.move(partial, to: dir)
-        return dir
+        sweep(env.backupsDir) { $0.hasPrefix(".partial-") }
+        sweep(env.snapshotsDir) { $0.hasPrefix(".import-") }
+        for identity in names(in: env.snapshotsDir) {
+            sweep(env.snapshotsDir.appendingPathComponent(identity, isDirectory: true)) {
+                $0.hasPrefix(".gen-") && $0.contains("-partial-")
+            }
+        }
+        sweep(env.storeDir) { $0.hasPrefix(".") && $0.contains(".tmp-") }
+        // previous/ and staging/ are meaningful only to a pending journal; without one they are debris.
+        if !SwapEngine.exists(env.journalFile) {
+            try? fs.remove(env.previousDir)
+            try? fs.remove(env.stagingDir)
+        }
     }
 }

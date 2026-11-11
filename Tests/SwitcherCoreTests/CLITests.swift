@@ -11,13 +11,19 @@ private final class StringSink: @unchecked Sendable {
     }
 }
 
+private struct EmptyTable: ProcessTable {
+    func all() -> [ProcInfo]? { [] }
+    func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] { [:] }
+}
+
 @Suite("CLI exit codes (audit B-13)")
 struct CLITests {
     /// CLI.run with a sandboxed switcher + codex manager; returns (exit, stdout, stderr).
+    /// The process table is an empty fake — the sandbox env must never see the host's Claude.
     private func run(_ sb: Sandbox, _ args: [String]) -> (Int32, String, String) {
         let out = StringSink(), err = StringSink()
-        let switcher = Switcher(env: sb.env)
-        let codex = CodexManager(env: sb.env)
+        let switcher = Switcher(env: sb.env, table: EmptyTable())
+        let codex = CodexManager(env: sb.env, table: EmptyTable())
         let code = CLI.run(args: args, switcher: switcher, codex: codex,
                            out: { out.text += $0 }, err: { err.text += $0 })
         return (code, out.text, err.text)

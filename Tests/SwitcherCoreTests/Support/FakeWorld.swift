@@ -71,6 +71,12 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
         var opened: [URL] = []
         var journalHadLabelAtBootout: [String: Bool] = [:]
         var claudeStartedDuringSwap = false
+        /// Process-table reads fail (return nil) while set — models sysctl returning nothing (audit P3).
+        var tableUnreadable = false
+        /// Claude reappears on the first table read after a new generation or backup dir
+        /// exists — models a relaunch while a capture or backup was being copied (audit P3).
+        var spawnClaudeWhenCopyingFiles = false
+        var copyCountBaseline: Int?
     }
 
     static let dockLaunchEnvNames: Set<String> = ["HOME", "USER", "PATH"]
@@ -124,6 +130,9 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     func now() -> Date { read { $0.now } }
 
+    /// `now` only ever moves forward (sleep advances it), so it is monotonic in this world.
+    func uptime() -> TimeInterval { read { $0.now.timeIntervalSince1970 } }
+
     func sleep(_ seconds: TimeInterval) {
         lock.lock(); defer { lock.unlock() }
         let target = state.now.addingTimeInterval(max(seconds, 0))
@@ -138,8 +147,9 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     // MARK: ProcessTable
 
-    func all() -> [ProcInfo] {
+    func all() -> [ProcInfo]? {
         lock.lock(); defer { lock.unlock() }
+        if state.tableUnreadable { return nil }
         if let n = state.spawnClaudeWhenJournalApplied, Self.journalApplied(env) >= n, !Self.claudeNamed(state) {
             state.spawnClaudeWhenJournalApplied = nil
             state.claudeStartedDuringSwap = true
@@ -149,6 +159,17 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
         if let hook = state.whenJournalApplied, Self.journalApplied(env) >= hook.count {
             state.whenJournalApplied = nil
             hook.action(env)
+        }
+        if state.spawnClaudeWhenCopyingFiles, !Self.claudeNamed(state) {
+            let count = Self.copyArtifactCount(env)
+            if let base = state.copyCountBaseline, count > base {
+                state.spawnClaudeWhenCopyingFiles = false
+                state.claudeStartedDuringSwap = true
+                Self.spawnTree(&state, env: env, at: state.now)
+                Self.appendLog(&state, env: env, at: state.now, LogFixture.startText)
+            } else if state.copyCountBaseline == nil {
+                state.copyCountBaseline = count
+            }
         }
         return state.procs
     }
@@ -409,6 +430,20 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     private static func appendLog(_ s: inout State, env: SwitcherEnvironment, at: Date, _ text: String) {
         try? LogFixture.append(env.mainLog, LogFixture.line(at, text) + "\n")
+    }
+
+    /// Generations (finished or mid-copy) plus original backups — grows exactly when a
+    /// capture or backup copies files, so a table read can notice "the copy ran" (audit P3).
+    private static func copyArtifactCount(_ env: SwitcherEnvironment) -> Int {
+        let fm = FileManager.default
+        var count = ((try? fm.contentsOfDirectory(atPath: env.backupsDir.path)) ?? [])
+            .filter { $0.hasPrefix("original-") || $0.hasPrefix(".partial-") }.count
+        for identity in (try? fm.contentsOfDirectory(atPath: env.snapshotsDir.path)) ?? [] {
+            count += ((try? fm.contentsOfDirectory(
+                atPath: env.snapshotsDir.appendingPathComponent(identity).path)) ?? [])
+                .filter { $0.hasPrefix("gen-") || $0.hasPrefix(".gen-") }.count
+        }
+        return count
     }
 
     private static func journalApplied(_ env: SwitcherEnvironment) -> Int {

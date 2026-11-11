@@ -64,6 +64,8 @@ public struct SwitchResult: Codable, Equatable, Sendable {
     public let durationSeconds: Double
     /// Set when the outgoing sign-in could not be saved as a snapshot and was kept aside instead.
     public var displacedPrevious: String? = nil
+    /// Non-fatal problems after a verified switch (e.g. the commit cleanup failed; audit P3).
+    public var warnings: [String] = []
 }
 
 public struct CodeProbeResult: Codable, Equatable, Sendable {
@@ -252,7 +254,7 @@ public final class Switcher: @unchecked Sendable {
 
     /// Emails of the accounts that Claude's running Code-tab sessions are signed in as (read before Claude quits,
     /// so a newly saved sign-in is named by its email rather than an id prefix).
-    func codeSessionEmails() -> [String: String] { codeSessionEmails(in: table.all()) }
+    func codeSessionEmails() -> [String: String] { codeSessionEmails(in: table.all() ?? []) }
 
     func codeSessionEmails(in procs: [ProcInfo]) -> [String: String] {
         guard let main = processes.mainProcesses(in: procs).first else { return [:] }
@@ -297,7 +299,7 @@ public final class Switcher: @unchecked Sendable {
         defer { releaseLock() }
         // The 1.0 build's unfinished swap must recover first; restoring relaunchers now could start Claude on mixed files.
         guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
-        guard processes.mainProcess() == nil else {
+        guard processes.claudeDefinitelyNotRunning() else {
             throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
         }
         // Only a damaged journal may be set aside: a readable one is settled by normal
@@ -335,6 +337,7 @@ public final class Switcher: @unchecked Sendable {
         var failed = false
         try? fs.remove(env.tmpDir)
         store.sanitizeOriginalBackup()
+        store.removeInterruptedDebris()
         let imported = store.importLegacySnapshotsIfNeeded()
         if imported.failed > 0 {
             failed = true
@@ -347,7 +350,7 @@ public final class Switcher: @unchecked Sendable {
             notes.append(L10n.t(.warnLegacyRecoveryPending))
             return (notes, false, failed)
         }
-        if swapper.journalPresent && processes.mainProcess() == nil {
+        if swapper.journalPresent && processes.claudeDefinitelyNotRunning() {
             do {
                 switch try swapper.resolvePending() {
                 case .rolledBack: notes.append(L10n.t(.recoverRolledBack))
@@ -413,6 +416,7 @@ public final class Switcher: @unchecked Sendable {
 
         var recaptured = false
         var displaced: URL?
+        var warnings: [String] = []
         // Re-checked under the lock: the saved sign-in may have been removed since the check above.
         let stillSaved = { [store] in
             guard let current = store.latest(for: identity) else { throw SwitcherError.notEnrolled(label: target.label) }
@@ -425,18 +429,21 @@ public final class Switcher: @unchecked Sendable {
                 displaced = env.displacedDir.appendingPathComponent("\(name)-\(Int(clock.now().timeIntervalSince1970))")
             }
             progress(.backingUp)
-            try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
+            _ = try makeOriginalBackupWhileClaudeQuit()
             progress(.swapping)
             // A recapture of the same identity (forced re-apply) produces a fresher generation; use the newest.
             let install = store.latest(for: identity) ?? snapshot
             if install != snapshot { try store.verify(install) }
-            try stageAndInstall(cookiesFrom: install.dir, mutation: .restore(accountUuid: identity.accountUuid),
+            try stageAndInstall(cookiesFrom: install.dir, manifest: install.manifest,
+                                mutation: .restore(accountUuid: identity.accountUuid),
                                 stripAuthRows: false, keepPreviousAt: displaced)
-            try launchAndVerify(target: identity, previous: from, fault: fault, keepPreviousAt: displaced, progress: progress)
+            try launchAndVerify(target: identity, previous: from, fault: fault, keepPreviousAt: displaced,
+                                warnings: &warnings, progress: progress)
         }
         progress(.done)
         var result = SwitchResult(outcome: "switched", from: from, to: identity, recapturedOutgoing: recaptured,
                                   durationSeconds: clock.now().timeIntervalSince(started))
+        result.warnings = warnings
         if let displaced, FileManager.default.fileExists(atPath: displaced.path) {
             store.stripTokenCaches(inConfigAt: displaced.appendingPathComponent(SnapshotItems.config))
             result.displacedPrevious = displaced.path
@@ -460,13 +467,22 @@ public final class Switcher: @unchecked Sendable {
             guard try recaptureGuardPasses() else {
                 throw SwitcherError.activeIdentityUnknown(L10n.t(.reasonCookieInvalidOrLoggedOut))
             }
+            try claudeMustStayQuit()
             let snap = try store.capture(from: env.claudeUserData, identity: identity,
                                          claudeVersion: app.bundleVersion(appURL: env.claudeAppURL), now: clock.now())
+            do {
+                try claudeMustStayQuit()
+            } catch {
+                try? fs.remove(snap.dir)   // Claude may have rewritten the files mid-copy (audit P3)
+                throw error
+            }
             captured = snap
             progress(.backingUp)
-            try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
+            _ = try makeOriginalBackupWhileClaudeQuit()
             do {
-                try launchAndVerify(target: identity, previous: identity, fault: nil, progress: progress)
+                var warnings: [String] = []
+                try launchAndVerify(target: identity, previous: identity, fault: nil,
+                                    warnings: &warnings, progress: progress)
             } catch {
                 try? fs.remove(snap.dir)   // never keep a generation whose account could not be confirmed
                 throw error
@@ -490,7 +506,7 @@ public final class Switcher: @unchecked Sendable {
                 throw SwitcherError.cannotSaveCurrentLogin
             }
             progress(.backingUp)
-            try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
+            _ = try makeOriginalBackupWhileClaudeQuit()
             progress(.swapping)
             try stageAndInstall(cookiesFrom: env.claudeUserData, mutation: .clearForLogin, stripAuthRows: true)
             try swapper.commit()
@@ -508,9 +524,9 @@ public final class Switcher: @unchecked Sendable {
         if trigger, processes.mainProcess() != nil, let url = URL(string: "claude://code/continue?session=last") {
             _ = app.open(url: url)
         }
-        let deadline = clock.now().addingTimeInterval(timeout)
+        let deadline = clock.uptime() + timeout
         while true {
-            let procs = table.all()
+            let procs = table.all() ?? []
             if let main = processes.mainProcesses(in: procs).first {
                 let fresh = processes.codeSessionCLIs(in: procs, main: main).filter { $0.startTime >= since.addingTimeInterval(-1) }
                 for cli in fresh {
@@ -521,7 +537,7 @@ public final class Switcher: @unchecked Sendable {
                         configDirSet: envs["CLAUDE_CONFIG_DIR"] != nil, matches: acct == expected.accountUuid)
                 }
             }
-            if clock.now() >= deadline { break }
+            if clock.uptime() >= deadline { break }
             clock.sleep(options.pollInterval)
         }
         return CodeProbeResult(found: false, pid: nil, accountUuid: nil, email: nil, configDirSet: false, matches: false)
@@ -542,8 +558,11 @@ public final class Switcher: @unchecked Sendable {
         guard free >= options.minFreeDiskGB else {
             throw SwitcherError.insufficientDisk(freeGB: free, requiredGB: options.minFreeDiskGB)
         }
-        if let main = processes.mainProcess() {
-            let sessions = processes.codeSessionCLIs(in: table.all(), main: main).count
+        // An unreadable process table cannot rule out running Code sessions: refuse rather
+        // than quit Claude blindly (audit P3).
+        guard let procs = table.all() else { throw SwitcherError.swapFailed(L10n.t(.reasonProcessListUnreadable)) }
+        if let main = processes.mainProcesses(in: procs).first {
+            let sessions = processes.codeSessionCLIs(in: procs, main: main).count
             if sessions > 0 && !confirmed { throw SwitcherError.needsConfirmation(codeSessions: sessions) }
         }
         guard !isShipItRunning() else { throw SwitcherError.updateInProgress }
@@ -575,10 +594,11 @@ public final class Switcher: @unchecked Sendable {
         }
         _ = try relaunchers.suspendAll()
         progress(.quittingClaude)
-        let wasRunning = processes.mainProcess() != nil
+        // An unreadable table counts as running: it cannot prove Claude is gone (audit P3).
+        let wasRunning = !processes.claudeDefinitelyNotRunning()
         do {
             var quit = try quitClaude(progress: progress)
-            if try waitForShipItQuiet(), processes.mainProcess() != nil {
+            if try waitForShipItQuiet(), !processes.claudeDefinitelyNotRunning() {
                 // ShipIt installed an update and relaunched Claude; quit the fresh instance too.
                 quit = try quitClaude(progress: progress)
             }
@@ -586,7 +606,7 @@ public final class Switcher: @unchecked Sendable {
             try body(quit)
         } catch {
             // Never leave Claude closed after a failure, as long as its files are consistent.
-            if wasRunning, processes.mainProcess() == nil, !swapper.journalPresent {
+            if wasRunning, processes.claudeDefinitelyNotRunning(), !swapper.journalPresent {
                 try? app.launch(appURL: env.claudeAppURL)
             }
             throw error
@@ -595,20 +615,20 @@ public final class Switcher: @unchecked Sendable {
 
     /// Waits until Claude's ShipIt updater has been idle for `shipItQuietWindow`. Returns true if it ran.
     func waitForShipItQuiet() throws -> Bool {
-        let deadline = clock.now().addingTimeInterval(options.updateWaitTimeout)
+        let deadline = clock.uptime() + options.updateWaitTimeout
         var ran = false
-        var quietSince: Date?
+        var quietSince: TimeInterval?
         while true {
             if isShipItRunning() {
                 ran = true
                 quietSince = nil
             } else if let since = quietSince {
-                if clock.now().timeIntervalSince(since) >= options.shipItQuietWindow { return ran }
+                if clock.uptime() - since >= options.shipItQuietWindow { return ran }
             } else {
-                quietSince = clock.now()
+                quietSince = clock.uptime()
                 if options.shipItQuietWindow <= 0 { return ran }
             }
-            if clock.now() >= deadline { throw SwitcherError.updateInProgress }
+            if clock.uptime() >= deadline { throw SwitcherError.updateInProgress }
             clock.sleep(min(1, max(options.pollInterval, 0.1)))
         }
     }
@@ -646,9 +666,38 @@ public final class Switcher: @unchecked Sendable {
         guard quitClean, let active = activeIdentity(), try recaptureGuardPasses() else { return false }
         progress(.capturingOutgoing)
         let identity = identityFor(account: active.account, org: active.org, among: accounts, emails: emails)
-        _ = try store.capture(from: env.claudeUserData, identity: identity,
-                              claudeVersion: app.bundleVersion(appURL: env.claudeAppURL), now: clock.now())
+        try claudeMustStayQuit()
+        let snap = try store.capture(from: env.claudeUserData, identity: identity,
+                                     claudeVersion: app.bundleVersion(appURL: env.claudeAppURL), now: clock.now())
+        do {
+            try claudeMustStayQuit()
+        } catch {
+            try? fs.remove(snap.dir)   // Claude may have rewritten the files mid-copy (audit P3)
+            throw error
+        }
         return true
+    }
+
+    /// The files Claude quit for must not be touched by a relaunched Claude: checked around
+    /// every copy it could rewrite. An unreadable process table cannot prove it quit (audit P3).
+    private func claudeMustStayQuit() throws {
+        guard !processes.anyClaudeNamedProcess() else { throw SwitcherError.claudeStartedDuringSwap }
+    }
+
+    /// The original backup is made only while Claude is certainly quit; a copy it may have
+    /// touched mid-write is discarded rather than kept as the fallback (audit P3).
+    @discardableResult
+    private func makeOriginalBackupWhileClaudeQuit() throws -> URL {
+        let preexisting = store.originalBackup()
+        try claudeMustStayQuit()
+        let backup = try store.makeOriginalBackupIfNeeded(from: env.claudeUserData, now: clock.now())
+        do {
+            try claudeMustStayQuit()
+        } catch {
+            if preexisting == nil { try? fs.remove(backup) }
+            throw error
+        }
+        return backup
     }
 
     /// Design D2-5: the live jar must hold a valid sessionKey row and no logout may follow the last sign-in.
@@ -659,12 +708,28 @@ public final class Switcher: @unchecked Sendable {
         return log.signedInSinceLastInit()
     }
 
-    func stageAndInstall(cookiesFrom source: URL, mutation: ClaudeConfig.Mutation, stripAuthRows: Bool,
-                         keepPreviousAt destination: URL? = nil) throws {
+    func stageAndInstall(cookiesFrom source: URL, manifest: SnapshotManifest? = nil, mutation: ClaudeConfig.Mutation,
+                         stripAuthRows: Bool, keepPreviousAt destination: URL? = nil) throws {
         let staging = try swapper.prepareStaging()
-        for name in SnapshotItems.cookieGroup {
-            let src = source.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: src.path) { try fs.copy(src, to: staging.appendingPathComponent(name)) }
+        if let manifest {
+            // Only the files the snapshot declares are installed: a stray file in the folder is
+            // never carried over, and a copy whose digest differs is refused (audit P3).
+            for entry in manifest.files {
+                let src = source.appendingPathComponent(entry.name)
+                guard FileManager.default.fileExists(atPath: src.path) else {
+                    throw SwitcherError.snapshotCorrupt(L10n.t(.reasonFileMissing, entry.name))
+                }
+                let dst = staging.appendingPathComponent(entry.name)
+                try fs.copy(src, to: dst)
+                guard (try SnapshotStore.entry(for: dst)).sha256 == entry.sha256 else {
+                    throw SwitcherError.snapshotCorrupt(L10n.t(.reasonHashMismatch, entry.name))
+                }
+            }
+        } else {
+            for name in SnapshotItems.cookieGroup {
+                let src = source.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: src.path) { try fs.copy(src, to: staging.appendingPathComponent(name)) }
+            }
         }
         if stripAuthRows {
             try CookieJar.removeAuthRows(fromStagedCopy: staging.appendingPathComponent("Cookies"), stagingDir: staging, fs: fs)
@@ -678,7 +743,7 @@ public final class Switcher: @unchecked Sendable {
                                 keepPreviousAt: destination)
         } catch SwitcherError.swapInterrupted {
             // Something relaunched Claude mid-swap: quit it again and roll back while we still hold the session.
-            if (try? quitClaude(progress: { _ in })) != nil, processes.mainProcess() == nil, (try? swapper.rollback()) != nil {
+            if (try? quitClaude(progress: { _ in })) != nil, processes.claudeDefinitelyNotRunning(), (try? swapper.rollback()) != nil {
                 throw SwitcherError.claudeStartedDuringSwap
             }
             throw SwitcherError.swapInterrupted
@@ -687,7 +752,7 @@ public final class Switcher: @unchecked Sendable {
 
     func launchAndVerify(
         target: AccountIdentity, previous: AccountIdentity?, fault: InjectedFault?, keepPreviousAt: URL? = nil,
-        progress: @escaping (SwitchStep) -> Void
+        warnings: inout [String], progress: @escaping (SwitchStep) -> Void
     ) throws {
         progress(.launching)
         let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
@@ -701,7 +766,12 @@ public final class Switcher: @unchecked Sendable {
             switch verdict {
             case .success:
                 // Verified: from here on errors are cleanup problems, never a reason to roll back.
-                try? swapper.commit(keepPreviousAt: keepPreviousAt)
+                // A commit that fails is still reported — never silently swallowed (audit P3).
+                do {
+                    try swapper.commit(keepPreviousAt: keepPreviousAt)
+                } catch {
+                    warnings.append(L10n.t(.warnCommitCleanupFailed, String(describing: error)))
+                }
             case .failure(let reason, let needsRelogin):
                 if needsRelogin { store.markNeedsRelogin(target) }
                 throw SwitcherError.verificationFailed(reason, rollback: rollbackAfterFailedLaunch(previous: previous, progress: progress))
@@ -712,7 +782,9 @@ public final class Switcher: @unchecked Sendable {
         } catch let e as SwitcherError {
             if case .verificationFailed = e { throw e }
             if swapper.journalPresent {
-                _ = rollbackAfterFailedLaunch(previous: previous, progress: progress)
+                // After the swap, any failure is reported with what the rollback did (audit P3).
+                throw SwitcherError.verificationFailed(
+                    e.description, rollback: rollbackAfterFailedLaunch(previous: previous, progress: progress))
             }
             throw e
         }
@@ -720,7 +792,7 @@ public final class Switcher: @unchecked Sendable {
 
     func waitForVerdict(cursor: ClaudeLog.Cursor, target: AccountIdentity) -> LaunchVerdict {
         let start = clock.now()
-        let deadline = start.addingTimeInterval(options.launchVerifyTimeout + options.settle)
+        let deadlineUptime = clock.uptime() + options.launchVerifyTimeout + options.settle
         while true {
             cursor.poll()
             let now = clock.now()
@@ -755,7 +827,7 @@ public final class Switcher: @unchecked Sendable {
                         observed <= start.addingTimeInterval(options.launchVerifyTimeout + options.pollInterval)
                             && now < observed.addingTimeInterval(options.settle)
                     } ?? false
-                if now >= deadline && !settling { return .pending }
+                if clock.uptime() >= deadlineUptime && !settling { return .pending }
                 clock.sleep(options.pollInterval)
             }
         }
@@ -767,11 +839,11 @@ public final class Switcher: @unchecked Sendable {
         progress(.rollingBack)
         // Decided to undo: if the quit below fails, later recovery must roll back, not commit the failed switch.
         do { try swapper.markForRollback() } catch { return .failed }
-        if processes.mainProcess() != nil {
+        if !processes.claudeDefinitelyNotRunning() {
             do {
                 _ = try quitClaude(progress: progress)
                 // The failed launch may have staged an update; ShipIt then installs and relaunches on quit.
-                if try waitForShipItQuiet(), processes.mainProcess() != nil { _ = try quitClaude(progress: progress) }
+                if try waitForShipItQuiet(), !processes.claudeDefinitelyNotRunning() { _ = try quitClaude(progress: progress) }
             } catch { return .failed }
         }
         do { try swapper.rollback() } catch { return .failed }
@@ -785,19 +857,20 @@ public final class Switcher: @unchecked Sendable {
 
     @discardableResult
     func quitClaude(progress: (SwitchStep) -> Void) throws -> QuitOutcome {
-        let procs = table.all()
+        // An unreadable table cannot prove Claude is gone: the quit is not confirmed (audit P3).
+        guard let procs = table.all() else { throw SwitcherError.swapFailed(L10n.t(.reasonProcessListUnreadable)) }
         guard let main = processes.mainProcesses(in: procs).first else {
             return QuitOutcome(clean: !processes.anyClaudeNamedProcess())
         }
         let tree = [main] + processes.descendants(of: main.pid, in: procs)
         let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
-        let t0 = clock.now()
+        let t0 = clock.uptime()
         _ = app.requestQuit(pid: main.pid)
         var sigtermSent = false
         var vetoed = false
-        while table.all().contains(where: { $0.pid == main.pid && $0.startTime == main.startTime }) {
+        while table.all()?.contains(where: { $0.pid == main.pid && $0.startTime == main.startTime }) ?? true {
             cursor.poll()
-            let elapsed = clock.now().timeIntervalSince(t0)
+            let elapsed = clock.uptime() - t0
             if cursor.collected.contains(where: { $0.text.contains(ClaudeLog.vetoMarker) }) {
                 vetoed = true
                 progress(.waitingForClaudeDialog(seconds: Int(elapsed)))
@@ -812,9 +885,9 @@ public final class Switcher: @unchecked Sendable {
             }
             clock.sleep(options.pollInterval)
         }
-        let treeDeadline = clock.now().addingTimeInterval(options.treeExitTimeout)
-        while !processes.blockingProcesses(snapshotTree: tree, now: table.all()).isEmpty || processes.anyClaudeNamedProcess() {
-            if clock.now() >= treeDeadline { throw SwitcherError.quitTimeout(waitedSeconds: Int(clock.now().timeIntervalSince(t0))) }
+        let treeDeadline = clock.uptime() + options.treeExitTimeout
+        while !processes.blockingProcesses(snapshotTree: tree, now: table.all() ?? []).isEmpty || processes.anyClaudeNamedProcess() {
+            if clock.uptime() >= treeDeadline { throw SwitcherError.quitTimeout(waitedSeconds: Int(clock.uptime() - t0)) }
             clock.sleep(options.pollInterval)
         }
         cursor.poll()

@@ -197,10 +197,11 @@ public struct SwapEngine: Sendable {
     }
 
     /// With `previous/<item>` present: has an interrupted rollback already put the original back into live?
-    /// Uses the original digest (robust even after Claude rewrote the swapped-in copy); older journals fall
-    /// back to "previous/ holds the staged copy".
-    private func alreadyRestored(live: URL, prev: URL, _ item: Journal.Item) throws -> Bool {
-        if let original = item.originalDigest { return try Self.digest(live) == original }
+    /// `previous/` no longer holding the original means the restore swap ran; Claude may have rewritten live
+    /// since, and that must not be swapped back over it (audit P3). Older journals fall back to "previous/
+    /// holds the staged copy".
+    private func alreadyRestored(live _: URL, prev: URL, _ item: Journal.Item) throws -> Bool {
+        if let original = item.originalDigest { return try Self.digest(prev) != original }
         return try Self.digest(prev) == item.stagedDigest
     }
 

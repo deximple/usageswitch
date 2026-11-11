@@ -30,6 +30,7 @@ extension Strings {
         .warnUntrustedRelaunchers: "Not restored because these auto-relaunch entries couldn't be verified: %@",
         .warnActiveNotSaved: "The account Claude is signed into (%@) isn't saved yet. Click \"Save current sign-in\" to add it to the list.",
         .warnLegacyRecoveryPending: "Claude Switcher 1.0 (the personal build) left a switch unfinished. Open it once so it can recover; switching here is paused until then.",
+        .warnCommitCleanupFailed: "Switch is done but cleanup failed (%@). Reopen the app to retry.",
 
         .errForbiddenWrite: "Writing to this path isn't allowed: %@",
         .errUnknownAccount: "Unknown account: %@",
@@ -101,6 +102,7 @@ extension Strings {
         .reasonLeakedEnv: "Claude inherited another tool's environment variables (%@)",
         .reasonMarkerMismatch: "lastKnownAccountUuid didn't match after settling",
         .reasonLockOpenFailed: "Can't open the lock file",
+        .reasonProcessListUnreadable: "Can't read the process list — Claude may still be running",
 
         .uiStateActive: "In use",
         .uiStateReady: "Ready",

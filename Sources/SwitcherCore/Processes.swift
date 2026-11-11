@@ -12,7 +12,9 @@ public struct ProcInfo: Equatable, Sendable {
 
 /// Read-only process inspection via sysctl/libproc (no `ps`, so no env dumps).
 public protocol ProcessTable: Sendable {
-    func all() -> [ProcInfo]
+    /// All of this user's processes, or nil when the table could not be read. nil must be
+    /// treated as "may be running" — a failed read is never trusted as "not running" (audit P3).
+    func all() -> [ProcInfo]?
     /// Values of only the requested environment keys of `pid`; other variables are never returned.
     func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String]
     /// Names (never values) of `pid`'s initial environment variables.
@@ -26,35 +28,41 @@ extension ProcessTable {
 public struct SystemProcessTable: ProcessTable {
     public init() {}
 
-    public func all() -> [ProcInfo] {
+    public func all() -> [ProcInfo]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return [] }
-        let count = size / MemoryLayout<kinfo_proc>.stride + 16
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
-        size = count * MemoryLayout<kinfo_proc>.stride
-        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
-        let n = size / MemoryLayout<kinfo_proc>.stride
-        let uid = getuid()
-        var out: [ProcInfo] = []
-        out.reserveCapacity(n)
-        for i in 0..<n {
-            var kp = procs[i]
-            let pid = kp.kp_proc.p_pid
-            // Only this user's processes: another user's Claude must never be matched or signalled.
-            guard pid > 0, kp.kp_eproc.e_ucred.cr_uid == uid else { continue }
-            let comm = withUnsafePointer(to: &kp.kp_proc.p_comm) {
-                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXCOMLEN) + 1) { String(cString: $0) }
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var count = size / MemoryLayout<kinfo_proc>.stride + 16
+        // A table that does not list this process itself is truncated or otherwise bad: retry once
+        // with a doubled buffer, then report failure rather than an incomplete answer (audit P3).
+        for _ in 0...1 {
+            var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+            var filled = count * MemoryLayout<kinfo_proc>.stride
+            guard sysctl(&mib, 4, &procs, &filled, nil, 0) == 0 else { return nil }
+            let n = filled / MemoryLayout<kinfo_proc>.stride
+            let uid = getuid()
+            var out: [ProcInfo] = []
+            out.reserveCapacity(n)
+            for i in 0..<n {
+                var kp = procs[i]
+                let pid = kp.kp_proc.p_pid
+                // Only this user's processes: another user's Claude must never be matched or signalled.
+                guard pid > 0, kp.kp_eproc.e_ucred.cr_uid == uid else { continue }
+                let comm = withUnsafePointer(to: &kp.kp_proc.p_comm) {
+                    $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXCOMLEN) + 1) { String(cString: $0) }
+                }
+                var pathBuf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+                let len = proc_pidpath(pid, &pathBuf, UInt32(pathBuf.count))
+                let path = len > 0 ? String(decoding: pathBuf.prefix(Int(len)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
+                let tv = kp.kp_proc.p_starttime
+                out.append(ProcInfo(
+                    pid: pid, ppid: kp.kp_eproc.e_ppid, pgid: kp.kp_eproc.e_pgid, comm: comm, path: path,
+                    startTime: Date(timeIntervalSince1970: Double(tv.tv_sec) + Double(tv.tv_usec) / 1e6)))
             }
-            var pathBuf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            let len = proc_pidpath(pid, &pathBuf, UInt32(pathBuf.count))
-            let path = len > 0 ? String(decoding: pathBuf.prefix(Int(len)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
-            let tv = kp.kp_proc.p_starttime
-            out.append(ProcInfo(
-                pid: pid, ppid: kp.kp_eproc.e_ppid, pgid: kp.kp_eproc.e_pgid, comm: comm, path: path,
-                startTime: Date(timeIntervalSince1970: Double(tv.tv_sec) + Double(tv.tv_usec) / 1e6)))
+            if out.contains(where: { $0.pid == getpid() }) { return out }
+            count *= 2
         }
-        return out
+        return nil
     }
 
     public func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] {
@@ -146,10 +154,18 @@ public struct ClaudeProcesses: Sendable {
         procs.filter { $0.path == mainExecutable }
     }
 
-    public func mainProcess() -> ProcInfo? { mainProcesses(in: table.all()).first }
+    public func mainProcess() -> ProcInfo? { mainProcesses(in: table.all() ?? []).first }
 
-    /// Same check the user's keepalive script uses (`pgrep -x Claude`).
-    public func anyClaudeNamedProcess() -> Bool { table.all().contains { $0.comm == "Claude" } }
+    /// Same check the user's keepalive script uses (`pgrep -x Claude`). An unreadable table
+    /// counts as running: "may be running" is the safe answer (audit P3).
+    public func anyClaudeNamedProcess() -> Bool { table.all()?.contains { $0.comm == "Claude" } ?? true }
+
+    /// Claude is absent only when a readable table shows neither the main process nor a
+    /// Claude-named process. An unreadable table answers false — "may be running" (audit P3).
+    public func claudeDefinitelyNotRunning() -> Bool {
+        guard let procs = table.all() else { return false }
+        return !procs.contains { $0.comm == "Claude" || $0.path == mainExecutable }
+    }
 
     public func descendants(of root: pid_t, in procs: [ProcInfo]) -> [ProcInfo] {
         var children: [pid_t: [ProcInfo]] = [:]

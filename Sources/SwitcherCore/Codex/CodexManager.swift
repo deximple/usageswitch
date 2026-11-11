@@ -209,7 +209,7 @@ public final class CodexManager: @unchecked Sendable {
             _ = try realDirectoryOrMissing(folder)
             let homeExists = try realDirectoryOrMissing(profile.home)
             try quitWindows(of: account)
-            stopHelpers(using: profile.home)
+            try stopHelpers(using: profile.home, label: account.label)
             if homeExists, FileManager.default.fileExists(atPath: env.codexCLI.path) {
                 _ = control.runCLI(env.codexCLI, arguments: ["logout"], home: profile.home, timeout: 30,
                                    shouldStop: { false }, onOutput: { _ in })
@@ -277,7 +277,7 @@ public final class CodexManager: @unchecked Sendable {
     /// Main Codex app processes (this user's, started by launchd) with the home and app data they were started with.
     func windows() -> [Window] {
         let executables = SafeFS.normalized(env.codexAppURL.appendingPathComponent("Contents/MacOS", isDirectory: true)) + "/"
-        return table.all().filter { $0.ppid == 1 && $0.path.hasPrefix(executables) }.map { process in
+        return (table.all() ?? []).filter { $0.ppid == 1 && $0.path.hasPrefix(executables) }.map { process in
             let values = table.environmentValues(pid: process.pid, keys: ["CODEX_HOME", "CODEX_ELECTRON_USER_DATA_PATH"])
             let home = values["CODEX_HOME"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 ?? env.codexStandardHome
@@ -287,9 +287,9 @@ public final class CodexManager: @unchecked Sendable {
     }
 
     /// Codex's command-line and background processes working in a home (started from it or with it as CODEX_HOME).
-    func helperProcesses(using home: URL) -> [ProcInfo] {
+    func helperProcesses(in procs: [ProcInfo], using home: URL) -> [ProcInfo] {
         let target = SafeFS.normalized(home)
-        return table.all().filter { process in
+        return procs.filter { process in
             if process.path.hasPrefix(target + "/") { return true }
             guard process.comm == "codex" || process.path.hasSuffix("/codex") else { return false }
             let value = table.environmentValues(pid: process.pid, keys: ["CODEX_HOME"])["CODEX_HOME"]
@@ -300,14 +300,18 @@ public final class CodexManager: @unchecked Sendable {
     /// Ends the Codex processes working in one of this app's homes: SIGTERM, then SIGKILL for any still there after
     /// the grace period (they would otherwise recreate files in the folder being removed). A pid is only killed while
     /// it still belongs to the same process (same executable and start time).
-    func stopHelpers(using home: URL) {
-        let helpers = helperProcesses(using: home)
+    func stopHelpers(using home: URL, label: String? = nil) throws {
+        // An unreadable table cannot prove no helper is left: refuse rather than delete the
+        // home under live processes (audit P3).
+        let name = label ?? home.lastPathComponent
+        guard let procs = table.all() else { throw SwitcherError.codexStillRunning(name) }
+        let helpers = helperProcesses(in: procs, using: home)
         guard !helpers.isEmpty else { return }
         helpers.forEach { _ = control.signalTerminate(pid: $0.pid) }
         let deadline = Date().addingTimeInterval(options.helperExitTimeout)
         var remaining = helpers
         while true {
-            let current = table.all()
+            guard let current = table.all() else { throw SwitcherError.codexStillRunning(name) }
             remaining = helpers.filter { helper in
                 current.contains { $0.pid == helper.pid && $0.path == helper.path && $0.startTime == helper.startTime }
             }
@@ -317,13 +321,14 @@ public final class CodexManager: @unchecked Sendable {
         remaining.forEach { _ = control.forceKill(pid: $0.pid) }
     }
 
-    /// Asks the account's Codex windows to quit and waits for them.
+    /// Asks the account's Codex windows to quit and waits for them. An unreadable table counts
+    /// as "still running": the wait ends in codexStillRunning, never in a silent pass (audit P3).
     func quitWindows(of account: CodexAccount) throws {
         guard !account.pids.isEmpty else { return }
         for pid in account.pids { _ = control.requestQuit(pid: pid) }
         let deadline = Date().addingTimeInterval(options.quitTimeout)
         while true {
-            let alive = Set(table.all().map(\.pid))
+            let alive = Set(table.all()?.map(\.pid) ?? account.pids)
             if !account.pids.contains(where: alive.contains) { return }
             if Date() >= deadline { throw SwitcherError.codexStillRunning(account.label) }
             Thread.sleep(forTimeInterval: options.pollInterval)
