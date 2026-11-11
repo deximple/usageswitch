@@ -63,7 +63,9 @@
 - **Slice 3a implemented**: 동의+제한 수집, 순서 보존, 부분 게시, 설정.
 - **네이티브 구현**: 환경 우선 아이덴티티, 자물쇠·배지, 상세 보기와 이름 편집, 연결 동의.
   자동화 테스트나 합성 데모 검증을 실제 계정 호환성·VoiceOver 검증으로 간주하지 않는다.
-- **DEFERRED**: API 프로필 실행, 잔액/비용 직접 조회, OAuth/Sparkle 직접 관리.
+- **DEFERRED → 2.2.4 승인**: GitHub Copilot 제공자, OAuth 직접 관리(앱 내 로그인),
+  Anthropic·OpenAI 실비용 조회(admin 키), Sparkle 자동 업데이트.
+- **DEFERRED**: API 프로필 실행.
 
 ## 경계 (변하지 않는 약속)
 
