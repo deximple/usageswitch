@@ -49,7 +49,7 @@ public struct ClaudeUsageCollector: Sendable {
             AccountUsage(id: "claude:cli", provider: .claude, accountRef: "cli", label: "CLI sign-in",
                          plan: nil, windows: windows, state: state, readAt: now(), toolVersion: toolVersion)
         }
-        guard let binary = binaryPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
+        guard let binary = binaryPaths.first(where: { UsageInstallations.isTrustworthyExecutable($0) })
         else { return finish(.unavailable(.cliMissing)) }
         let toolVersion = Self.toolVersion(of: binary)
         guard !managed.shuts(claudeFolder: home.appendingPathComponent(".claude", isDirectory: true))

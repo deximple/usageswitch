@@ -98,6 +98,15 @@ final class CodexModel: ObservableObject {
         _ = workDone?.wait(timeout: .now() + 3)
     }
 
+    /// App quit: beyond the sign-in path, every vendor command still running (usage
+    /// reads included — they share the process registry) is ended so nothing the app
+    /// spawned outlives it (audit P3).
+    func stopForQuit() {
+        stopSignInForQuit()
+        guard !isDemo else { return }
+        manager.stopRunningCommands()
+    }
+
     // MARK: - Actions
 
     func open(_ account: CodexAccount) {

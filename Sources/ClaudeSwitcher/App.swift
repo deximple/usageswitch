@@ -282,7 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             codex.banner = .init(kind: .info, text: L10n.t(.codexBusyQuit))
             AppModel.tabs.tab = .codex
         } else {
-            codex.stopSignInForQuit()
+            codex.stopForQuit()
+            AppModel.usage.stopForQuit()
             return .terminateNow
         }
         showMainWindow()

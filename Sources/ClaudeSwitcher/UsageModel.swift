@@ -316,6 +316,12 @@ final class UsageModel: ObservableObject {
         return true
     }
 
+    /// App quit: the in-flight refresh is cancelled. Vendor commands it already spawned
+    /// share the process registry and are ended by `CodexModel.stopForQuit`.
+    func stopForQuit() {
+        refreshTask?.cancel()
+    }
+
     private func abandonCurrentRefresh(clearRefreshing: Bool = true) {
         guard isRefreshing else { return }
         abandonedRefreshes += 1
@@ -414,7 +420,8 @@ final class UsageModel: ObservableObject {
                             bundledCLI: env.codexCLI).collect()
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
-                            http: http, home: env.home).collect()
+                            http: http, home: env.home,
+                            cursorAgent: installation.cli).collect()
                     case .grok:
                         return GrokUsageCollector(enabled: true, http: transport,
                             credentials: credentials, home: env.home,

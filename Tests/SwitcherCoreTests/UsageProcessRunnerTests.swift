@@ -93,6 +93,22 @@ struct UsageProcessRunnerTests {
         #expect(Date().timeIntervalSince(started) < 4)
     }
 
+    @Test("termination kills the whole process group, not just the direct child")
+    func killsGroup() throws {
+        // `sleep 30` is a grandchild (`sh` forks it); `$!` prints its pid as line 1.
+        // With only a direct-pid kill it would outlive the run.
+        let result = runner.run(request(executable: "/bin/sh",
+                                        ["-c", "/bin/sleep 30 & echo $!; wait"], timeout: 0.5))
+        #expect(result.outcome == .timedOut)
+        let pid = try #require(result.lines.first.flatMap { pid_t($0) })
+        // A freshly killed child can be a zombie until launchd reaps it; poll briefly.
+        let gone = (0..<40).contains { _ -> Bool in
+            usleep(50_000)
+            return kill(pid, 0) == -1 && errno == ESRCH
+        }
+        #expect(gone)
+    }
+
     @Test("cancellation terminates and reaps the child promptly")
     func cancelled() async throws {
         let processRunner = SystemUsageProcessRunner()

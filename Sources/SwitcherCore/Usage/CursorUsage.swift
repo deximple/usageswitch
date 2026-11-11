@@ -126,15 +126,20 @@ public struct CursorUsageCollector: Sendable {
     /// Bounded read of `.cursor/auth.json` — the Keychain probe stays a bounded
     /// process call; this reader only bounds the file fallback.
     private let credentials: any UsageCredentialReading
+    /// The `cursor-agent` binary when installed: a browser-session sign-in renews its stored
+    /// Keychain token when the CLI runs, so an expired JWT gets one `status` call to renew it.
+    private let cursorAgent: URL?
 
     /// `endpoint` defaults to Cursor's fixed API host; tests inject their own.
     public init(enabled: Bool, runner: any UsageProcessRunner, http: any UsageHTTP,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 endpoint: URL? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
-                credentials: any UsageCredentialReading = UsageFileCredentialReader()) {
+                credentials: any UsageCredentialReading = UsageFileCredentialReader(),
+                cursorAgent: URL? = nil) {
         self.enabled = enabled; self.runner = runner; self.http = http; self.home = home
         self.credentials = credentials
+        self.cursorAgent = cursorAgent
         self.endpoint = endpoint ?? URL(string: "https://api2.cursor.sh")!
         self.now = now
     }
@@ -150,11 +155,15 @@ public struct CursorUsageCollector: Sendable {
                          plan: nil, windows: windows, state: state, readAt: now(), toolVersion: nil)
         }
         guard enabled else { return [] }
-        guard let token = token() else { return [finish(.unavailable(.noSignIn))] }
-        // cursor-agent does not refresh its stored token on its own; an expired
-        // one is reported as an expired sign-in without a request. A browser
-        // `cursor-agent login` session lasts about 60 days; API-key sign-ins
-        // about an hour.
+        guard var token = token() else { return [finish(.unavailable(.noSignIn))] }
+        // cursor-agent does not refresh its stored token on its own, but a browser
+        // `cursor-agent login` session (about 60 days) renews it whenever the CLI runs —
+        // ask once, then read the token again. API-key sign-ins (~1 hour) have no session
+        // to renew and stay expired.
+        if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60),
+           let renewed = refreshedToken() {
+            token = renewed
+        }
         if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60) {
             return [finish(.unavailable(.signInExpired))]
         }
@@ -170,6 +179,23 @@ public struct CursorUsageCollector: Sendable {
                            ? .unavailable(.schemaChanged) : .notReporting)]
         }
         return [finish(.ok, windows)]
+    }
+
+    /// Runs `cursor-agent status` once so a live browser session can renew the stored
+    /// Keychain token, then re-reads the token. Its output is discarded — only the
+    /// side effect on the Keychain matters. nil when no agent is installed.
+    private func refreshedToken() -> String? {
+        guard let cursorAgent, !Task.isCancelled else { return nil }
+        let request = UsageProcessRequest(
+            executable: cursorAgent,
+            arguments: ["status"],
+            environment: UsageChildEnvironment.make(for: cursorAgent, home: home),
+            workingDirectory: FileManager.default.temporaryDirectory,
+            maxOutputBytes: 8 * 1024,
+            timeout: 8)
+        _ = runner.run(request)
+        guard !Task.isCancelled else { return nil }
+        return token()
     }
 
     /// The Cursor sign-in token: a bounded Keychain probe first, then the bounded
