@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.2.2 — last items from the 2026-11 audit
+
+**Cursor refreshes itself.** An expired Cursor sign-in used to show "sign-in expired" until
+you ran `cursor-agent status` yourself. Now the app runs it once — a live browser session
+renews the stored token — and only reports expired when the session really is.
+
+**Switching survives more bad luck:**
+- If macOS can't list processes, the app now refuses a switch instead of guessing Claude is
+  quit — and a switch interrupted at the worst moment retries the quit and rolls back under
+  the lock.
+- A rollback resumed after Claude rewrote a file swaps back the right copy instead of a
+  stale one.
+- Half-written snapshot and backup folders are cleaned up, generation numbering can't be
+  fooled by a damaged manifest, and a switch installs exactly the files the snapshot
+  recorded — verified by checksum.
+- A commit that fails mid-finish is reported in the result instead of being silently
+  dropped, and a failed launch reports how the rollback went.
+- Deleting a Codex account while its helper processes are running is stopped first;
+  when the process list can't be read it refuses rather than deleting under them.
+
+**Everything the app runs is tighter:**
+- Tools the app launches (usage readers, `codex login`) start in their own process group,
+  so stopping one ends the whole tree — no leftover grandchildren.
+- A `launchctl` call macOS wedges on can no longer hang a switch; it gives up after 10 s.
+- Lock files are opened so a planted fake can neither hang the app nor pass as real.
+- An executable that other software could overwrite (group/world-writable, wrong owner)
+  is never run and never shown as installed.
+- Antigravity's hidden terminal starts with the same minimal environment as the other
+  readers instead of inheriting the app's.
+- Quitting the app now ends every vendor command still running, not just a Codex sign-in.
+
 ## 2.2.1 — fixes 2.2.0 hanging at launch
 
 - 2.2.0 used a full CPU core right after launch and kept growing in memory, and its menu
