@@ -340,6 +340,14 @@ struct CursorPinMigrationTests {
 }
 
 extension CursorUsageTests {
+    /// A call counter the `@Sendable` fake-runner closures can bump.
+    final class ReadCount: @unchecked Sendable {
+        private var count = 0
+        private let lock = NSLock()
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+        func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
+    }
+
     private func jwt(_ payload: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: payload)
         let b64 = data.base64EncodedString()
@@ -385,5 +393,59 @@ extension CursorUsageTests {
             let (_, calls) = try collect(token)
             #expect(calls == 1)
         }
+    }
+
+    @Test("an expired JWT runs cursor-agent status once and uses the renewed token")
+    func refreshRenews() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let expired = try jwt(["exp": 1_779_999_000])
+        let renewed = try jwt(["exp": 1_780_000_600])
+        let agent = home.appendingPathComponent("cursor-agent") // never exec'd — runner is fake
+        let runner = FakeUsageRunner()
+        let keychainReads = ReadCount()
+        runner.respond = { request in
+            if request.executable.lastPathComponent == "cursor-agent" {
+                return UsageProcessResult(lines: ["logged in"], outcome: .exited(0))
+            }
+            return UsageProcessResult(lines: [keychainReads.next() == 1 ? expired : renewed],
+                                      outcome: .exited(0))
+        }
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let collector = CursorUsageCollector(enabled: true, runner: runner, http: http,
+                                             home: home, endpoint: endpoint,
+                                             now: { Date(timeIntervalSince1970: 1_780_000_000) },
+                                             cursorAgent: agent)
+        let state = collector.collect().first?.state
+        #expect(state == .ok)
+        #expect(http.calls.count == 1)
+        #expect(keychainReads.value == 2)
+        #expect(runner.requests.contains {
+            $0.executable == agent && $0.arguments == ["status"]
+        })
+    }
+
+    @Test("an expired JWT that stays expired after status still reports signInExpired")
+    func refreshStillExpired() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let expired = try jwt(["exp": 1_779_999_000])
+        let agent = home.appendingPathComponent("cursor-agent")
+        let runner = FakeUsageRunner()
+        runner.respond = { request in
+            if request.executable.lastPathComponent == "cursor-agent" {
+                return UsageProcessResult(lines: ["logged in"], outcome: .exited(0))
+            }
+            return UsageProcessResult(lines: [expired], outcome: .exited(0))
+        }
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let collector = CursorUsageCollector(enabled: true, runner: runner, http: http,
+                                             home: home, endpoint: endpoint,
+                                             now: { Date(timeIntervalSince1970: 1_780_000_000) },
+                                             cursorAgent: agent)
+        let state = collector.collect().first?.state
+        #expect(state == .unavailable(.signInExpired))
+        #expect(http.calls.isEmpty)
+        #expect(runner.requests.filter { $0.executable == agent }.count == 1)
     }
 }

@@ -931,9 +931,11 @@ public final class Switcher: @unchecked Sendable {
     /// the kernel if the process dies, and immune to pid reuse.
     func isLocked() -> Bool {
         if lockFD >= 0 { return true }
-        let fd = open(env.lockFile.path, O_RDWR | O_CLOEXEC)
+        let fd = open(env.lockFile.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == env.uid else { return true }
         if flock(fd, LOCK_EX | LOCK_NB) != 0 { return true }
         flock(fd, LOCK_UN)
         return false
@@ -944,8 +946,13 @@ public final class Switcher: @unchecked Sendable {
         try fs.check(env.lockFile)
         // O_NOFOLLOW: SafeFS accepts a dangling symlink here (its target does not exist yet), and O_CREAT would
         // follow it and create a file outside the store.
-        let fd = open(env.lockFile.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        let fd = open(env.lockFile.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard fd >= 0 else { throw SwitcherError.io(L10n.t(.reasonLockOpenFailed)) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == env.uid else {
+            close(fd)
+            throw SwitcherError.io(L10n.t(.reasonLockOpenFailed))
+        }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             close(fd)
             throw SwitcherError.anotherSwitchInProgress

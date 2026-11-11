@@ -49,6 +49,109 @@ public protocol UsageProcessRunner: Sendable {
     func run(_ request: UsageProcessRequest) -> UsageProcessResult
 }
 
+/// posix_spawn wrapper: the child leads a new process group (POSIX_SPAWN_SETPGROUP, applied
+/// before exec — a post-run setpgid always loses that race) so a terminate reaches the
+/// grandchildren a launcher spawns below it (audit P3). CLOEXEC_DEFAULT keeps every other
+/// descriptor of this process out of the child.
+enum GroupSpawn {
+    static func spawn(executable: URL, arguments: [String], environment: [String: String],
+                      workingDirectory: URL, stdinFD: Int32?, stdoutFD: Int32,
+                      stderrFD: Int32?) -> Child? {
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        if let stdinFD {
+            posix_spawn_file_actions_adddup2(&actions, stdinFD, STDIN_FILENO)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        }
+        posix_spawn_file_actions_adddup2(&actions, stdoutFD, STDOUT_FILENO)
+        if let stderrFD {
+            posix_spawn_file_actions_adddup2(&actions, stderrFD, STDERR_FILENO)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
+        }
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setpgroup(&attributes, 0)
+        // Same signal hygiene as Process(): an empty mask and default dispositions — a mask
+        // or a handler inherited from the spawning thread would leave the child deaf to
+        // SIGTERM and make every stop a full-grace SIGKILL.
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
+        var defaulted = sigset_t()
+        sigfillset(&defaulted)
+        posix_spawnattr_setsigdefault(&attributes, &defaulted)
+        posix_spawnattr_setflags(&attributes, Int16(
+            POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT
+            | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+        var argv: [UnsafeMutablePointer<CChar>?] = [strdup(executable.path)]
+        argv += arguments.map { strdup($0) }
+        argv.append(nil)
+        var envp: [UnsafeMutablePointer<CChar>?] = environment.sorted { $0.key < $1.key }
+            .map { strdup("\($0.key)=\($0.value)") }
+        envp.append(nil)
+        defer { for pointer in argv + envp { free(pointer) } }
+        var pid: pid_t = 0
+        // A file-action chdir happens in the child between spawn and exec; a failing one
+        // fails the spawn, never silently runs in the wrong directory.
+        let result = workingDirectory.withUnsafeFileSystemRepresentation { cwd -> Int32 in
+            posix_spawn_file_actions_addchdir_np(&actions, cwd)
+            return argv.withUnsafeBufferPointer { argvBuffer in
+                envp.withUnsafeBufferPointer { envpBuffer in
+                    posix_spawn(&pid, executable.path, &actions, &attributes,
+                                argvBuffer.baseAddress, envpBuffer.baseAddress)
+                }
+            }
+        }
+        return result == 0 ? Child(pid: pid) : nil
+    }
+
+    /// waitpid bookkeeping for one spawned child. Signals go to the whole group first,
+    /// with a direct-pid signal as fallback.
+    final class Child: @unchecked Sendable {
+        let pid: pid_t
+        private var status: Int32 = 0
+        private var reaped = false
+
+        init(pid: pid_t) { self.pid = pid }
+
+        var isRunning: Bool {
+            if reaped { return false }
+            var s: Int32 = 0
+            let result = waitpid(pid, &s, WNOHANG)
+            if result == pid || (result < 0 && errno == ECHILD) { reaped = true; status = s }
+            return !reaped
+        }
+
+        /// waitpid(..., 0) — EINTR only retries.
+        func reap() {
+            while !reaped {
+                var s: Int32 = 0
+                let result = waitpid(pid, &s, 0)
+                if result == pid || (result < 0 && errno != EINTR) { reaped = true; status = s }
+            }
+        }
+
+        /// Exit code, or 128+signal when killed. Only meaningful after the child exited.
+        var exitStatus: Int32 {
+            status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+        }
+
+        func terminate() {
+            _ = Darwin.kill(-pid, SIGTERM)
+            _ = Darwin.kill(pid, SIGTERM)
+        }
+
+        func kill() {
+            _ = Darwin.kill(-pid, SIGKILL)
+            _ = Darwin.kill(pid, SIGKILL)
+        }
+    }
+}
+
 /// Lines arriving while the run is being torn down, plus the predicate match flag.
 final class UsageLineBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -88,22 +191,8 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
         guard !Task.isCancelled else {
             return UsageProcessResult(lines: [], outcome: .cancelled)
         }
-        let process = Process()
-        process.executableURL = request.executable
-        process.arguments = request.arguments
-        process.environment = request.environment
-        process.currentDirectoryURL = request.workingDirectory
-        process.standardError = FileHandle.nullDevice
-        var stdinPipe: Pipe?
-        if request.stdinLines != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            stdinPipe = pipe
-        } else {
-            process.standardInput = FileHandle.nullDevice
-        }
         let stdout = Pipe()
-        process.standardOutput = stdout
+        var stdinPipe: Pipe?
         let box = UsageLineBox()
         let splitter = LineSplitter { line in
             box.append(line)
@@ -111,14 +200,29 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
         }
         stdout.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if box.accepts(data.count, limit: request.maxOutputBytes) { splitter.append(data) }
+            // EOF is terminal: without this the handler keeps firing on the closed pipe.
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+            } else if box.accepts(data.count, limit: request.maxOutputBytes) { splitter.append(data) }
         }
-        do { try process.run() } catch {
+        if request.stdinLines != nil { stdinPipe = Pipe() }
+        guard let child = GroupSpawn.spawn(executable: request.executable,
+                                           arguments: request.arguments,
+                                           environment: request.environment,
+                                           workingDirectory: request.workingDirectory,
+                                           stdinFD: stdinPipe?.fileHandleForReading.fileDescriptor,
+                                           stdoutFD: stdout.fileHandleForWriting.fileDescriptor,
+                                           stderrFD: nil)
+        else {
             stdout.fileHandleForReading.readabilityHandler = nil
             return UsageProcessResult(lines: [], outcome: .failedToStart)
         }
-        RunningCommands.shared.add(process)
-        defer { RunningCommands.shared.remove(process) }
+        // The parent only reads stdout / writes stdin; close the ends the child owns.
+        try? stdout.fileHandleForWriting.close()
+        if let stdinPipe { try? stdinPipe.fileHandleForReading.close() }
+
+        RunningCommands.shared.add(groupPID: child.pid)
+        defer { RunningCommands.shared.remove(groupPID: child.pid) }
         if let lines = request.stdinLines, let stdinPipe {
             // Writing to a dead child's pipe raises SIGPIPE and would kill this app; the write then
             // just fails with EPIPE, which is ignored — the run ends as exited/timedOut anyway.
@@ -127,16 +231,18 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: Data((line + "\n").utf8))
             }
         }
-        let deadline = Date().addingTimeInterval(request.timeout)
-        while process.isRunning {
-            if Task.isCancelled || box.matched || Date() >= deadline {
+        let deadline = ProcessInfo.processInfo.systemUptime + request.timeout
+        while child.isRunning {
+            if Task.isCancelled || box.matched || ProcessInfo.processInfo.systemUptime >= deadline {
                 let cancelled = Task.isCancelled
-                process.terminate()
-                let grace = Date().addingTimeInterval(2)
-                while process.isRunning && Date() < grace { Thread.sleep(forTimeInterval: 0.05) }
-                if process.isRunning {
-                    kill(process.processIdentifier, SIGKILL)
-                    process.waitUntilExit()
+                child.terminate()
+                let grace = ProcessInfo.processInfo.systemUptime + 2
+                while child.isRunning && ProcessInfo.processInfo.systemUptime < grace {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                if child.isRunning {
+                    child.kill()
+                    child.reap()
                 }
                 drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
                 let outcome: UsageProcessResult.Outcome = cancelled ? .cancelled
@@ -145,9 +251,10 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
             }
             Thread.sleep(forTimeInterval: 0.05)
         }
+        child.reap()
         drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
         return UsageProcessResult(lines: box.lines,
-                                  outcome: box.overflowed ? .outputLimit : .exited(process.terminationStatus))
+                                  outcome: box.overflowed ? .outputLimit : .exited(child.exitStatus))
     }
 
     /// After the handler is released, reads whatever is still in the pipe without blocking — a

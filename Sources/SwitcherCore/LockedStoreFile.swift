@@ -18,9 +18,14 @@ enum LockedStoreFile {
                                    _ change: (inout T) throws -> Void) throws {
         try fs.createDirectory(env.storeDir)
         try fs.check(lock)
-        let fd = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        // O_NONBLOCK: a FIFO planted at this path must not hang the open.
+        let fd = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard fd >= 0 else { throw SwitcherError.io(L10n.t(.reasonLockOpenFailed)) }
         defer { close(fd) }   // closing the descriptor releases the lock
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == env.uid else {
+            throw SwitcherError.io(L10n.t(.reasonLockOpenFailed))
+        }
         guard flock(fd, LOCK_EX) == 0 else { throw SwitcherError.io(L10n.t(.reasonLockOpenFailed)) }
         var loaded = load(file, as: T.self, empty: empty)
         if loaded == nil && setAsideUnreadable {

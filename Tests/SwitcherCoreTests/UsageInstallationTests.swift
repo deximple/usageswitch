@@ -56,6 +56,46 @@ struct UsageInstallationTests {
     @Test("nothing installed -> empty inventory")
     func empty() { defer { cleanup() }; #expect(discover().isEmpty) }
 
+    @Test("a regular user-owned 755 executable is trustworthy")
+    func trustworthyExec() throws { defer { cleanup() }
+        let file = bins.appendingPathComponent("tool")
+        try touchExecutable(at: file)
+        #expect(UsageInstallations.isTrustworthyExecutable(file))
+    }
+
+    @Test("a group- or world-writable executable is refused")
+    func writableExecRefused() throws { defer { cleanup() }
+        for mode in [0o775, 0o757, 0o777] {
+            let file = bins.appendingPathComponent("tool-\(mode)")
+            try touchExecutable(at: file)
+            try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: file.path)
+            #expect(!UsageInstallations.isTrustworthyExecutable(file))
+        }
+    }
+
+    @Test("a non-executable file and a symlink to a writable target are refused")
+    func nonExecAndSymlinkTarget() throws { defer { cleanup() }
+        try touchNonExec("plain")
+        #expect(!UsageInstallations.isTrustworthyExecutable(bins.appendingPathComponent("plain")))
+        // A symlink is judged by its target: target writable -> refused.
+        let target = bins.appendingPathComponent("real-tool")
+        try touchExecutable(at: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: target.path)
+        let link = bins.appendingPathComponent("shim")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        #expect(!UsageInstallations.isTrustworthyExecutable(link))
+        // Missing file -> refused.
+        #expect(!UsageInstallations.isTrustworthyExecutable(bins.appendingPathComponent("gone")))
+    }
+
+    @Test("a group-writable cli is skipped by discovery")
+    func writableCliSkipped() throws { defer { cleanup() }
+        try touchExec("codex")
+        let file = bins.appendingPathComponent("codex")
+        try FileManager.default.setAttributes([.posixPermissions: 0o775], ofItemAtPath: file.path)
+        #expect(discover().allSatisfy { $0.provider != .codex })
+    }
+
     @Test("claude cli only -> exactly one claude row, no app")
     func claudeOnly() throws { defer { cleanup() }
         try touchExec("claude")

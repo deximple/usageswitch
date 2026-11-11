@@ -142,6 +142,19 @@ public enum UsageInstallations {
     }
 
     private static func isExecutableFile(_ url: URL) -> Bool {
-        !isDirectory(url) && FileManager.default.isExecutableFile(atPath: url.path)
+        !isDirectory(url) && isTrustworthyExecutable(url)
+    }
+
+    /// An executable the app will actually run: a regular file, executable, owned by this user or
+    /// root, and not writable by group/other — a writable binary can be swapped by other software
+    /// between this check and exec (audit P3). `stat` follows symlinks, so a shim is judged by
+    /// the file it points at.
+    static func isTrustworthyExecutable(_ url: URL) -> Bool {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return false }
+        let mode = info.st_mode
+        guard (mode & S_IFMT) == S_IFREG, mode & S_IXUSR != 0 else { return false }
+        guard info.st_uid == getuid() || info.st_uid == 0 else { return false }
+        return mode & (S_IWGRP | S_IWOTH) == 0
     }
 }

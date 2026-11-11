@@ -419,9 +419,9 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
 
     public func read(executable: URL?, now: Date) -> AntigravityScreenResult {
         guard let executable else { return .failure(.failed(.network)) }
-        var environment = ProcessInfo.processInfo.environment
-        environment["TERM"] = "xterm-256color"
         let home = FileManager.default.homeDirectoryForCurrentUser
+        var environment = UsageChildEnvironment.make(for: executable, home: home)
+        environment["TERM"] = "xterm-256color"
         let result = runner.run(executable: executable, workingDirectory: home,
                                 environment: environment)
         switch result.outcome {
