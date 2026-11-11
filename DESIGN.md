@@ -115,7 +115,9 @@
 - **네이티브 구현**: 두 줄 아이덴티티, 자물쇠·환경 배지, 상세 보기,
   표시 이름 편집(기존 40자 검증), 환경 우선 목록과 연결 동의.
   합성 데모·자동화 테스트와 실제 계정·VoiceOver 검증은 구분한다.
-- **DEFERRED**: API 프로필 실행, 잔액/비용 조회, OAuth/Sparkle 직접 관리.
+- **DEFERRED → 2.2.4 승인**: GitHub Copilot 제공자, OAuth 직접 관리(앱 내 로그인),
+  Anthropic·OpenAI 실비용 조회(admin 키), Sparkle 자동 업데이트.
+- **DEFERRED**: API 프로필 실행.
 
 ## Unslop 리뷰 — 크레딧
 
