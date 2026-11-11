@@ -73,7 +73,7 @@ public struct SwitcherStatus: Codable, Equatable, Sendable {
 extension Switcher {
     public func status() -> SwitcherStatus {
         let all = accounts()
-        let procs = table.all()
+        let procs = table.all() ?? []
         let main = processes.mainProcesses(in: procs).first
         let active = activeIdentity()
         let now = clock.now()

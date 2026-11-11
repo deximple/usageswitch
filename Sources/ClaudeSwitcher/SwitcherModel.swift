@@ -328,6 +328,7 @@ final class SwitcherModel: ObservableObject {
                     var text = r.outcome == "already_active" ? L10n.t(.uiResultAlreadyActive, name)
                         : L10n.t(.uiResultSwitched, name, Int(r.durationSeconds))
                     if r.displacedPrevious != nil { text += " " + L10n.t(.uiResultDisplaced) }
+                    for warning in r.warnings { text += " " + warning }
                     outcome = .success(text)
                 case .capture:
                     let snap = try switcher.captureCurrent(confirmed: confirmed, progress: report)

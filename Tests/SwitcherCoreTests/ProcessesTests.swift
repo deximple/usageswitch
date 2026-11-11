@@ -54,7 +54,7 @@ struct ProcessesTests {
 
     @Test func leakedLaunchKeysAreNamesOnly() {
         struct NamesTable: ProcessTable {
-            func all() -> [ProcInfo] { [] }
+            func all() -> [ProcInfo]? { [] }
             func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] { [:] }
             func environmentNames(pid: pid_t) -> Set<String> { ["HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"] }
         }
@@ -67,7 +67,7 @@ struct ProcessesTests {
 
     @Test func leakedLaunchKeysMatchExactNamesAndToolPrefixes() {
         struct NamesTable: ProcessTable {
-            func all() -> [ProcInfo] { [] }
+            func all() -> [ProcInfo]? { [] }
             func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] { [:] }
             func environmentNames(pid: pid_t) -> Set<String> {
                 ["HOME", "PATH", "CLAUDE_CODE_SSE_PORT", "CLAUDECODE", "CLAUDECODE_X", "OTHERTOOL_SESSION", "ANTHROPIC_MODEL",
@@ -103,7 +103,7 @@ struct ProcessesTests {
 
     @Test func systemTableSeesThisProcessReadOnly() throws {
         let table = SystemProcessTable()
-        let me = try #require(table.all().first { $0.pid == getpid() })
+        let me = try #require(table.all()?.first { $0.pid == getpid() })
         #expect(me.ppid == getppid())
         #expect(!me.path.isEmpty)
         #expect(me.startTime < Date())
@@ -139,7 +139,7 @@ struct ProcessesTests {
 
     struct StaticTable: ProcessTable {
         let procs: [ProcInfo]
-        func all() -> [ProcInfo] { procs }
+        func all() -> [ProcInfo]? { procs }
         func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] { [:] }
     }
 

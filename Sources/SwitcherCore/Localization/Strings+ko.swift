@@ -30,6 +30,7 @@ extension Strings {
         .warnUntrustedRelaunchers: "확인할 수 없는 자동 재실행 기록이 있어 복구하지 않았습니다: %@",
         .warnActiveNotSaved: "지금 Claude 에 로그인된 %@ 계정은 아직 저장되지 않았습니다. '현재 로그인 저장'을 누르면 목록에 추가됩니다.",
         .warnLegacyRecoveryPending: "Claude Switcher 1.0(개인용 빌드)의 전환이 끝나지 않았습니다. 그 앱을 한 번 열어 복구하기 전까지 여기서는 전환을 멈춥니다.",
+        .warnCommitCleanupFailed: "전환은 완료됐지만 정리에 실패했습니다(%@). 앱을 다시 열면 이어서 정리합니다.",
 
         .errForbiddenWrite: "쓰기가 허용되지 않은 경로입니다: %@",
         .errUnknownAccount: "알 수 없는 계정입니다: %@",
@@ -101,6 +102,7 @@ extension Strings {
         .reasonLeakedEnv: "Claude 가 다른 도구의 환경 변수(%@)를 물려받아 실행됨",
         .reasonMarkerMismatch: "정착 후 lastKnownAccountUuid 불일치",
         .reasonLockOpenFailed: "잠금 파일을 열 수 없습니다",
+        .reasonProcessListUnreadable: "프로세스 목록을 읽을 수 없습니다 — Claude가 아직 실행 중일 수 있습니다",
 
         .uiStateActive: "사용 중",
         .uiStateReady: "전환 가능",

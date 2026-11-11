@@ -212,6 +212,29 @@ struct SwapEngineRecoveryTests {
         #expect(!exists(prev) && !exists(sb.env.stagingDir) && !resumed.journalPresent)
     }
 
+    /// audit P3: the resume check must look at `previous/`, not live. Once the original was swapped
+    /// back, Claude may have rewritten live once more — that newer write is kept, and the stale
+    /// swapped-in copy in previous/ must not be swapped back over it.
+    @Test func resumedRollbackKeepsClaudeWritesMadeAfterTheRestore() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let engine = SwapEngine(env: sb.env, fs: sb.fs, isClaudeRunning: { false })
+        try prepare(sb, engine: engine)
+        try engine.install(names: Self.names)
+        // The rollback already swapped Cookies back (prev now holds the swapped-in copy),
+        // then Claude rewrote live once more — and the process died right there.
+        let ud = sb.env.claudeUserData
+        let prev = sb.env.previousDir
+        try engine.markForRollback()
+        try sb.fs.swap(prev.appendingPathComponent("Cookies"), sb.env.claudeCookies)
+        #expect(text(sb.env.claudeCookies) == "live-cookies")
+        #expect(text(prev.appendingPathComponent("Cookies")) == "new-cookies")
+        try sb.write("claude-wrote-again", to: sb.env.claudeCookies)
+
+        let resumed = SwapEngine(env: sb.env, fs: sb.fs, isClaudeRunning: { false })
+        #expect(try resumed.resolvePending() == .rolledBack)
+        #expect(text(sb.env.claudeCookies) == "claude-wrote-again")
+    }
+
     @Test func rollbackRefusesWhileClaudeRunsBeforeAndBetweenItems() throws {
         let sb = try Sandbox(); defer { sb.remove() }
         let claude = ClaudeFlag()

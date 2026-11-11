@@ -30,6 +30,7 @@ extension Strings {
         .warnUntrustedRelaunchers: "No se restauraron estas entradas de reapertura automática porque no se pudieron verificar: %@",
         .warnActiveNotSaved: "La cuenta con la sesión iniciada en Claude (%@) aún no está guardada. Haz clic en \"Guardar sesión actual\" para añadirla a la lista.",
         .warnLegacyRecoveryPending: "Claude Switcher 1.0 (la versión personal) dejó un cambio sin terminar. Ábrela una vez para que se recupere; hasta entonces, aquí no se puede cambiar de cuenta.",
+        .warnCommitCleanupFailed: "El cambio se completó, pero la limpieza falló (%@). Vuelve a abrir la app para reintentarlo.",
 
         .errForbiddenWrite: "No se permite escribir en esta ruta: %@",
         .errUnknownAccount: "Cuenta desconocida: %@",
@@ -101,6 +102,7 @@ extension Strings {
         .reasonLeakedEnv: "Claude heredó las variables de entorno de otra herramienta (%@)",
         .reasonMarkerMismatch: "lastKnownAccountUuid no coincidió tras estabilizarse",
         .reasonLockOpenFailed: "No se puede abrir el archivo de bloqueo",
+        .reasonProcessListUnreadable: "No se puede leer la lista de procesos; Claude puede seguir en ejecución",
 
         .uiStateActive: "En uso",
         .uiStateReady: "Disponible",

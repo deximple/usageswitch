@@ -7,6 +7,7 @@ import Testing
 
 /// Processes for the Codex tests: Codex windows and helpers with an optional CODEX_HOME.
 final class CodexProcessTable: ProcessTable, @unchecked Sendable {
+    var unreadable = false
     private let lock = NSLock()
     private var procs: [ProcInfo] = []
     private var homes: [pid_t: String] = [:]
@@ -30,7 +31,7 @@ final class CodexProcessTable: ProcessTable, @unchecked Sendable {
                               startTime: Date().addingTimeInterval(60)))
     }
 
-    func all() -> [ProcInfo] { lock.lock(); defer { lock.unlock() }; return procs }
+    func all() -> [ProcInfo]? { lock.lock(); defer { lock.unlock() }; return unreadable ? nil : procs }
 
     func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] {
         lock.lock(); defer { lock.unlock() }
@@ -83,7 +84,7 @@ final class FakeCodexControl: CodexAppControl, @unchecked Sendable {
 
     func activate(pid: pid_t) -> Bool {
         lock.lock(); _activated.append(pid); lock.unlock()
-        return activateWorks && table.all().contains { $0.pid == pid }
+        return activateWorks && (table.all() ?? []).contains { $0.pid == pid }
     }
 
     func requestQuit(pid: pid_t) -> Bool {
@@ -465,6 +466,21 @@ struct CodexTests {
         #expect(rig.manager.loadRegistry() == CodexRegistry(hidden: []))
     }
 
+    /// audit P3: a table that cannot be read cannot prove the helpers are gone — removal must
+    /// refuse rather than delete the home under live processes.
+    @Test func removalRefusesWhileTheProcessTableIsUnreadable() throws {
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in try? CodexFixture.writeAuth(into: home, email: "side@example.com"); return .exited(0) }
+        let added = try rig.manager.addAccount()
+        try rig.manager.renameAccount(added.id, to: "Side")
+        let folder = rig.env.codexManagedDir.appendingPathComponent(added.id, isDirectory: true)
+        rig.table.unreadable = true
+        #expect(switcherError { _ = try rig.manager.remove(added.id) } == .codexStillRunning("Side"))
+        #expect(exists(folder))
+        #expect(rig.control.trashed.isEmpty)
+        #expect(rig.control.forceKilled.isEmpty)
+    }
+
     @Test func aLiveSignInNeverGoesToTheTrash() throws {
         let rig = try CodexRig(); defer { rig.cleanup() }
         rig.control.login = { home, _, _ in try? CodexFixture.writeAuth(into: home, email: "side@example.com"); return .exited(0) }
@@ -653,7 +669,7 @@ struct CodexTests {
         rig.table.add(pid: 810, path: "/opt/fake/bin/codex", ppid: 99, codexHome: home.path)
         rig.table.add(pid: 811, path: "/opt/fake/bin/codex", ppid: 99, codexHome: home.path)
         rig.table.reuse(pid: 811, path: "/usr/bin/other")   // 811 ended; the pid now belongs to something else
-        manager.stopHelpers(using: home)
+        try manager.stopHelpers(using: home)
         #expect(rig.control.terminated == [810])
         #expect(rig.control.forceKilled == [810])
         manager.stopRunningCommands()

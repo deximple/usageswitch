@@ -34,6 +34,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case warnUntrustedRelaunchers = "warn.untrustedRelaunchers"
     case warnActiveNotSaved = "warn.activeNotSaved"
     case warnLegacyRecoveryPending = "warn.legacyRecoveryPending"
+    case warnCommitCleanupFailed = "warn.commitCleanupFailed"
 
     // Errors
     case errForbiddenWrite = "err.forbiddenWrite"
@@ -107,6 +108,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case reasonLeakedEnv = "reason.leakedEnv"
     case reasonMarkerMismatch = "reason.markerMismatch"
     case reasonLockOpenFailed = "reason.lockOpenFailed"
+    case reasonProcessListUnreadable = "reason.processListUnreadable"
 
     // UI: account states
     case uiStateActive = "ui.state.active"

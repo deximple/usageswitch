@@ -30,6 +30,7 @@ extension Strings {
         .warnUntrustedRelaunchers: "以下自动重启项无法验证，因此未恢复：%@",
         .warnActiveNotSaved: "Claude 当前登录的账户（%@）尚未保存。点按“保存当前登录”即可将其添加到列表。",
         .warnLegacyRecoveryPending: "Claude Switcher 1.0（个人版）有一次未完成的切换。请先打开它完成恢复；在此之前，这里会暂停切换。",
+        .warnCommitCleanupFailed: "切换已完成，但清理失败（%@）。重新打开应用将重试。",
 
         .errForbiddenWrite: "不允许写入此路径：%@",
         .errUnknownAccount: "未知账户：%@",
@@ -101,6 +102,7 @@ extension Strings {
         .reasonLeakedEnv: "Claude 继承了其他工具的环境变量（%@）",
         .reasonMarkerMismatch: "稳定后 lastKnownAccountUuid 不匹配",
         .reasonLockOpenFailed: "无法打开锁文件",
+        .reasonProcessListUnreadable: "无法读取进程列表 — Claude 可能仍在运行",
 
         .uiStateActive: "使用中",
         .uiStateReady: "可切换",

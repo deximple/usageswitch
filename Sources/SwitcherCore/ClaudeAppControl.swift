@@ -15,12 +15,16 @@ public protocol ClaudeAppControl: Sendable {
 
 public protocol Clock: Sendable {
     func now() -> Date
+    /// Monotonic seconds for elapsed-time measurement: wall-clock changes and sleep/wake
+    /// drift cannot make a timeout fire early or late (audit P3).
+    func uptime() -> TimeInterval
     func sleep(_ seconds: TimeInterval)
 }
 
 public struct SystemClock: Clock {
     public init() {}
     public func now() -> Date { Date() }
+    public func uptime() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
     public func sleep(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 }
 
