@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**A failed read no longer erases a saved account's numbers.** When a saved Claude
+account's linked CLI profile (or a Codex sign-in) can't be read — signed out, a
+temporary refusal, a schema change — the row keeps the last successful reading,
+greyed, with the time it was seen. A window whose reset already passed shows
+"Reset since last read" instead of a number, and the value is dropped on the next
+refresh. These greyed values are never used for suggestions, the menu bar title,
+or alerts, and are kept in memory only — nothing is restored after a restart.
+
+**Clearer way back in.** A saved Claude account whose CLI profile is signed out
+now says so, and **Details** shows the exact `claude auth login` command for that
+profile with a **Copy Command** button — UsageSwitch never signs in for you. The
+expired saved-login lock icon now points at the Claude tab's Sign in again.
+
 ## 2.2.2 — last items from the 2026-11 audit
 
 **Cursor refreshes itself.** An expired Cursor sign-in used to show "sign-in expired" until

@@ -138,7 +138,7 @@ Cada cuenta es un pequeño bloque: quién es y luego una línea por límite.
 | **2 límites más** | El menú compacto muestra hasta tres límites por cuenta. El resto está en **Detalles**. |
 | **Detalles** | Abre una ventana con todos los límites, horas de reinicio, el origen de la lectura y la versión de la herramienta. |
 
-**Colores de la barra:** gris hay margen; naranja ha pasado su nivel de aviso (80% usado por defecto); rojo está agotado; una barra difuminada es una lectura antigua esperando actualización.
+**Colores de la barra:** gris hay margen; naranja ha pasado su nivel de aviso (80% usado por defecto); rojo está agotado; una barra difuminada es una lectura antigua esperando actualización — o, para una cuenta de Claude guardada o un inicio de Codex que no se puede leer ahora, su última lectura correcta con la hora en que se vio. Una ventana cuyo reinicio ya pasó no muestra número.
 
 **Pie:** *actualizado hace 1m · Próxima actualización en 4m*. UsageSwitch se actualiza cada 5 minutos, justo después de que un límite se reinicie y al pulsar ↻.
 
@@ -156,6 +156,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 |---|---|---|
 | **Conexión de uso necesaria** | Esta herramienta opcional está apagada. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. |
 | **No se encontró sesión: inicie sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
+| **El perfil de CLI de esta cuenta no tiene la sesión iniciada — consulta Detalles** | El perfil de CLI enlazado a una cuenta de Claude guardada está desconectado, por lo que su última lectura queda atenuada. | En **Detalles**, copie el comando, ejecútelo en Terminal e inicie sesión con la misma cuenta. |
 | **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
 | **Sesión rechazada: ejecute *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
 | **No vinculada a la cuota CLI** | Una cuenta de Claude Desktop guardada no tiene perfil de Claude Code vinculado. | [Vincule un perfil](#3-dé-a-las-cuentas-de-claude-guardadas-sus-propios-números-opcional) en **Detalles**. |

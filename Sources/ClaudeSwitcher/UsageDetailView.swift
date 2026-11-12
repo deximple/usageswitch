@@ -16,6 +16,7 @@ struct UsageDetailView: View {
     @State private var editing = false
     @State private var saveError: String?
     @State private var busy = false
+    @State private var copiedHint = false
 
     private var presentation: UsageAccountPresentation? {
         usage.presentations(claude: model.status, codex: codex.status, now: Date())
@@ -74,6 +75,28 @@ struct UsageDetailView: View {
                         .textSelection(.enabled)
                     Button(L10n.t(.uiClaudeProfileDisconnect)) { disconnectProfile(account.id) }
                         .font(.system(size: 12)).foregroundStyle(Theme.active)
+                    if p.usage.state == .unavailable(.noSignIn) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L10n.t(.usageProfileSignInTitle))
+                                .font(.system(size: 12, weight: .medium))
+                            Text(L10n.t(.usageProfileSignInBody))
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(ClaudeProfileSignInHint.command(profilePath: binding.profilePath))
+                                .font(.system(size: 11, design: .monospaced))
+                                .textSelection(.enabled)
+                            Button(copiedHint ? L10n.t(.usageProfileSignInCopied)
+                                              : L10n.t(.usageProfileSignInCopy)) {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(
+                                    ClaudeProfileSignInHint.command(profilePath: binding.profilePath),
+                                    forType: .string)
+                                copiedHint = true
+                            }
+                            .font(.system(size: 12)).foregroundStyle(Theme.active)
+                            .accessibilityLabel(Text("\(displayedName(p)), \(L10n.t(.usageProfileSignInCopy))"))
+                        }
+                    }
                 } else {
                     Button(L10n.t(.uiClaudeProfileConnect)) { connectProfile(for: account) }
                         .font(.system(size: 12)).foregroundStyle(Theme.active)
@@ -82,7 +105,7 @@ struct UsageDetailView: View {
             } else {
                 Text(L10n.t(.usageNotLinked)).font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            if let reason = UsageText.reason(p.usage.state, provider: .claude) {
+            if let reason = UsageText.reason(for: p.usage) {
                 Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
             }
         } else if UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
@@ -93,13 +116,12 @@ struct UsageDetailView: View {
             }
             .font(.system(size: 12)).foregroundStyle(Theme.active)
             .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiConnectUsage))"))
-        } else if let reason = UsageText.reason(p.usage.state, provider: p.usage.provider) {
+        } else if let reason = UsageText.reason(for: p.usage) {
             Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         ForEach(p.usage.windows, id: \.self) { w in
             UsageBarRow(usage: p.usage, window: w, settings: model, now: Date(),
                         compact: false,
-                        fresh: (0...UsageGuidance.maximumAge).contains(Date().timeIntervalSince(p.usage.readAt)),
                         pace: usage.pace[UsagePriority.key(p.usage, w)])
         }
         if p.usage.windows.isEmpty && !savedApp
