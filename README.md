@@ -271,7 +271,8 @@ For accounts that use an API key instead of a subscription:
 
 - **Budgets** — set a prepaid balance or a monthly quota (with its reset day) for Anthropic, OpenAI, Google or xAI.
 - **Estimates** — spend over the last 7 days, the average daily rate, and roughly how many days your budget lasts. These are estimated from local CLI logs of API-key accounts only, never fetched from the provider.
-- **API key vault** — the app asks for Touch ID or your password when you add, show or delete a key. Keys are stored in the login Keychain and follow its access rules. Keys are never sent anywhere.
+- **Actual spend** — register a **billing admin key** (Anthropic `sk-ant-admin-*` or an OpenAI admin key) and the vendor's own organization cost endpoint replaces estimates with real figures: this month's spend and the last 7 days, with the read's timestamp. One read-only billing query per vendor every 30 minutes; a regular API key is never sent anywhere.
+- **API key vault** — the app asks for Touch ID or your password when you add, show or delete a key. Keys are stored in the login Keychain and follow its access rules. Regular API keys are never sent anywhere; a billing admin key goes only to its own vendor's billing endpoint.
 
 ## Settings
 
@@ -459,7 +460,7 @@ No. It's an independent open-source project and isn't affiliated with or endorse
 - A saved Claude sign-in can expire or be revoked. Its row then asks you to **Sign in again**.
 - Codex folders that keep their sign-in in the Keychain (`cli_auth_credentials_store = "keyring"`) may appear signed out.
 - The optional connections use private endpoints that can change without notice.
-- UsageSwitch shows the limits each provider reports. It doesn't show provider balances or bills; the API tab shows local estimates only.
+- UsageSwitch shows the limits each provider reports. Provider balances or bills stay out of the API tab unless a billing admin key is registered — then Anthropic or OpenAI actual spend replaces local estimates.
 
 ## Uninstall
 

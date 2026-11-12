@@ -8,6 +8,7 @@ struct APIContent: View {
     @State private var selectedVendor: APIVendor = .anthropic
     @State private var nickname = ""
     @State private var key = ""
+    @State private var registerAsAdmin = false
     @State private var entries: [APIKeyEntry] = []
     @State private var revealedKeys: [String: String] = [:]
     @State private var keyMessage: String?
@@ -55,14 +56,19 @@ struct APIContent: View {
                         Button(L10n.t(.apiKeyRegister), action: registerKey)
                             .disabled(key.isEmpty || settings.isDemo)
                     }
+                    if selectedVendor == .anthropic || selectedVendor == .openai {
+                        Toggle(L10n.t(.apiKeyAdminToggle), isOn: $registerAsAdmin)
+                            .font(Theme.caption).foregroundStyle(Theme.ink)
+                    }
                     if let keyMessage {
                         Text(keyMessage).font(Theme.caption).foregroundStyle(Theme.inkMuted)
                     }
                     ForEach(entries) { entry in
                         HStack(spacing: 8) {
-                            Text(entry.isUnreadable
+                            Text((entry.isUnreadable
                                  ? "\(vendorName(entry.vendor)) · \(entry.nickname) · \(L10n.t(.apiKeyUnreadable))"
                                  : "\(vendorName(entry.vendor)) · \(entry.nickname) · ••••\(entry.last4)")
+                                 + (entry.isAdmin ? " · \(L10n.t(.apiKeyAdminTag))" : ""))
                                 .font(Theme.caption).foregroundStyle(Theme.ink)
                                 .lineLimit(1).truncationMode(.middle)
                             Spacer()
@@ -96,6 +102,9 @@ struct APIContent: View {
         let hasAPIKeyAccount = usage.usages.contains {
             $0.authentication == .apiKey && $0.provider == vendor.usageProvider
         }
+        let actual = usage.apiActualSpends[vendor]
+        let actualOK: Bool = { if case .ok = actual { return true }; return false }()
+        let hasAdminEntry = entries.contains { $0.vendor == vendor && $0.isAdmin }
         VStack(alignment: .leading, spacing: Theme.gapTight) {
             Text(vendorName(vendor))
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
@@ -111,11 +120,32 @@ struct APIContent: View {
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
             }
+            // A registered admin billing key replaces the log estimate with real figures.
+            if case .ok(let spend) = actual {
+                Text(L10n.t(.apiAdminMonth, usd(spend.monthToDateUSD)))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                Text(L10n.t(.apiAdminActual, usd(spend.last7DaysUSD)))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                Text(L10n.t(.apiAdminAsOf, spend.asOf.formatted(date: .omitted, time: .shortened)))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            } else if actual == .keyRejected {
+                Text(L10n.t(.apiAdminKeyRejected))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            } else if actual == .notEligible {
+                Text(L10n.t(.apiAdminNotEligible))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            } else if actual == .rateLimited || actual == .network || actual == .schemaChanged {
+                Text(L10n.t(.apiAdminFailed))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            } else if !hasAdminEntry && (vendor == .anthropic || vendor == .openai) {
+                Text(L10n.t(.apiAdminHint))
+                    .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+            }
             if !vendor.hasLogReader {
                 // Shown whether or not an API-key account exists: only Codex rows can be one.
                 Text(L10n.t(.apiNotEstimable))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
-            } else if hasAPIKeyAccount {
+            } else if hasAPIKeyAccount, !actualOK {
                 if let spend = estimate?.spendLast7DaysUSD,
                    let dailyRate = estimate?.dailyRateUSD {
                     Text(L10n.t(.apiEstimate, usd(spend)))
@@ -155,7 +185,10 @@ struct APIContent: View {
         let savedKey = key
         Task {
             do {
-                _ = try await vault.register(vendor: savedVendor, nickname: savedNickname, key: savedKey)
+                _ = try await vault.register(vendor: savedVendor, nickname: savedNickname,
+                                             key: savedKey,
+                                             admin: registerAsAdmin
+                                                && (savedVendor == .anthropic || savedVendor == .openai))
                 key = ""
                 nickname = ""
                 keyMessage = L10n.t(.apiKeyStored)
