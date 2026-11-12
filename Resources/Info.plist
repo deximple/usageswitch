@@ -51,5 +51,12 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Jay Song</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/deximple/usageswitch/releases/download/appcast/appcast.xml</string>
+	<!-- Placeholder until the owner runs Sparkle's `generate_keys --account usageswitch`
+	     and pastes the printed public key here. An unreadable value keeps the bundled
+	     updater inert (UpdaterLaunchPolicy treats it as disabled). -->
+	<key>SUPublicEDKey</key>
+	<string>PENDING-OWNER-EDDSA-KEY</string>
 </dict>
 </plist>

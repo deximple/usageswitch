@@ -83,7 +83,7 @@ You decide every step. A limit running low never triggers a switch, a launch or 
 
 Releases are signed with a Developer ID and notarized by Apple, so macOS only shows its usual "downloaded from the Internet" prompt the first time.
 Each release includes `SHA256SUMS.txt` if you want to verify the download.
-To update, use **⚙︎ › Check for Updates…**. It opens the releases page; UsageSwitch never updates itself in the background.
+To update, use **⚙︎ › Check for Updates…**. On builds with the update feed enabled it checks in place — installing an update still asks you first — and Sparkle's one-time prompt decides whether it may also recheck daily in the background. Otherwise it opens the releases page.
 
 ## Get started
 
@@ -291,7 +291,7 @@ Everything lives in the **⚙︎** menu.
 | Usage Connections | Turns each optional tool on or off. Lists only tools found on this Mac. |
 | Flush learning data | Deletes the Guide's local learning files. |
 | Show Data Folder in Finder | Opens `~/Library/Application Support/com.jaysong.usageswitch/`. |
-| Check for Updates… | Opens the releases page in your browser. |
+| Check for Updates… | Checks the update feed when the updater is enabled; otherwise opens the releases page in your browser. |
 
 ## Privacy and safety
 
