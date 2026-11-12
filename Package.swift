@@ -8,6 +8,9 @@ let package = Package(
         .executable(name: "ClaudeSwitcher", targets: ["ClaudeSwitcher"]),
         .library(name: "SwitcherCore", targets: ["SwitcherCore"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+    ],
     targets: [
         .target(
             name: "SwitcherCore",
@@ -15,7 +18,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "ClaudeSwitcher",
-            dependencies: ["SwitcherCore"]
+            dependencies: [
+                "SwitcherCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ]
         ),
         .testTarget(
             name: "SwitcherCoreTests",
