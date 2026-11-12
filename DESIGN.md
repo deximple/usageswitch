@@ -98,7 +98,7 @@
 | 컴포넌트 | 상태와 동작 |
 | --- | --- |
 | 상세 보기 버튼 | default는 작은 중립 버튼, hover/pressed는 네이티브 피드백, focus는 시스템 포커스 표시. disabled는 접근성에도 반영하고 실행하지 않는다. 상세 열기는 수집기 로딩과 독립이다. |
-| 한도 행 | 읽기 전용이므로 hover/pressed 없음. loading은 확인 중, empty는 미보고, error는 정해진 오류·재시도 안내. stale는 현재 수치와 구분하고 exhausted는 빈 막대·소진 아이콘으로 표시한다. |
+| 한도 행 | 읽기 전용이므로 hover/pressed 없음. loading은 확인 중, empty는 미보고, error는 정해진 오류·재시도 안내. stale는 현재 수치와 구분하고 리셋이 지난 창은 숫자를 지우며, exhausted는 빈 막대·소진 아이콘으로 표시한다. |
 | 이름 입력 | default는 현재 표시 이름, focus는 시스템 링, disabled/loading은 저장 중 중복 제출 방지. empty/error는 인라인 오류와 입력 포커스를 유지한다. 입력 자체는 저장 동작이 아니다. |
 | 저장·기본 이름 | hover/focus/pressed는 네이티브 피드백. 저장 중에는 중복 실행을 막고 실패 시 초안을 보존한다. 기본 이름은 복원할 초안을 설정하며 저장 전까지 기존 이름을 유지한다. |
 | 가이드 펼침 | default는 닫힘, focus/pressed는 키보드로 조작 가능. loading/empty/error에서 근거 없는 후보를 만들지 않는다. 외관 변경과 이름 저장으로 펼침 상태를 초기화하지 않는다. |
