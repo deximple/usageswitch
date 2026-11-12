@@ -367,6 +367,60 @@ struct APITests {
                                              key: String(repeating: "k", count: 16_384))
         #expect(entry.nickname == "ok")
     }
+
+    @Test func adminEntriesRoundTripAndAreFlagged() async throws {
+        let store = MemoryKeychainItemStore()
+        let vault = KeychainAPIKeyVault(store: store, authenticator: CountingAuthenticator())
+        let admin = try await vault.register(vendor: .anthropic, nickname: "billing",
+                                             key: "sk-ant-admin-abc", admin: true)
+        let regular = try await vault.register(vendor: .anthropic, nickname: "work",
+                                               key: "sk-ant-key")
+        #expect(admin.isAdmin)
+        #expect(!regular.isAdmin)
+        #expect(admin.id.hasPrefix("admin:anthropic:"))
+        #expect(regular.id.hasPrefix("anthropic:"))
+        let listed = try await vault.list()
+        #expect(listed.count == 2)
+        #expect(listed.first { $0.id == admin.id }?.isAdmin == true)
+        #expect(listed.first { $0.id == regular.id }?.isAdmin == false)
+        // Unreadable admin labels still surface as admin (they stay deletable).
+        store.corruptLabel(of: admin.id)
+        #expect(try await vault.list().first { $0.id == admin.id }?.isAdmin == true)
+    }
+
+    @Test func revealUnattendedReadsOnlyAdminEntries() async throws {
+        let store = MemoryKeychainItemStore()
+        let authenticator = CountingAuthenticator()
+        let vault = KeychainAPIKeyVault(store: store, authenticator: authenticator)
+        let admin = try await vault.register(vendor: .openai, nickname: "billing",
+                                             key: "sk-admin-secret", admin: true)
+        let regular = try await vault.register(vendor: .openai, nickname: "work",
+                                               key: "sk-regular")
+        let callsBefore = await authenticator.callCount
+        // Admin read: value returned, no extra authentication round.
+        #expect(try await vault.revealUnattended(id: admin.id) == "sk-admin-secret")
+        #expect(await authenticator.callCount == callsBefore)
+        // A regular key can never go through the unattended path.
+        do {
+            _ = try await vault.revealUnattended(id: regular.id)
+            #expect(false)
+        } catch {
+            #expect(error as? APIKeyVaultError == .invalidEntry)
+        }
+        // Malformed or foreign ids are equally rejected.
+        for id in ["", "nope", "admin:", "admin:openai:", "admin:claude:\(UUID().uuidString)"] {
+            do {
+                _ = try await vault.revealUnattended(id: id)
+                #expect(false, "id accepted: \(id)")
+            } catch {
+                #expect(error as? APIKeyVaultError == .invalidEntry)
+            }
+        }
+        // Delete still authenticates for both entry kinds.
+        await authenticator.failAuthentication()
+        do { try await vault.delete(id: admin.id); #expect(false) }
+        catch { #expect(error as? APIKeyVaultError == .authenticationFailed) }
+    }
 }
 
 private actor CountingAuthenticator: APIKeyVaultAuthenticator {

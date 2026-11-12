@@ -60,15 +60,17 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
         self.authenticator = authenticator
     }
 
-    public func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry {
+    public func register(vendor: APIVendor, nickname: String, key: String,
+                         admin: Bool) async throws -> APIKeyEntry {
         let cleanNickname = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanNickname.isEmpty, cleanNickname.count <= 80,
               !key.isEmpty, key.count <= 16_384 else { throw APIKeyVaultError.invalidEntry }
         try await authenticator.evaluatePolicy()
-        let id = Self.account(vendor: vendor, id: UUID())
+        let id = Self.account(vendor: vendor, id: UUID(), admin: admin)
         let createdAt = Date()
         let entry = APIKeyEntry(id: id, vendor: vendor, nickname: cleanNickname,
-                                last4: String(key.suffix(4)), createdAt: createdAt)
+                                last4: String(key.suffix(4)), createdAt: createdAt,
+                                isAdmin: admin)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let metadata = KeychainMetadata(nickname: entry.nickname, last4: entry.last4, createdAt: createdAt)
@@ -106,20 +108,30 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
         // still be able to see and delete them (audit B-06).
         return items.compactMap { item in
             guard let account = item[kSecAttrAccount as String] as? String,
-                  let (vendor, _) = Self.parseAccount(account) else { return nil }
+                  let (vendor, _, isAdmin) = Self.parseAccount(account) else { return nil }
             if let label = item[kSecAttrLabel as String] as? String,
                let metadata = try? decoder.decode(KeychainMetadata.self, from: Data(label.utf8)) {
                 return APIKeyEntry(id: account, vendor: vendor, nickname: metadata.nickname,
-                                   last4: metadata.last4, createdAt: metadata.createdAt)
+                                   last4: metadata.last4, createdAt: metadata.createdAt,
+                                   isAdmin: isAdmin)
             }
             return APIKeyEntry(id: account, vendor: vendor,
                                nickname: String(account.suffix(4)),
-                               last4: "", createdAt: .distantPast, isUnreadable: true)
+                               last4: "", createdAt: .distantPast, isUnreadable: true,
+                               isAdmin: isAdmin)
         }.sorted { $0.createdAt < $1.createdAt }
     }
 
     public func reveal(id: String) async throws -> String {
         try await authenticator.evaluatePolicy()
+        return try password(id: id)
+    }
+
+    /// The refresh path's read: no interactive prompt, admin entries only. The Keychain item
+    /// is still WhenUnlockedThisDeviceOnly — this skips only the app's own biometric gate,
+    /// which would fire on every refresh cycle otherwise.
+    public func revealUnattended(id: String) async throws -> String {
+        guard Self.parseAccount(id)?.isAdmin == true else { throw APIKeyVaultError.invalidEntry }
         return try password(id: id)
     }
 
@@ -160,14 +172,19 @@ public final class KeychainAPIKeyVault: APIKeyVault, @unchecked Sendable {
         let createdAt: Date
     }
 
-    private static func account(vendor: APIVendor, id: UUID) -> String {
-        "\(vendor.rawValue):\(id.uuidString)"
+    private static func account(vendor: APIVendor, id: UUID, admin: Bool = false) -> String {
+        admin ? "admin:\(vendor.rawValue):\(id.uuidString)" : "\(vendor.rawValue):\(id.uuidString)"
     }
 
-    private static func parseAccount(_ account: String) -> (APIVendor, UUID)? {
-        let parts = account.split(separator: ":", maxSplits: 1)
+    private static func parseAccount(_ account: String) -> (vendor: APIVendor, id: UUID, isAdmin: Bool)? {
+        let parts = account.split(separator: ":", maxSplits: 2)
+        if parts.count == 3, parts[0] == "admin",
+           let vendor = APIVendor(rawValue: String(parts[1])),
+           let id = UUID(uuidString: String(parts[2])) {
+            return (vendor, id, true)
+        }
         guard parts.count == 2, let vendor = APIVendor(rawValue: String(parts[0])),
               let id = UUID(uuidString: String(parts[1])) else { return nil }
-        return (vendor, id)
+        return (vendor, id, false)
     }
 }
