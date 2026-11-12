@@ -167,6 +167,7 @@ extension Strings {
         .uiConnectGrokBody: "UsageSwitch は Grok CLI のサインインファイル（~/.grok/auth.json）を読み取り、更新のたびに cli-chat-proxy.grok.com へ読み取り専用の使用量リクエストを 1 回送ります。タスク実行・トークン更新・サインインは行いません。",
         .uiConnectDevinBody: "UsageSwitch は Devin CLI の認証情報（~/.local/share/devin または ~/.config/devin の credentials.toml）を読み取り、CLI のバージョンを知るために `devin --version` を実行し、更新のたびにそのバージョンを含めて server.codeium.com へ読み取り専用の使用量リクエストを 1 回送ります。タスク実行・トークン更新・サインインは行いません。",
         .uiConnectOpenCodeBody: "UsageSwitch は OpenCode の auth.json（~/.local/share/opencode/auth.json）の opencode-go 項目を読み取り、更新のたびに opencode.ai へ読み取り専用の使用量リクエストを 1 回送ります。タスク実行・トークン更新・サインインは行いません。",
+        .uiConnectCopilotBody: "UsageSwitch は `gh auth token` を実行して GitHub CLI のサインインを借用し、更新のたびに api.github.com の非公式 /copilot_internal/user エンドポイントへ Copilot クォータを問い合わせる読み取り専用リクエストを 1 回送ります。トークンは保存・外部送信されず、このエンドポイントは非公開のため予告なく変更されることがあります。タスク実行・トークン更新・サインインは行いません。",
         .uiConnectUsageEnable: "有効にする",
         .uiClaudeProfileConnect: "CLI プロファイルで使用量を接続…",
         .uiClaudeProfileDisconnect: "接続を解除",

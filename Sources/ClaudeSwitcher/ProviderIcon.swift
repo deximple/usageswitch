@@ -45,7 +45,7 @@ struct ProviderIcon: View {
         case .codex: name = "Codex.app"
         case .cursor: name = "Cursor.app"
         case .antigravity: name = "Antigravity.app"
-        case .grok, .gemini, .devin, .opencode: return nil // CLI-only for now
+        case .grok, .gemini, .devin, .opencode, .copilot: return nil // CLI-only for now
         }
         let folders = [URL(fileURLWithPath: "/Applications", isDirectory: true),
                        FileManager.default.homeDirectoryForCurrentUser

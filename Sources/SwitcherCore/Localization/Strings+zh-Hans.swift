@@ -167,6 +167,7 @@ extension Strings {
         .uiConnectGrokBody: "UsageSwitch 会读取 Grok CLI 的登录文件（~/.grok/auth.json），并在每次刷新时向 cli-chat-proxy.grok.com 发送一次只读用量请求。不会执行任务、刷新令牌或登录。",
         .uiConnectDevinBody: "UsageSwitch 会读取 Devin CLI 的凭据（~/.local/share/devin 或 ~/.config/devin 下的 credentials.toml），运行 `devin --version` 以获知 CLI 版本，并在每次刷新时向 server.codeium.com 发送一次包含该版本的只读用量请求。不会执行任务、刷新令牌或登录。",
         .uiConnectOpenCodeBody: "UsageSwitch 会读取 OpenCode 的 auth.json（~/.local/share/opencode/auth.json）中的 opencode-go 条目，并在每次刷新时向 opencode.ai 发送一次只读用量请求。不会执行任务、刷新令牌或登录。",
+        .uiConnectCopilotBody: "UsageSwitch 会运行 `gh auth token` 借用 GitHub CLI 的登录凭据，并在每次刷新时向 api.github.com 的非官方 /copilot_internal/user 端点发送一次只读的 Copilot 配额请求。令牌不会被存储或发送到其他地方；该端点未公开，可能随时变更。不会执行任务、刷新令牌或登录。",
         .uiConnectUsageEnable: "启用",
         .uiClaudeProfileConnect: "通过 CLI 配置目录连接用量…",
         .uiClaudeProfileDisconnect: "断开连接",
