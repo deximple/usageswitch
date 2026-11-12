@@ -75,6 +75,15 @@ public enum UsageText {
                                                   from: Date(timeIntervalSince1970: 0)))
     }
 
+    /// The row's reason. A saved Claude account whose CLI profile is signed out gets the
+    /// profile-specific text — the generic one reads as "sign in to Claude Desktop".
+    public static func reason(for usage: AccountUsage) -> String? {
+        if usage.pinsAccountIdentity, usage.state == .unavailable(.noSignIn) {
+            return L10n.t(.usageReasonClaudeProfileNoSignIn, L10n.t(.uiDetails))
+        }
+        return reason(usage.state, provider: usage.provider)
+    }
+
     /// The localized reason a non-ok reading isn't a number; nil for `.ok`.
     public static func reason(_ state: UsageState, provider: UsageProvider) -> String? {
         switch state {

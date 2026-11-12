@@ -97,9 +97,10 @@ public enum UsageCollection {
     /// grouping never jumps between refreshes.
     public static func replacing(provider: UsageProvider,
                                  readings: [AccountUsage],
-                                 in current: [AccountUsage]) -> [AccountUsage] {
+                                 in current: [AccountUsage],
+                                 now: Date) -> [AccountUsage] {
         let merged = readings.map { row in
-            row.retainingWindows(from: current.first { $0.id == row.id })
+            row.retainingWindows(from: current.first { $0.id == row.id }, now: now)
         }
         var out = current.filter { $0.provider != provider }
         out += merged

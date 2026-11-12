@@ -91,6 +91,14 @@ public struct UsageWindow: Codable, Hashable, Sendable {
     public func isStale(now: Date) -> Bool {
         resetsAt.map { $0 <= now } ?? false
     }
+
+    /// A number read at `readAt` still says something at `now`: until its reset, or — when the
+    /// reset is unknown — for one window length. Unknown reset and length: never.
+    public func isMeaningfulAsLastKnown(readAt: Date, now: Date) -> Bool {
+        if let resetsAt { return resetsAt > now }
+        guard let durationMinutes, durationMinutes > 0 else { return false }
+        return now.timeIntervalSince(readAt) < TimeInterval(durationMinutes) * 60
+    }
 }
 
 /// Why a reading isn't a number. These are the only reasons a user ever sees: channel messages
@@ -147,26 +155,50 @@ public struct AccountUsage: Equatable, Identifiable, Sendable {
         self.authentication = authentication; self.identityKey = identityKey
     }
 
+    /// The id names one saved Claude account (`claude:app:<accountUuid>__<orgUuid>`), so a previous
+    /// reading under the same id can only be that account's.
+    public var pinsAccountIdentity: Bool { provider == .claude && accountRef.hasPrefix("app:") }
+
+    /// A failed/unavailable row that still carries windows: they are the last successful read's.
+    public var showsLastKnown: Bool { state != .ok && state != .notReporting && !windows.isEmpty }
+
+    /// The problem out of `.failed`/`.unavailable`, nil for the other states.
+    public var problem: UsageProblem? {
+        switch state {
+        case .unavailable(let problem), .failed(let problem): return problem
+        default: return nil
+        }
+    }
+
     /// Keeps the previous reading's windows on a failed/unavailable re-read — but only when the
-    /// new reading is provably the same subscription login. Returns `self` unless:
+    /// new reading is provably the same login. Returns `self` unless:
     ///   - the new state is `.failed` or `.unavailable` (never `.ok` or `.notReporting`),
-    ///   - the new reading is a subscription account with a non-empty identity key,
-    ///   - a previous reading exists with the same id, authentication and identity key,
-    ///     and it has windows.
-    /// Fail-closed by design: a new login, an API-mode switch or an unknown-identity account
-    /// (Claude/Cursor) can never show numbers that belong to a different login.
-    public func retainingWindows(from previous: AccountUsage?) -> AccountUsage {
+    ///   - the row pins account identity (`claude:app:*`) or is a subscription account with
+    ///     a non-empty identity key,
+    ///   - a previous reading exists with the same id (and, for subscription rows, the same
+    ///     authentication and identity key), and it has windows that haven't reset at `now`.
+    /// Fail-closed by design: a new login, an API-mode switch, an unknown-identity row
+    /// (`claude:cli`/Cursor) or a broken profile binding (.accountMismatch/.profileInvalid)
+    /// can never show numbers that belong to a different login.
+    public func retainingWindows(from previous: AccountUsage?, now: Date) -> AccountUsage {
         switch state {
         case .failed, .unavailable: break
         default: return self
         }
-        guard authentication == .subscription, let identityKey, !identityKey.isEmpty,
-              let previous, previous.id == id, previous.authentication == authentication,
-              previous.identityKey == identityKey, !previous.windows.isEmpty
-        else { return self }
+        guard let previous, previous.id == id, !previous.windows.isEmpty else { return self }
+        let sameLogin: Bool
+        if pinsAccountIdentity {
+            sameLogin = problem != .accountMismatch && problem != .profileInvalid
+        } else {
+            sameLogin = authentication == .subscription && identityKey?.isEmpty == false
+                && previous.authentication == authentication && previous.identityKey == identityKey
+        }
+        guard sameLogin else { return self }
+        let kept = previous.windows.filter { $0.isMeaningfulAsLastKnown(readAt: previous.readAt, now: now) }
+        guard !kept.isEmpty else { return self }
         return AccountUsage(id: id, provider: provider, accountRef: accountRef, label: label,
-                            plan: plan ?? previous.plan, windows: previous.windows,
-                            state: state, readAt: previous.readAt, toolVersion: toolVersion,
+                            plan: plan ?? previous.plan, windows: kept, state: state,
+                            readAt: previous.readAt, toolVersion: toolVersion,
                             authentication: authentication, identityKey: identityKey)
     }
 }
