@@ -31,6 +31,31 @@ enum Fixtures {
             let model = SwitcherModel(demo: base)
             model.pendingConfirmation = base.accounts.first { !$0.isActive }.map(SwitcherModel.removeConfirmation(for:))
             return model
+        case "enroll-waiting":
+            let work = accounts.first { $0.key == "work" }!
+            return SwitcherModel(demo: base, demoPhase: .awaitingLogin,
+                                 demoEnrollment: .init(previousAccountID: "\(work.account)__\(work.org)"))
+        case "enroll-detected":
+            // Live sign-in is an identity no saved account has — the save offer shows.
+            let work = accounts.first { $0.key == "work" }!
+            let st = SwitcherStatus(
+                claude: ClaudeStatus(installed: true, running: true, pid: 4242, version: "1.0.0",
+                                     activeAccountUuid: "e5e5e5e5-0000-4000-8000-000000000005",
+                                     activeOrgUuid: "e5e5e5e5-0000-4000-8000-0000000000f5",
+                                     activeEmail: "new.person@example.com", codeSessions: 0),
+                accounts: base.accounts.map {
+                    AccountStatus(id: $0.id, label: $0.label, customName: $0.customName,
+                                  defaultName: $0.defaultName, email: $0.email,
+                                  accountUuid: $0.accountUuid, orgUuid: $0.orgUuid,
+                                  isActive: false, snapshot: $0.snapshot,
+                                  capturedAt: $0.capturedAt, sessionExpiresAt: $0.sessionExpiresAt)
+                },
+                relaunchers: [], suspendedRelaunchers: [],
+                originalBackup: base.originalBackup, pendingJournal: false,
+                nativeMultiAccount: false, warnings: [])
+            return SwitcherModel(demo: st, demoPhase: .awaitingLogin,
+                                 demoEnrollment: .init(previousAccountID: "\(work.account)__\(work.org)",
+                                                       detectedNewLogin: true))
         case "rename":
             let model = SwitcherModel(demo: base)
             model.renameDraft = ""
