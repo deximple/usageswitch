@@ -12,7 +12,7 @@ struct WordingTests {
                     resetsAt: now.addingTimeInterval(7200))
     }
 
-    @Test("headroom takes a bare number, so no '% left remaining' doubling")
+    @Test("headroom names the window, the share left, and the pace verdict")
     func headroom() {
         let name = UsageText.name(of: window)
         for language in AppLanguage.allCases {
@@ -21,18 +21,28 @@ struct WordingTests {
             #expect(!line.contains("% left remaining"))
             #expect(!line.contains("% 남음 남음"))
             #expect(!line.contains("(%@"))
+            #expect(line.contains(name))
             #expect(line.contains("80"))   // 20% used → 80 left
         }
     }
 
-    @Test("remaining line takes a bare number too")
+    @Test("remaining line names the window and the share left")
     func remainingLine() {
         let name = UsageText.name(of: window)
         for language in AppLanguage.allCases {
             let line = L10n.string(.suggestionSituationRemaining, language: language,
                                    [name, UsageText.percentLeft(window.usedPercent) ?? 0])
-            #expect(!line.contains("% left") && !line.contains("% 남음")
-                    && !line.contains("(%@") && line.contains("80"))
+            #expect(!line.contains("(%@") && line.contains(name) && line.contains("80"))
+        }
+    }
+
+    @Test("the suggestion headline takes one pre-joined pick")
+    func suggestionHeadline() {
+        for language in AppLanguage.allCases {
+            let line = L10n.string(.suggestionHeadline, language: language,
+                                   ["Personal · Opus · High"])
+            #expect(line.contains("Personal · Opus · High"))
+            #expect(!line.contains("(%@"))
         }
     }
 

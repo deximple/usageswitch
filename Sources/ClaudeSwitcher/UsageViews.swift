@@ -192,8 +192,11 @@ struct UsageContent: View {
             let label = currentLabel(usage)
             switch usage.state {
             case .failed, .unavailable:
-                // connectionRequired is per-row neutral only — never a global notice
+                // connectionRequired is per-row neutral only — never a global notice.
+                // A permanent reason like notEligible (e.g. a retired plan) can't be
+                // fixed, so it stays on the row but never warns globally.
                 if case .unavailable(.connectionRequired) = usage.state { continue }
+                if case .unavailable(.notEligible) = usage.state { continue }
                 if let reason = UsageText.reason(usage.state, provider: usage.provider) {
                     items.append(("\(usage.id)/state", "\(label) — \(reason)", true))
                 }
@@ -227,7 +230,7 @@ struct UsageContent: View {
     @ViewBuilder
     private func guide(now: Date) -> some View {
         let suggestion = model.suggestionResult(now: now)
-        let proposals = UsageGuidance.proposals(model.usages, now: now,
+        let proposals = UsageGuidance.proposals(model.suggestionUsages(now: now), now: now,
                                                 warnAt: Double(settings.usageWarnPercent))
         let items = attention(now: now)
         VStack(alignment: .leading, spacing: Theme.gapRow) {
@@ -242,8 +245,10 @@ struct UsageContent: View {
                     Text(item.text).font(.system(size: 12))
                         .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
                 }
-                if let line = suggestionLine(suggestion) {
-                    Text(line).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                if let text = suggestionText(suggestion) {
+                    Text(text.headline).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(text.secondary).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if SuggestionGuideFallback.shouldShowLegacyProposal(for: suggestion),
                           let proposal = proposals.first,
@@ -303,7 +308,9 @@ struct UsageContent: View {
         }
     }
 
-    private func suggestionLine(_ result: SuggestionResult) -> String? {
+    /// "Suggested: account · model · effort" plus one situation line underneath. The
+    /// headline names the concrete pick; the secondary line says why it wins right now.
+    private func suggestionText(_ result: SuggestionResult) -> (headline: String, secondary: String)? {
         let accountID: String
         let modelKey: String
         let effort: String?
@@ -335,12 +342,13 @@ struct UsageContent: View {
                                    UsageText.name(of: window),
                                    UsageText.percentLeft(window.usedPercent) ?? 0)
         }
-        let line = L10n.t(.suggestionLine, situationText, currentLabel(usage), modelName,
-                          effortName(effort))
-        guard let recentEffort = model.suggestionLogEffort(for: usage) else {
-            return line
+        var parts = [currentLabel(usage), modelName]
+        if effort != nil { parts.append(effortName(effort)) }
+        var secondary = situationText
+        if let recentEffort = model.suggestionLogEffort(for: usage) {
+            secondary += L10n.t(.suggestionRecentEffort, effortName(recentEffort))
         }
-        return line + L10n.t(.suggestionRecentEffort, effortName(recentEffort))
+        return (L10n.t(.suggestionHeadline, parts.joined(separator: " · ")), secondary)
     }
 
     private func effortName(_ effort: String?) -> String {

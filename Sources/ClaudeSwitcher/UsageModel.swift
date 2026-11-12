@@ -93,6 +93,19 @@ final class UsageModel: ObservableObject {
 
     var pins: Set<String> { Set(settings.usagePins) }
 
+    /// Usage rows the user could still act on. Expired Claude Desktop snapshots and
+    /// signed-out Codex accounts stay visible in the list but never feed a suggestion —
+    /// a suggestion the user can't act on is noise. Applied at every entry point so the
+    /// line, the badge and the recorded candidate can't disagree.
+    func suggestionUsages(now: Date = Date()) -> [AccountUsage] {
+        let signedOut = Set((AppModel.codex.status?.accounts ?? [])
+            .filter { $0.state == .signedOut }.map(\.id))
+        return usages.filter {
+            SuggestionEligibility.usable($0, claudeAccounts: settings.status?.accounts ?? [],
+                                         codexSignedOutIDs: signedOut, now: now)
+        }
+    }
+
     func suggestionResult(now: Date = Date()) -> SuggestionResult {
         guard let catalog = Self.suggestionCatalog else { return .none(.noCatalogMatch) }
         return SuggestionEngine.suggest(
@@ -100,7 +113,7 @@ final class UsageModel: ObservableObject {
             task: settings.suggestionTask,
             catalog: catalog,
             harnessMap: .standard,
-            usages: usages,
+            usages: suggestionUsages(now: now),
             pace: pace,
             now: now,
             warnThreshold: Double(settings.usageWarnPercent))
@@ -113,7 +126,7 @@ final class UsageModel: ObservableObject {
             return true
         case .none where SuggestionGuideFallback.shouldShowLegacyProposal(
             for: result):
-            return !UsageGuidance.proposals(usages, now: now,
+            return !UsageGuidance.proposals(suggestionUsages(now: now), now: now,
                                             warnAt: Double(settings.usageWarnPercent)).isEmpty
         case .none:
             return false

@@ -107,6 +107,19 @@ struct MenuBarUsageTests {
                      readAt: Date(), toolVersion: nil)
     }
 
+    private func usage(_ id: String, provider: UsageProvider = .devin,
+                       windows: [UsageWindow]) -> AccountUsage {
+        AccountUsage(id: id, provider: provider, accountRef: "ref",
+                     label: id, plan: nil, windows: windows, state: .ok,
+                     readAt: Date(), toolVersion: nil)
+    }
+
+    private func win(_ usedPercent: Double, scope: String? = nil,
+                     minutes: Int = 10080) -> UsageWindow {
+        UsageWindow(scope: scope, durationMinutes: minutes, usedPercent: usedPercent,
+                    resetsAt: Date().addingTimeInterval(3600))
+    }
+
     private func keyedWindows(for usage: AccountUsage) -> [(key: String, window: UsageWindow)] {
         usage.windows.map { (key: UsagePriority.key(usage, $0), window: $0) }
     }
@@ -177,6 +190,76 @@ struct MenuBarUsageTests {
 
         #expect(selected?.scope == nil)
         #expect(selected?.usedPercent == 25)
+    }
+
+    @Test("a live window beats an exhausted one")
+    func liveBeatsExhausted() {
+        let devin = usage("devin:current", windows: [win(100)])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(40, minutes: 300)])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin), keyedWindows(for: claude)], pins: Set())
+        #expect(selected?.usedPercent == 40)
+        #expect(selected?.durationMinutes == 300)
+    }
+
+    @Test("all exhausted still shows used up")
+    func allExhausted() {
+        let devin = usage("devin:current", windows: [win(100), win(99.6, minutes: 300)])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin)], pins: Set())
+        #expect(selected?.usedPercent == 100)
+    }
+
+    @Test("a displayed 0% counts as exhausted — 99.6% loses to 40%")
+    func roundedZeroIsExhausted() {
+        let devin = usage("devin:current", windows: [win(99.6)])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(40, minutes: 300)])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin), keyedWindows(for: claude)], pins: Set())
+        #expect(selected?.usedPercent == 40)
+    }
+
+    @Test("a live pin beats an exhausted pin")
+    func livePinBeatsExhaustedPin() {
+        let devin = usage("devin:current", windows: [win(100)])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(50, minutes: 300)])
+        let pinDevin = UsagePriority.key(devin, devin.windows[0])
+        let pinClaude = UsagePriority.key(claude, claude.windows[0])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin), keyedWindows(for: claude)],
+            pins: [pinDevin, pinClaude])
+        #expect(selected?.usedPercent == 50)
+    }
+
+    @Test("when every pin is used up the exhausted pin still wins")
+    func exhaustedPinShowsWhenAllPinsExhausted() {
+        let devin = usage("devin:current", windows: [win(100)])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(50, minutes: 300)])
+        let pinDevin = UsagePriority.key(devin, devin.windows[0])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin), keyedWindows(for: claude)],
+            pins: [pinDevin])
+        #expect(selected?.usedPercent == 100)
+    }
+
+    @Test("an exhausted common window demotes the whole account")
+    func blockedAccountDemotesAllWindows() {
+        // Devin's weekly pool is gone — its Daily 20% must not claim headroom it lacks.
+        let devin = usage("devin:current", windows: [win(100), win(20, minutes: 1440)])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(40, minutes: 300)])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: devin), keyedWindows(for: claude)], pins: Set())
+        #expect(selected?.usedPercent == 40)
+    }
+
+    @Test("an exhausted scoped window does not block the account")
+    func scopedExhaustedDoesNotBlock() {
+        let cursor = usage("cursor:current", provider: .cursor,
+                           windows: [win(50), win(100, scope: "Auto")])
+        let claude = usage("claude:cli", provider: .claude, windows: [win(40, minutes: 300)])
+        let selected = MenuBarTitle.selectWindow(
+            accounts: [keyedWindows(for: cursor), keyedWindows(for: claude)], pins: Set())
+        #expect(selected?.usedPercent == 50)
     }
 }
 
