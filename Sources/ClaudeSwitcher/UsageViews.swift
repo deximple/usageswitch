@@ -197,11 +197,11 @@ struct UsageContent: View {
                 // fixed, so it stays on the row but never warns globally.
                 if case .unavailable(.connectionRequired) = usage.state { continue }
                 if case .unavailable(.notEligible) = usage.state { continue }
-                if let reason = UsageText.reason(usage.state, provider: usage.provider) {
+                if let reason = UsageText.reason(for: usage) {
                     items.append(("\(usage.id)/state", "\(label) — \(reason)", true))
                 }
             case .notReporting:
-                if let reason = UsageText.reason(usage.state, provider: usage.provider) {
+                if let reason = UsageText.reason(for: usage) {
                     items.append(("\(usage.id)/state", "\(label) — \(reason)", false))
                 }
             case .ok:
@@ -463,13 +463,16 @@ struct UsageContent: View {
         if let usage = claudeUsage {
             VStack(alignment: .leading, spacing: Theme.gapTight) {
                 Text(L10n.t(.usageClaudeSource)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
-                if usage.state == .ok {
+                if usage.state == .ok || !usage.windows.isEmpty {
                     ForEach(usage.windows.filter { $0.scope == nil }, id: \.self) { window in
                         UsageBarRow(usage: usage, window: window, settings: settings, now: now,
-                                    compact: compact, fresh: fresh(usage, now: now),
+                                    compact: compact,
                                     pace: model.pace[UsagePriority.key(usage, window)])
                     }
-                } else if let reason = UsageText.reason(usage.state, provider: usage.provider) {
+                    if let reason = UsageText.reason(for: usage) {
+                        Text(reason).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+                    }
+                } else if let reason = UsageText.reason(for: usage) {
                     Text(reason).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
                 }
             }
@@ -571,7 +574,7 @@ struct UsageContent: View {
             let shown = compact ? UsagePresentations.compactWindows(usage, now: now) : usage.windows
             ForEach(shown, id: \.self) { window in
                 UsageBarRow(usage: usage, window: window, settings: settings, now: now,
-                            compact: compact, fresh: fresh(usage, now: now),
+                            compact: compact,
                             pace: model.pace[UsagePriority.key(usage, window)])
             }
             if let balance = model.apiUsageBalanceHint(for: usage, shownWindows: usage.windows, now: now) {
@@ -586,14 +589,17 @@ struct UsageContent: View {
                 .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.usageMoreLimits, usage.windows.count - shown.count))"))
             }
             if usage.accountRef.hasPrefix("app:"), usage.provider == .claude {
-                EmptyView()
+                if let reason = UsageText.reason(for: usage) {
+                    Text(reason).font(.system(size: 11))
+                        .foregroundStyle(isFailure(usage.state) ? Theme.danger : Theme.inkMuted)
+                }
             } else if UsageCollection.canConnect(usage, enabledProviders: settings.enabledUsageProviders) {
                 Button(L10n.t(.uiConnectUsage)) {
                     SettingsMenu.enableUsageConnection(usage.provider, model: settings, usage: model)
                 }
                 .font(.system(size: 11)).foregroundStyle(Theme.active)
                 .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsage))"))
-            } else if let reason = UsageText.reason(usage.state, provider: usage.provider) {
+            } else if let reason = UsageText.reason(for: usage) {
                 Text(reason).font(.system(size: 11))
                     .foregroundStyle(usage.state == .ok || usage.state == .notReporting
                         ? Theme.inkMuted
@@ -621,7 +627,7 @@ struct UsageContent: View {
                 .accessibilityLabel(L10n.t(.usageLockSaved))
         case .requiresSignIn: Image(systemName: "lock.fill").font(.system(size: 9))
                 .foregroundStyle(Theme.inkMuted)
-                .help(L10n.t(.usageLockRequired))
+                .help(L10n.t(.usageLockRequiredHelp, L10n.t(.uiRelogin)))
                 .accessibilityLabel(L10n.t(.usageLockRequired))
         default: EmptyView() // unknown login makes no claim
         }
@@ -656,19 +662,17 @@ struct UsageBarRow: View {
     @ObservedObject var settings: SwitcherModel
     let now: Date
     var compact = false
-    /// Whether the account's own read is fresh; an old or future timestamp greys the row
-    /// just like an elapsed reset does.
-    var fresh = true
     /// Drain speed for this window, when two readings line up.
     var pace: UsagePace.Reading?
 
     /// Remaining 0…100, nil for a reading that isn't a real non-negative number.
     private var left: Int? { UsageText.percentLeft(window.usedPercent) }
-    /// Kept windows from a failed re-read render stale, like ones whose reset passed —
-    /// and so does a percent that can't be a real share.
-    private var stale: Bool {
-        !fresh || window.isStale(now: now) || usage.state != .ok || left == nil
+    /// How this window renders: current, greyed last-known, or reset-since-read (no number).
+    private var display: UsagePresentations.UsageWindowDisplay {
+        UsagePresentations.windowDisplay(usage, window, now: now)
     }
+    /// Anything that isn't a live current reading renders greyed.
+    private var stale: Bool { display != .current }
     private var color: Color {
         UsageColors.forWindow(window, stale: stale, warnAt: Double(settings.usageWarnPercent))
     }
@@ -677,8 +681,11 @@ struct UsageBarRow: View {
         return UsagePace.runsOutEarly(pace, window: window)
     }
 
-    /// The compact row shows no remaining share for a stale reading — a dash, never a gauge number.
-    private var shownLeft: Int? { compact && stale ? nil : left }
+    /// The compact row shows no remaining share for a stale reading — a dash, never a gauge
+    /// number; a reset-passed window drops its number in every mode.
+    private var shownLeft: Int? {
+        display == .resetSinceRead || (compact && stale) ? nil : left
+    }
     /// Estimated run-out in the full localized form, for help and accessibility.
     private var runOutText: String? {
         earlyRunOut.map {
@@ -691,6 +698,9 @@ struct UsageBarRow: View {
     /// estimated run-out lives on the marker icon; the main window keeps the full readable
     /// one. A stale row never shows a countdown — its age is the label (compact: a dash).
     private var trailingText: String {
+        if display == .resetSinceRead {
+            return compact ? "—" : L10n.t(.usageResetSinceRead)
+        }
         if stale { return compact ? "—" : UsageText.updatedAgo(readAt: usage.readAt, now: now) }
         if compact {
             return window.resetsAt.map { UsageText.compactCountdown(to: $0, from: now) } ?? "—"
@@ -725,13 +735,22 @@ struct UsageBarRow: View {
     private var accessibilitySummary: String {
         let value = shownLeft.map { L10n.t(.usageLeft, $0) } ?? "—"
         var parts: [String?] = [UsageText.name(of: window), value]
-        if stale {
-            parts += [L10n.t(.usageStaleA11y), UsageText.updatedAgo(readAt: usage.readAt, now: now)]
-        } else {
+        switch display {
+        case .resetSinceRead:
+            parts += [L10n.t(.usageResetSinceRead),
+                      UsageText.updatedAgo(readAt: usage.readAt, now: now)]
+        case .lastKnown where usage.state != .ok:
+            parts += [L10n.t(.usageLastKnownA11y),
+                      UsageText.updatedAgo(readAt: usage.readAt, now: now),
+                      UsageText.reason(for: usage)]
+        case .current:
             let reset = window.resetsAt.map { UsageText.countdown(to: $0, from: now) }
             parts += [statusIcon?.label,
                       reset.flatMap { $0 == "—" ? nil : L10n.t(.usageResetsIn, $0) },
                       runOutText,]
+            return parts.compactMap { $0 }.joined(separator: ", ")
+        default:
+            parts += [L10n.t(.usageStaleA11y), UsageText.updatedAgo(readAt: usage.readAt, now: now)]
         }
         return parts.compactMap { $0 }.joined(separator: ", ")
     }

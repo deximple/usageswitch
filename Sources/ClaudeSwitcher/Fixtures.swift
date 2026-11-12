@@ -233,6 +233,34 @@ enum Fixtures {
         case "usage-expired":
             return demo([account(.gemini, "current", "Gemini", .unavailable(.signInExpired),
                                  readAgo: 40 * 60)], segment: .all)
+        case "usage-last-known":
+            let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"
+            settings.seedDemoClaudeBindings([
+                ClaudeProfileBinding(accountId: personalID,
+                                     accountUuid: "a1a1a1a1-0000-4000-8000-000000000001",
+                                     orgUuid: "a1a1a1a1-0000-4000-8000-0000000000f1",
+                                     profilePath: "~/.claude-personal"),
+            ])
+            return demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(300, 30, resetsIn: 2 * 3600),
+                    window(10080, 55, resetsIn: 4 * 86400),
+                ]),
+                // Saved account whose CLI profile signed out: last read kept — the weekly
+                // still has time on it, the session window already reset.
+                account(.claude, "app:\(personalID)", "Personal", .unavailable(.noSignIn),
+                        readAgo: 2 * 3600, windows: [
+                    window(10080, 76, resetsIn: 3 * 86400),
+                    window(300, 40, resetsIn: -3600),
+                ]),
+                // Codex retention, same idea: signed out mid-refresh keeps the last read.
+                account(.codex, "standard", "Personal", .unavailable(.noSignIn),
+                        auth: .subscription, identityKey: "fixture-p",
+                        readAgo: 3600, windows: [
+                    window(300, 45, resetsIn: 3600),
+                    window(10080, 70, resetsIn: 5 * 86400),
+                ]),
+            ], segment: .all)
         case "usage-claude-only":
             return demo([
                 account(.claude, "cli", "CLI sign-in", .ok, windows: [

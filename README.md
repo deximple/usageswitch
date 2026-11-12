@@ -139,7 +139,7 @@ Each account is a small block: who it is, then one line per limit.
 | **More limits (2)** | The compact menu shows up to three limits per account. The rest are in **Details**. |
 | **Details** | Opens a window with every limit, reset times, where the reading came from and the tool version. |
 
-**Bar colors:** grey has room; orange has passed your warning level (80 % used by default); red is used up; a faded bar is an old reading waiting for a refresh.
+**Bar colors:** grey has room; orange has passed your warning level (80 % used by default); red is used up; a faded bar is an old reading waiting for a refresh — or, for a saved Claude account or Codex sign-in that can't be read right now, that account's last successful reading with the time it was seen. A window whose reset already passed shows no number.
 
 **Footer:** *updated 1m ago · Next update in 4m*. UsageSwitch refreshes every 5 minutes, right after a limit resets, and when you click ↻.
 
@@ -157,6 +157,7 @@ A row without numbers always says why. Here is what each message means and what 
 |---|---|---|
 | **Usage connection required** | This optional tool is turned off. | Click **Connect usage**, or use **⚙︎ › Usage Connections**. |
 | **No sign-in found — sign in to *X* first** | The tool is installed but not signed in on this Mac. | Sign in with that tool once. |
+| **This account's CLI profile isn't signed in — see Details** | A saved Claude account's linked CLI profile is signed out, so its last reading stays greyed. | In **Details**, copy the command shown, run it in Terminal, and sign in with the same account. |
 | **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` or `opencode auth login`. |
 | **Sign-in not accepted — run *`command`* once in Terminal** | The provider rejected the stored sign-in — it was revoked, replaced by another app's sign-in, or belongs to an account this tool won't serve. | Run the command shown and sign in with the account you want to see. |
 | **Not linked to CLI quota** | A saved Claude Desktop account has no linked Claude Code profile. | [Link a profile](#3-give-saved-claude-accounts-their-own-numbers-optional) in **Details**. |
