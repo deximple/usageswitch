@@ -18,6 +18,10 @@ final class UsageModel: ObservableObject {
     @Published private(set) var pace: [String: UsagePace.Reading] = [:]
     @Published private(set) var suggestionLogHints: [String: SuggestionLogSummary.Hint] = [:]
     @Published private(set) var apiUsageEstimates: [APIVendor: APIUsageEstimate] = [:]
+    /// Actual spend from registered admin billing keys; a vendor absent here falls back
+    /// to the local-log estimate. `.keyRejected`/`.notEligible` etc. are published too —
+    /// the UI explains them rather than silently dropping back to the estimate.
+    @Published private(set) var apiActualSpends: [APIVendor: APICostReadState] = [:]
     /// Guide / All Usage, not persisted.
     @Published var segment: Segment
     /// Whether the collapsed Guide auxiliary is open; memory only, starts closed.
@@ -37,6 +41,11 @@ final class UsageModel: ObservableObject {
     private var suggestionLogReader: SuggestionLogReader?
     private var suggestionLogTask: Task<Void, Never>?
     private var logReadGate = SuggestionLogReadGate()
+    private var adminCostTask: Task<Void, Never>?
+    /// Billing reads are throttled: daily buckets don't move within minutes, and the
+    /// admin APIs are quota'd. 30 minutes per vendor.
+    private var lastAdminCostRead: [APIVendor: Date] = [:]
+    private static let adminCostInterval: TimeInterval = 1800
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
     private(set) var claudeBindings: [ClaudeProfileBinding]
@@ -662,6 +671,7 @@ final class UsageModel: ObservableObject {
             store.record(fresh, now: now, generation: generation)
         }
         scheduleSuggestionLogRead(now: now, env: env)
+        scheduleAdminCostRead(now: now)
         writeUsageSnapshotFile(now: now)
         deliverAlerts(now: now)
         isRefreshing = false
@@ -670,6 +680,40 @@ final class UsageModel: ObservableObject {
         if pendingRefresh {
             pendingRefresh = false
             refresh()
+        }
+    }
+
+    /// Reads actual spend for vendors with a registered admin billing key, at most once
+    /// per `adminCostInterval` per vendor. `revealUnattended` is admin-only by design —
+    /// no biometric prompt fires inside a background refresh. A vendor without an admin
+    /// key keeps whatever result it had (including a failure), not a fabricated figure.
+    private func scheduleAdminCostRead(now: Date) {
+        adminCostTask?.cancel()
+        let stale = [APIVendor.anthropic, .openai].filter {
+            (lastAdminCostRead[$0] ?? .distantPast)
+                .addingTimeInterval(Self.adminCostInterval) <= now
+        }
+        guard !stale.isEmpty else { return }
+        adminCostTask = Task.detached(priority: .utility) {
+            let vault = KeychainAPIKeyVault()
+            guard let entries = try? await vault.list() else { return }
+            let admins = entries.filter {
+                $0.isAdmin && ($0.vendor == .anthropic || $0.vendor == .openai)
+            }
+            guard !admins.isEmpty else { return }
+            let reader = APICostReader(http: SystemUsageHTTPTransport())
+            var results: [APIVendor: APICostReadState] = [:]
+            for vendor in stale {
+                guard !Task.isCancelled else { return }
+                guard let entry = admins.first(where: { $0.vendor == vendor }),
+                      let key = try? await vault.revealUnattended(id: entry.id) else { continue }
+                results[vendor] = reader.read(vendor: vendor, key: key)
+            }
+            guard !results.isEmpty else { return }
+            await MainActor.run {
+                for vendor in results.keys { self.lastAdminCostRead[vendor] = now }
+                self.apiActualSpends.merge(results) { _, new in new }
+            }
         }
     }
 
