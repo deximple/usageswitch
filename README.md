@@ -158,7 +158,7 @@ A row without numbers always says why. Here is what each message means and what 
 | **Usage connection required** | This optional tool is turned off. | Click **Connect usage**, or use **⚙︎ › Usage Connections**. |
 | **No sign-in found — sign in to *X* first** | The tool is installed but not signed in on this Mac. | Sign in with that tool once. |
 | **This account's CLI profile isn't signed in — see Details** | A saved Claude account's linked CLI profile is signed out, so its last reading stays greyed. | In **Details**, copy the command shown, run it in Terminal, and sign in with the same account. |
-| **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` or `opencode auth login`. |
+| **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login` or `gh auth login`. |
 | **Sign-in not accepted — run *`command`* once in Terminal** | The provider rejected the stored sign-in — it was revoked, replaced by another app's sign-in, or belongs to an account this tool won't serve. | Run the command shown and sign in with the account you want to see. |
 | **Not linked to CLI quota** | A saved Claude Desktop account has no linked Claude Code profile. | [Link a profile](#3-give-saved-claude-accounts-their-own-numbers-optional) in **Details**. |
 | **Not reporting usage** | The tool answered without a usage number: an API-key profile (no subscription limit), a signed-out Codex home, or an account with no subscription limit. | Nothing to fix. Use the [API tab](#api-tab) for spend estimates (Codex API-key accounts only). |
@@ -185,6 +185,7 @@ A row without numbers always says why. Here is what each message means and what 
 | **Antigravity** | Model-group limits (for example *Gemini Models*) | `agy`'s `/usage` screen, plus a read-only quota API on every refresh (also the fallback when the screen can't be read) | ⚙︎ › Usage Connections |
 | **Devin** | The quota the Devin CLI reports | The Devin CLI's user status | ⚙︎ › Usage Connections |
 | **OpenCode Go** | Rolling 5-hour, weekly and monthly limits | OpenCode's Go usage endpoint | ⚙︎ › Usage Connections |
+| **GitHub Copilot** | Chat, completions and premium-interactions quotas, plus the reset date and plan | GitHub's Copilot quota endpoint, using the `gh` CLI's sign-in | ⚙︎ › Usage Connections |
 
 A tool is listed when its command-line program is on your `PATH` (or in `~/.local/bin`, the usual npm, bun and Volta folders, `/opt/homebrew/bin` or `/usr/local/bin`) or its app is in `/Applications` or `~/Applications`. Finding a tool never runs it.
 
@@ -203,6 +204,7 @@ Every optional connection reads the tool's own local sign-in, keeps it in memory
 | Antigravity | `agy` itself, run in a hidden terminal from your home folder (at most every 9 minutes); agy's Keychain item (or `~/.gemini/jetski-standalone-oauth-token` when the Keychain has none), read on every refresh | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` starts with its normal settings, including any MCP servers you set up. UsageSwitch never answers agy's prompts. macOS may ask once to allow Keychain access. |
 | Devin | The Devin CLI's credentials and version | `server.codeium.com` | Needs a supported Devin CLI version. |
 | OpenCode Go | The `opencode-go` entry in OpenCode's `auth.json` | `opencode.ai` | Go plan only, not other OpenCode usage. |
+| GitHub Copilot | `gh auth token` on the detected `gh` binary — the GitHub CLI's own sign-in | `api.github.com` | One read-only request to the unofficial `/copilot_internal/user` endpoint per refresh; the token stays in memory and `gh` never makes the API call. The endpoint is undocumented and may change without notice. |
 
 These are private endpoints, not stable public APIs. A provider update can break a reading until UsageSwitch is updated — the row then says so instead of showing wrong numbers.
 The full list of files read and written is in [PRIVACY.md](PRIVACY.md).
@@ -296,7 +298,7 @@ Everything lives in the **⚙︎** menu.
 flowchart LR
     A["Find tools<br/>installed on this Mac"] --> B{"Optional<br/>tool?"}
     B -- "Claude Code, Codex" --> D
-    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode" --> C["You turn it on<br/>(⚙︎ › Usage Connections)"]
+    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode, Copilot" --> C["You turn it on<br/>(⚙︎ › Usage Connections)"]
     C --> D["Read-only usage request<br/>through the tool's own sign-in"]
     D --> E["Keep only limits and plan<br/>mask emails, drop raw replies"]
     E --> F["Menu · Details<br/>--cli usage"]
@@ -412,7 +414,7 @@ No. UsageSwitch sends no model requests. It asks each tool for its usage through
 <details>
 <summary><b>A tool I use isn't in the list.</b></summary>
 
-UsageSwitch lists a tool only when it finds the tool's command-line program on your `PATH` (or in the usual npm, bun and Volta folders), or its app in `/Applications` or `~/Applications`. Cursor, Grok, Gemini, Antigravity, Devin and OpenCode then also need **⚙︎ › Usage Connections**.
+UsageSwitch lists a tool only when it finds the tool's command-line program on your `PATH` (or in the usual npm, bun and Volta folders), or its app in `/Applications` or `~/Applications`. Cursor, Grok, Gemini, Antigravity, Devin, OpenCode and GitHub Copilot then also need **⚙︎ › Usage Connections**.
 
 </details>
 
@@ -490,7 +492,7 @@ Issues and pull requests are welcome. Changes are listed in [CHANGELOG.md](CHANG
 
 ## Acknowledgments
 
-An independent open-source project — not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin) or SST (OpenCode). Product names belong to their owners.
+An independent open-source project — not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin), GitHub or SST (OpenCode). Product names belong to their owners.
 Related community projects: [CodexBar](https://github.com/steipete/CodexBar), [claudepot-app](https://github.com/xiaolai/claudepot-app), [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts), [Swivel](https://github.com/jspanji/Swivel), [claude-graft](https://github.com/aaditya-v-more/claude-graft).
 
 ## License
