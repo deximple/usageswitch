@@ -86,7 +86,13 @@ struct SettingsMenu: View {
                 NSWorkspace.shared.activateFileViewerSelecting([model.dataFolder])
             }
             .disabled(model.isDemo)
-            Button(L10n.t(.uiCheckForUpdates)) { NSWorkspace.shared.open(ProductInfo.releasesURL) }
+            Button(L10n.t(.uiCheckForUpdates)) {
+                if AppModel.updater.enabled {
+                    AppModel.updater.checkForUpdates()
+                } else {
+                    NSWorkspace.shared.open(ProductInfo.releasesURL)
+                }
+            }
             Button(L10n.t(.uiAbout, ProductInfo.name)) {
                 NSApp.activate()
                 NSApp.orderFrontStandardAboutPanel(options: [.credits: Self.aboutCredits])

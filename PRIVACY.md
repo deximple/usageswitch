@@ -4,7 +4,7 @@ UsageSwitch stores its account-switching data on your Mac. Optional usage connec
 
 ## Network
 
-UsageSwitch has no analytics, telemetry, crash reporting, or background update checks.
+UsageSwitch has no analytics, telemetry, or crash reporting. There are no background update checks unless you turn them on: the bundled Sparkle updater stays inert until the app ships a feed and you allow automatic checks in Sparkle's own prompt, and the feed is a static file under this repository's GitHub releases.
 
 **Settings > Usage Connections** offers only detected or previously connected providers. Cursor, Grok, Gemini, Antigravity, Devin, OpenCode and GitHub Copilot usage connections are off by default. Enabling one explains the local sign-in read and read-only HTTPS requests. Disabling it cancels further collection and removes its displayed quota; an already-authorized request may finish, but its obsolete result is discarded.
 
@@ -29,7 +29,7 @@ Credentials stay in memory and are not logged or saved by the collectors. Reques
 These provider-specific usage endpoints are experimental integration paths, not a promise of stable public APIs. Antigravity's screen and quota flow are based on owner-verified agy 1.5.x behavior; private API details may change. 2.1.x releases were checked against the maintainer's own accounts before shipping; a different plan, CLI version or region can still behave differently. Missing usage credentials do not prove that a CLI is logged out: it may use an authentication mode whose quota is not supported.
 
 Your browser goes online in two cases, and only when you ask:
-- **⚙︎ › Check for Updates…** opens the GitHub releases page in your browser.
+- **⚙︎ › Check for Updates…** asks the bundled updater to check the feed at `github.com/deximple/usageswitch` when it is enabled — downloading an update still needs your confirmation — and otherwise opens the GitHub releases page in your browser.
 - **Codex sign-in** runs Codex's own `codex login`, which opens OpenAI's sign-in page in your browser. The Codex app and CLI talk to OpenAI as they normally do.
 
 Claude Desktop and Codex keep talking to Anthropic and OpenAI as they normally do. UsageSwitch only decides which saved sign-in they start with.
