@@ -81,7 +81,7 @@ public enum UsagePresentations {
                     login: login,
                     badgeActive: running || (fresh && currentCLI && account?.state != .signedOut),
                     owner: account.map { .codex($0.id) }))
-            case .cursor, .grok, .gemini, .antigravity, .devin, .opencode:
+            case .cursor, .grok, .gemini, .antigravity, .devin, .opencode, .copilot:
                 let hasCLI = installations.contains { $0.provider == usage.provider && $0.cli != nil }
                 let hasAntigravityApp = usage.provider == .antigravity
                     && installations.contains { $0.provider == usage.provider && $0.app != nil }

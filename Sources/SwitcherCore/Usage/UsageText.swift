@@ -126,6 +126,7 @@ public enum UsageText {
         case .antigravity: return "agy"
         case .devin: return "devin auth login"
         case .opencode: return "opencode auth login"
+        case .copilot: return "gh auth login"
         }
     }
 
@@ -139,6 +140,7 @@ public enum UsageText {
         case .antigravity: return "Antigravity"
         case .devin: return "Devin"
         case .opencode: return "OpenCode"
+        case .copilot: return "GitHub Copilot"
         }
     }
 
@@ -153,6 +155,7 @@ public enum UsageText {
         case .antigravity: return "sparkles"
         case .devin: return "diamond"
         case .opencode: return "circle"
+        case .copilot: return "paperplane"
         }
     }
 

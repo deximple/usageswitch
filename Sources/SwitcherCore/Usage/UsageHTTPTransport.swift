@@ -55,7 +55,7 @@ public struct SystemUsageHTTPTransport: UsageHTTPTransport {
     static let allowedHosts: Set<String> = [
         "api2.cursor.sh", "cli-chat-proxy.grok.com",
         "cloudcode-pa.googleapis.com", "oauth2.googleapis.com",
-        "server.codeium.com", "opencode.ai",
+        "server.codeium.com", "opencode.ai", "api.github.com",
     ]
     static let maxBody = 1_048_576
     private let timeoutCap: TimeInterval

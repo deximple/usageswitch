@@ -482,6 +482,10 @@ final class UsageModel: ObservableObject {
                         return OpenCodeUsageCollector(enabled: true, http: transport,
                             credentials: credentials, home: env.home,
                             environment: environment).collect()
+                    case .copilot:
+                        return CopilotUsageCollector(enabled: true, http: transport,
+                            runner: runner, cli: installation.cli,
+                            home: env.home, environment: environment).collect()
                     }
                 },
                 didCollect: { provider, rows in

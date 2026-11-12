@@ -171,6 +171,7 @@ extension Strings {
         .uiConnectGrokBody: "UsageSwitch reads the Grok CLI sign-in file (~/.grok/auth.json) and sends one read-only usage request per refresh to cli-chat-proxy.grok.com. No tasks, token refreshes, or sign-ins are performed.",
         .uiConnectDevinBody: "UsageSwitch reads the Devin CLI credentials (credentials.toml under ~/.local/share/devin or ~/.config/devin), runs `devin --version` to learn the CLI version, and sends one read-only usage request per refresh to server.codeium.com, including that version. No tasks, token refreshes, or sign-ins are performed.",
         .uiConnectOpenCodeBody: "UsageSwitch reads the opencode-go entry in OpenCode's auth.json (~/.local/share/opencode/auth.json) and sends one read-only usage request per refresh to opencode.ai. No tasks, token refreshes, or sign-ins are performed.",
+        .uiConnectCopilotBody: "UsageSwitch runs `gh auth token` to borrow the GitHub CLI's sign-in, then sends one read-only request per refresh to api.github.com's unofficial /copilot_internal/user endpoint for your Copilot quota. The token is never stored or sent anywhere else; the endpoint is undocumented and may change without notice. No tasks, token refreshes, or sign-ins are performed.",
         .uiConnectUsageEnable: "Enable",
         .uiClaudeProfileConnect: "Connect usage via CLI profile…",
         .uiClaudeProfileDisconnect: "Disconnect",

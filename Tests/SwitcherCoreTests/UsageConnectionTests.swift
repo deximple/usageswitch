@@ -90,6 +90,7 @@ struct UsageConnectionDisclosureTests {
             .antigravity: ["cloudcode-pa.googleapis.com", "oauth2.googleapis.com"],
             .devin: ["server.codeium.com", "devin --version", "credentials.toml"],
             .opencode: ["opencode.ai", "~/.local/share/opencode/auth.json", "opencode-go"],
+            .copilot: ["api.github.com", "gh auth token", "copilot_internal"],
         ]
         for provider in UsageProvider.allCases {
             guard provider.requiresConsent else {
@@ -106,6 +107,6 @@ struct UsageConnectionDisclosureTests {
                 }
             }
         }
-        #expect(Set(UsageProvider.allCases.compactMap(\.consentBodyKey)).count == 6)
+        #expect(Set(UsageProvider.allCases.compactMap(\.consentBodyKey)).count == 7)
     }
 }

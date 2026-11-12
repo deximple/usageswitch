@@ -171,6 +171,7 @@ extension Strings {
         .uiConnectGrokBody: "UsageSwitch가 Grok CLI 로그인 파일(~/.grok/auth.json)을 읽고, 갱신할 때마다 cli-chat-proxy.grok.com에 읽기 전용 사용량 요청을 한 번 보냅니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
         .uiConnectDevinBody: "UsageSwitch가 Devin CLI 자격증명(~/.local/share/devin 또는 ~/.config/devin의 credentials.toml)을 읽고, CLI 버전을 알기 위해 `devin --version`을 실행한 뒤, 갱신할 때마다 그 버전을 포함해 server.codeium.com에 읽기 전용 사용량 요청을 한 번 보냅니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
         .uiConnectOpenCodeBody: "UsageSwitch가 OpenCode auth.json(~/.local/share/opencode/auth.json)의 opencode-go 항목을 읽고, 갱신할 때마다 opencode.ai에 읽기 전용 사용량 요청을 한 번 보냅니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
+        .uiConnectCopilotBody: "UsageSwitch가 `gh auth token`을 실행해 GitHub CLI 로그인을 빌린 뒤, 갱신할 때마다 api.github.com의 비공식 /copilot_internal/user 엔드포인트에 Copilot 할당량을 묻는 읽기 전용 요청을 한 번 보냅니다. 토큰은 저장되거나 다른 곳으로 전송되지 않으며, 이 엔드포인트는 문서화되지 않아 예고 없이 바뀔 수 있습니다. 작업 실행, 토큰 갱신, 로그인은 수행하지 않습니다.",
         .uiConnectUsageEnable: "활성화",
         .uiClaudeProfileConnect: "CLI 프로필로 사용량 연결…",
         .uiClaudeProfileDisconnect: "연결 해제",
