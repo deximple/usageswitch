@@ -349,4 +349,30 @@ struct InventoryPathOrderTests {
         let rows = discover(path: "\(home.path)/selected/bin", bundledCodexCLI: bundled)
         #expect(rows.first { $0.provider == .codex }?.cli == bundled)
     }
+
+    @Test("gh detects the Copilot provider, CLI only")
+    func copilotGh() throws {
+        defer { cleanup() }
+        let gh = try touch("selected/bin/gh")
+        let roots = UsageSearchRoots(
+            executableDirectories: [home.appendingPathComponent("selected/bin")],
+            applicationDirectories: [])
+        let rows = UsageInstallations.discover(home: home, path: "",
+                                               bundledCodexCLI: nil, searchRoots: roots)
+        let row = try #require(rows.first { $0.provider == .copilot })
+        #expect(row.cli == gh)
+        #expect(row.app == nil)
+    }
+
+    @Test("no gh means no Copilot row at all")
+    func copilotAbsent() throws {
+        defer { cleanup() }
+        _ = try touch("selected/bin/claude")
+        let roots = UsageSearchRoots(
+            executableDirectories: [home.appendingPathComponent("selected/bin")],
+            applicationDirectories: [])
+        let rows = UsageInstallations.discover(home: home, path: "",
+                                               bundledCodexCLI: nil, searchRoots: roots)
+        #expect(!rows.contains { $0.provider == .copilot })
+    }
 }

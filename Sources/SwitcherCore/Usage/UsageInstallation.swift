@@ -102,6 +102,7 @@ public enum UsageInstallations {
             ?? (searchRoots == nil && isExecutableFile(home.appendingPathComponent(".opencode/bin/opencode"))
                 ? home.appendingPathComponent(".opencode/bin/opencode") : nil)
         let antigravityApp = app("Antigravity")
+        let ghCLI = firstExecutable(named: "gh")
 
         let rows = [
             UsageInstallation(provider: .claude,
@@ -113,6 +114,7 @@ public enum UsageInstallations {
             UsageInstallation(provider: .antigravity, cli: antigravityCLI, app: antigravityApp),
             UsageInstallation(provider: .devin, cli: devinCLI, app: nil),
             UsageInstallation(provider: .opencode, cli: opencodeCLI, app: nil),
+            UsageInstallation(provider: .copilot, cli: ghCLI, app: nil),
         ]
         return rows.filter { $0.cli != nil || $0.app != nil }
     }
