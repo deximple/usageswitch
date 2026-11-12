@@ -58,7 +58,18 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var apiBudgetOpenAI: APIBudget?
     @Published private(set) var apiBudgetGoogle: APIBudget?
     @Published private(set) var apiBudgetXAI: APIBudget?
+    /// A pending "sign in to another account" run: remembers which saved account we
+    /// signed out of so the UI can offer "back to it", and latches when a brand-new
+    /// sign-in lands so its save offer survives later status polls.
+    @Published private(set) var enrollment: EnrollmentContext?
     let isDemo: Bool
+
+    struct EnrollmentContext: Equatable {
+        /// `AccountStatus.id` of the account live when enroll started — nil if none was.
+        let previousAccountID: String?
+        /// Set once a sign-in that isn't the previous saved account shows up live.
+        var detectedNewLogin = false
+    }
 
     struct PendingAction: Identifiable, Equatable {
         enum Kind: Equatable { case switchTo(String, force: Bool), capture, enroll, remove(String) }
@@ -78,7 +89,8 @@ final class SwitcherModel: ObservableObject {
     private var statusReadsInFlight = 0
 
     init(switcher: Switcher = Switcher(), demo: SwitcherStatus? = nil, demoPhase: Phase = .idle,
-         demoSteps: [SwitchStep] = [], demoBanner: Banner? = nil) {
+         demoSteps: [SwitchStep] = [], demoBanner: Banner? = nil,
+         demoEnrollment: EnrollmentContext? = nil) {
         self.switcher = switcher
         isDemo = demo != nil
         let settings = SwitcherSettings.load(env: switcher.env)
@@ -108,6 +120,7 @@ final class SwitcherModel: ObservableObject {
         phase = demoPhase
         steps = demoSteps
         banner = demoBanner
+        enrollment = demoEnrollment
         if demo == nil { expireSuggestionUrgentModeIfNeeded(now: Date()) }
         guard demo == nil else { return }
         recovering = true
@@ -197,11 +210,26 @@ final class SwitcherModel: ObservableObject {
         setStatus(s)
         // Picks up an approval given in System Settings after the checkbox was ticked.
         if !isDemo { launchAtLogin = SMAppService.mainApp.status == .enabled }
-        guard phase == .awaitingLogin, s.claude.activeAccountUuid != nil else { return }
-        if let active = s.activeAccount {
-            if active.snapshot != .ready { banner = Banner(kind: .info, text: L10n.t(.uiLoginDetected, Self.displayLabel(active))) }
-        } else {
-            // Signed in to an account that isn't saved yet.
+        guard phase == .awaitingLogin, let enrollment else { return }
+        switch EnrollmentGuide.state(status: s, previousAccountID: enrollment.previousAccountID) {
+        case .waiting:
+            break
+        case .sameAccountReturned:
+            // Back where we started — the enrollment is done, nothing new to save.
+            if let active = s.activeAccount {
+                banner = Banner(kind: .info, text: L10n.t(.uiEnrollSameAccount, Self.displayLabel(active)))
+            }
+            self.enrollment = nil
+            phase = .idle
+        case .knownAccount(let id):
+            // Only a stale saved snapshot still needs a re-save offer.
+            if let active = s.accounts.first(where: { $0.id == id }), active.snapshot != .ready {
+                banner = Banner(kind: .info, text: L10n.t(.uiLoginDetected, Self.displayLabel(active)))
+            }
+            self.enrollment = nil
+            phase = .idle
+        case .newUnsaved:
+            self.enrollment?.detectedNewLogin = true
             banner = Banner(kind: .info, text: L10n.t(.uiLoginDetectedNew))
         }
     }
@@ -256,6 +284,25 @@ final class SwitcherModel: ObservableObject {
 
     func requestCapture() { request(.capture, title: L10n.t(.uiActionCapture)) }
     func requestEnroll() { request(.enroll, title: L10n.t(.uiActionEnroll)) }
+
+    /// Saves the sign-in that just landed during a pending enrollment.
+    func saveEnrollmentLogin() { requestCapture() }
+
+    /// Switches back to the account that was live when the enrollment started —
+    /// goes through the normal confirm path like any switch.
+    func restoreEnrollment() {
+        guard let id = enrollment?.previousAccountID,
+              let account = status?.accounts.first(where: { $0.id == id }) else { return }
+        requestSwitch(account)
+    }
+
+    /// Drops the pending enrollment without touching the live sign-in — whatever is
+    /// on screen (login screen or an unsaved login) simply stays as it is.
+    func dismissEnrollment() {
+        guard enrollment != nil, !isBusy else { return }
+        enrollment = nil
+        if phase == .awaitingLogin { phase = .idle }
+    }
 
     /// Deleting a saved sign-in can't be undone, so it is always confirmed.
     func requestRemove(_ account: AccountStatus) {
@@ -318,6 +365,9 @@ final class SwitcherModel: ObservableObject {
         phase = .working(action: title)
         steps = []
         banner = nil
+        // Remember who was live so an enroll can offer "back" and tell a same-account
+        // return apart from a genuinely new sign-in.
+        let previousAccountID = status?.activeAccount?.id
         let switcher = self.switcher
         // Names for result banners, resolved now (masked like the rows) instead of echoing raw emails.
         let names = Dictionary((status?.accounts ?? []).map { ($0.id, Self.displayLabel($0)) }, uniquingKeysWith: { a, _ in a })
@@ -367,7 +417,15 @@ final class SwitcherModel: ObservableObject {
                 switch outcome {
                 case .success(let text):
                     self.banner = Banner(kind: .success, text: text)
-                    self.phase = kind == .enroll ? .awaitingLogin : .idle
+                    if case .enroll = kind {
+                        self.phase = .awaitingLogin
+                        self.enrollment = EnrollmentContext(previousAccountID: previousAccountID)
+                    } else {
+                        self.phase = .idle
+                        // A completed capture or any switch resolves a pending enroll —
+                        // the save it was waiting for happened, or the flow was left.
+                        self.enrollment = nil
+                    }
                     // Nothing showed this account's email: ask for a name right away instead of showing an id prefix.
                     if let askName, let row = status.accounts.first(where: { $0.id == askName }), Self.needsName(row),
                        self.pendingConfirmation == nil {

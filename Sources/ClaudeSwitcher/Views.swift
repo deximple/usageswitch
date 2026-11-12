@@ -251,6 +251,58 @@ struct StepsView: View {
     }
 }
 
+/// Live card while a "sign in to another account" run is pending: the waiting hint,
+/// or the freshly detected sign-in with save / back / dismiss actions.
+struct EnrollmentCard: View {
+    @ObservedObject var model: SwitcherModel
+    let status: SwitcherStatus
+    let enrollment: SwitcherModel.EnrollmentContext
+
+    private var previous: AccountStatus? {
+        status.accounts.first { $0.id == enrollment.previousAccountID }
+    }
+
+    private var detectedName: String {
+        if let email = status.claude.activeEmail { return Privacy.maskEmail(email) }
+        return String((status.claude.activeAccountUuid ?? "????????").prefix(8))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.gapRow) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: enrollment.detectedNewLogin ? "checkmark.seal.fill" : "person.badge.clock")
+                    .foregroundStyle(enrollment.detectedNewLogin ? Theme.ready : Theme.alias)
+                Text(enrollment.detectedNewLogin
+                     ? L10n.t(.uiEnrollDetected, detectedName)
+                     : L10n.t(.uiEnrollAwaiting))
+                    .font(Theme.caption).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                if enrollment.detectedNewLogin {
+                    Button(L10n.t(.uiCapture)) { model.saveEnrollmentLogin() }
+                        .buttonStyle(ActionButtonStyle(tint: Theme.ready, prominent: true))
+                        .disabled(model.isBusy)
+                }
+                if let previous {
+                    Button(L10n.t(.uiEnrollBackTo, SwitcherModel.displayLabel(previous))) {
+                        model.restoreEnrollment()
+                    }
+                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                    .disabled(model.isBusy)
+                }
+                Spacer()
+                Button(L10n.t(.uiCancel)) { model.dismissEnrollment() }
+                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                    .disabled(model.isBusy)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.alias.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.alias.opacity(0.35)))
+    }
+}
+
 struct BannerView: View {
     let banner: SwitcherModel.Banner
 
@@ -410,6 +462,9 @@ struct MainView: View {
                             }
                             if !model.steps.isEmpty { StepsView(steps: model.steps, working: model.isBusy) }
                         }
+                    }
+                    if model.phase == .awaitingLogin, let enrollment = model.enrollment {
+                        EnrollmentCard(model: model, status: status, enrollment: enrollment)
                     }
                     VStack(alignment: .leading, spacing: Theme.gapRow) {
                         Text(L10n.t(.uiAccounts))
