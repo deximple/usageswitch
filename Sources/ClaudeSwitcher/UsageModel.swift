@@ -190,6 +190,27 @@ final class UsageModel: ObservableObject {
                                    model: modelKey, effort: effort)
     }
 
+    /// The Claude Desktop account a suggestion resolves to, when the user could switch to
+    /// it. Only Claude app accounts have a switch engine — other providers and the CLI row
+    /// can't be actioned, and the active account is never offered. Eligibility is already
+    /// enforced upstream (the engine only sees usable accounts), so a returned target is
+    /// guaranteed switchable.
+    func suggestionSwitchTarget(now: Date = Date()) -> AccountStatus? {
+        let accountID: String
+        switch suggestionResult(now: now) {
+        case .suggest(let id, _, _, _, _, _), .neutral(let id, _, _, _, _, _):
+            accountID = id
+        case .none:
+            return nil
+        }
+        guard let usage = usages.first(where: { $0.id == accountID }),
+              usage.provider == .claude, usage.accountRef.hasPrefix("app:") else { return nil }
+        let id = String(usage.accountRef.dropFirst("app:".count))
+        guard let account = settings.status?.accounts.first(where: { $0.id == id }),
+              !account.isActive else { return nil }
+        return account
+    }
+
     func recordSuggestionShownIfNeeded(now: Date = Date()) {
         guard !isDemo, guideExpanded, let candidate = suggestionCandidate(now: now) else { return }
         _ = stateStore().recordSuggestionShown(candidate, now: now)

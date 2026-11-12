@@ -250,6 +250,12 @@ struct UsageContent: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(text.secondary).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let target = model.suggestionSwitchTarget(now: now) {
+                        Button(L10n.t(.uiActionSwitchTo, SwitcherModel.displayLabel(target))) {
+                            settings.requestConfirmedSwitch(target)
+                        }
+                        .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                    }
                 } else if SuggestionGuideFallback.shouldShowLegacyProposal(for: suggestion),
                           let proposal = proposals.first,
                           let usage = model.usages.first(where: { $0.id == proposal.usageID }) {
