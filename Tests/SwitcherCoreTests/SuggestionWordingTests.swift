@@ -8,7 +8,7 @@ struct SuggestionWordingTests {
         .suggestionModeBalanced, .suggestionModeFocus, .suggestionModeUrgent,
         .suggestionTaskLabel, .suggestionTaskSimple, .suggestionTaskReasoning,
         .suggestionUrgentTitle, .suggestionUrgentMessage, .suggestionUrgentConfirm,
-        .suggestionSituationHeadroom, .suggestionSituationRemaining, .suggestionLine,
+        .suggestionSituationHeadroom, .suggestionSituationRemaining, .suggestionHeadline,
         .suggestionEffortNone, .suggestionEffortMinimal, .suggestionEffortLow,
         .suggestionEffortMedium, .suggestionEffortHigh, .suggestionEffortXHigh,
         .suggestionEffortMax, .suggestionEffortUnspecified,

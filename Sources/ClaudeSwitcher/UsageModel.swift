@@ -93,6 +93,19 @@ final class UsageModel: ObservableObject {
 
     var pins: Set<String> { Set(settings.usagePins) }
 
+    /// Usage rows the user could still act on. Expired Claude Desktop snapshots and
+    /// signed-out Codex accounts stay visible in the list but never feed a suggestion —
+    /// a suggestion the user can't act on is noise. Applied at every entry point so the
+    /// line, the badge and the recorded candidate can't disagree.
+    func suggestionUsages(now: Date = Date()) -> [AccountUsage] {
+        let signedOut = Set((AppModel.codex.status?.accounts ?? [])
+            .filter { $0.state == .signedOut }.map(\.id))
+        return usages.filter {
+            SuggestionEligibility.usable($0, claudeAccounts: settings.status?.accounts ?? [],
+                                         codexSignedOutIDs: signedOut, now: now)
+        }
+    }
+
     func suggestionResult(now: Date = Date()) -> SuggestionResult {
         guard let catalog = Self.suggestionCatalog else { return .none(.noCatalogMatch) }
         return SuggestionEngine.suggest(
@@ -100,7 +113,7 @@ final class UsageModel: ObservableObject {
             task: settings.suggestionTask,
             catalog: catalog,
             harnessMap: .standard,
-            usages: usages,
+            usages: suggestionUsages(now: now),
             pace: pace,
             now: now,
             warnThreshold: Double(settings.usageWarnPercent))
@@ -113,7 +126,7 @@ final class UsageModel: ObservableObject {
             return true
         case .none where SuggestionGuideFallback.shouldShowLegacyProposal(
             for: result):
-            return !UsageGuidance.proposals(usages, now: now,
+            return !UsageGuidance.proposals(suggestionUsages(now: now), now: now,
                                             warnAt: Double(settings.usageWarnPercent)).isEmpty
         case .none:
             return false
@@ -175,6 +188,27 @@ final class UsageModel: ObservableObject {
               let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
         return SuggestionCandidate(provider: usage.provider, accountKey: accountKey,
                                    model: modelKey, effort: effort)
+    }
+
+    /// The Claude Desktop account a suggestion resolves to, when the user could switch to
+    /// it. Only Claude app accounts have a switch engine — other providers and the CLI row
+    /// can't be actioned, and the active account is never offered. Eligibility is already
+    /// enforced upstream (the engine only sees usable accounts), so a returned target is
+    /// guaranteed switchable.
+    func suggestionSwitchTarget(now: Date = Date()) -> AccountStatus? {
+        let accountID: String
+        switch suggestionResult(now: now) {
+        case .suggest(let id, _, _, _, _, _), .neutral(let id, _, _, _, _, _):
+            accountID = id
+        case .none:
+            return nil
+        }
+        guard let usage = usages.first(where: { $0.id == accountID }),
+              usage.provider == .claude, usage.accountRef.hasPrefix("app:") else { return nil }
+        let id = String(usage.accountRef.dropFirst("app:".count))
+        guard let account = settings.status?.accounts.first(where: { $0.id == id }),
+              !account.isActive else { return nil }
+        return account
     }
 
     func recordSuggestionShownIfNeeded(now: Date = Date()) {

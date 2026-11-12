@@ -212,6 +212,13 @@ final class SwitcherModel: ObservableObject {
         request(.switchTo(account.id, force: false), title: L10n.t(.uiActionSwitchTo, Self.displayLabel(account)))
     }
 
+    /// Switches started from a suggestion always show the dialog — a hint in the guide is
+    /// not a shortcut past confirmation, even when no Code session is running.
+    func requestConfirmedSwitch(_ account: AccountStatus) {
+        request(.switchTo(account.id, force: false),
+                title: L10n.t(.uiActionSwitchTo, Self.displayLabel(account)), alwaysConfirm: true)
+    }
+
     /// Entry point for the `<scheme>://switch` URL; waits for the first status load if needed.
     func requestSwitch(id: String, force: Bool) {
         guard !isDemo else { return }
