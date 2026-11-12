@@ -299,6 +299,32 @@ struct UsageSnapshotPresentationTests {
         #expect(ploaded.accounts[0].authentication == "apiKey")
     }
 
+    @Test("a retained claude:app row serializes its kept windows, last read and opaque id")
+    func retainedClaudeApp() throws {
+        let kept = UsageWindow(scope: nil, durationMinutes: 10_080, usedPercent: 76,
+                               resetsAt: fixedNow.addingTimeInterval(3 * 86_400))
+        let lastRead = fixedNow.addingTimeInterval(-7_200)
+        let u = AccountUsage(id: "claude:app:uuid-a__org-a", provider: .claude,
+                             accountRef: "app:uuid-a__org-a", label: "person@example.com",
+                             plan: nil, windows: [kept],
+                             state: .unavailable(.noSignIn), readAt: lastRead,
+                             toolVersion: nil)
+        let status = claudeStatus([claudeApp("uuid-a__org-a", "person@example.com",
+                                             email: "person@example.com")])
+        let rows = UsagePresentations.accounts(readings: [u], installations: [],
+                                               claude: status, codex: nil, now: fixedNow)
+        let snap = UsageSnapshot(presentations: rows, generatedAt: fixedNow)
+        let acct = try #require(snap.accounts.first)
+        #expect(acct.id == "claude:app#1")
+        #expect(acct.state == "unavailable" && acct.problem == "noSignIn")
+        #expect(acct.readAt == lastRead)
+        #expect(acct.windows.count == 1 && acct.windows[0].usedPercent == 76)
+        #expect(!acct.label.contains("person@example.com"))
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        let json = String(decoding: try enc.encode(snap), as: UTF8.self)
+        #expect(!json.contains("uuid-a") && !json.contains("org-a"))
+    }
+
     @Test("phantom standard Codex excluded; registered-but-uncollected included")
     func phantom() {
         let codex = CodexStatus(installed: true, version: "1",

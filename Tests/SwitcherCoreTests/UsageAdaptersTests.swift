@@ -28,7 +28,7 @@ private func expectRejectedWithoutRetainedWindows(_ reading: AccountUsage?) {
         windows: [UsageWindow(scope: nil, durationMinutes: 300, usedPercent: 50, resetsAt: nil)],
         state: .ok, readAt: Date(timeIntervalSince1970: 0), toolVersion: reading.toolVersion,
         authentication: reading.authentication, identityKey: reading.identityKey)
-    #expect(reading.retainingWindows(from: previous).windows.isEmpty)
+    #expect(reading.retainingWindows(from: previous, now: Date()).windows.isEmpty)
 }
 
 /// Counts every request the session would send (audit B-13).

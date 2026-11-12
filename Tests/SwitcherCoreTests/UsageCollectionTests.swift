@@ -164,7 +164,7 @@ struct UsageCollectionTests {
                                      toolVersion: nil, authentication: .subscription,
                                      identityKey: "login-1")
         let merged = UsageCollection.replacing(provider: .grok, readings: [sameLogin],
-                                               in: [old, row(.gemini, "gemini:current")])
+                                               in: [old, row(.gemini, "gemini:current")], now: Date())
         #expect(merged.map { $0.provider } == [.grok, .gemini])
         #expect(merged[0].windows == [win])
         // changed login must NOT inherit the old account's windows
@@ -172,7 +172,7 @@ struct UsageCollectionTests {
                                     plan: nil, windows: [], state: .failed(.network), readAt: Date(),
                                     toolVersion: nil, authentication: .subscription,
                                     identityKey: "login-2")
-        let merged2 = UsageCollection.replacing(provider: .grok, readings: [newLogin], in: [old])
+        let merged2 = UsageCollection.replacing(provider: .grok, readings: [newLogin], in: [old], now: Date())
         #expect(merged2[0].windows.isEmpty)
     }
 }

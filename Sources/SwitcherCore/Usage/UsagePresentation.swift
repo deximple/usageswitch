@@ -149,6 +149,27 @@ public enum UsagePresentations {
         }
     }
 
+    /// How one window reads on the bars. `current` renders normally; `lastKnown` is the greyed
+    /// "value as last read"; `resetSinceRead` drops the number because its reset has passed.
+    public enum UsageWindowDisplay: Equatable, Sendable {
+        case current
+        case lastKnown
+        case resetSinceRead
+    }
+
+    /// Display decision for one window: a reset-passed window never shows a number, a failed or
+    /// over-age/invalid reading shows last-known, everything else is current.
+    public static func windowDisplay(_ usage: AccountUsage, _ window: UsageWindow,
+                                     now: Date) -> UsageWindowDisplay {
+        if window.isStale(now: now) { return .resetSinceRead }
+        let age = now.timeIntervalSince(usage.readAt)
+        if usage.state != .ok || !(0...verifiedAgeLimit).contains(age)
+            || !(window.usedPercent.isFinite && (0...100).contains(window.usedPercent)) {
+            return .lastKnown
+        }
+        return .current
+    }
+
     /// Compact menu rows: at most 3. Common (scope-nil) windows keep original
     /// order; the most-constrained trustworthy fresh window leads, then the
     /// remaining common windows, then other trustworthy windows by used percent

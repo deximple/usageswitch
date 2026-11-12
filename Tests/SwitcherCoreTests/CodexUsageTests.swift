@@ -122,7 +122,7 @@ struct CodexUsageTests {
         #expect(previous.state == .ok && previous.identityKey != nil && !previous.windows.isEmpty)
         let mismatched = try #require(read(home, answering: #""acct-b""#))
         #expect(mismatched.identityKey == nil)
-        let shown = mismatched.retainingWindows(from: previous)
+        let shown = mismatched.retainingWindows(from: previous, now: Date())
         #expect(shown.state == .failed(.accountMismatch))
         #expect(shown.windows.isEmpty)
         #expect(shown.plan == nil)

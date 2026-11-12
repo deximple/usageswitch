@@ -136,7 +136,7 @@ struct RetainingWindowsTests {
     func retained() {
         let prev = usage(.ok, windows: wins, plan: "team", readAgo: 300)
         let fresh = usage(.failed(.timeout), plan: nil)
-        let out = fresh.retainingWindows(from: prev)
+        let out = fresh.retainingWindows(from: prev, now: Date())
         #expect(out.windows.count == 1 && out.readAt == prev.readAt && out.state == .failed(.timeout))
         #expect(out.plan == "team")
     }
@@ -144,19 +144,19 @@ struct RetainingWindowsTests {
     @Test("changed identity or auth mode never keeps previous windows")
     func changed() {
         let prev = usage(.ok, windows: wins)
-        #expect(usage(.failed(.timeout), key: "k2").retainingWindows(from: prev).windows.isEmpty)
-        #expect(usage(.failed(.timeout), auth: .apiKey).retainingWindows(from: prev).windows.isEmpty)
-        #expect(usage(.failed(.timeout)).retainingWindows(from: prev).plan == nil)
+        #expect(usage(.failed(.timeout), key: "k2").retainingWindows(from: prev, now: Date()).windows.isEmpty)
+        #expect(usage(.failed(.timeout), auth: .apiKey).retainingWindows(from: prev, now: Date()).windows.isEmpty)
+        #expect(usage(.failed(.timeout)).retainingWindows(from: prev, now: Date()).plan == nil)
     }
 
     @Test("unknown identity, notReporting, ok and missing previous never retain")
     func noRetain() {
         let prev = usage(.ok, windows: wins)
-        #expect(usage(.unavailable(.cliMissing), auth: .unknown, key: nil).retainingWindows(from: prev).windows.isEmpty)
-        #expect(usage(.notReporting, key: "k1").retainingWindows(from: prev).windows.isEmpty)
-        #expect(usage(.ok, windows: []).retainingWindows(from: prev).windows.isEmpty)
-        #expect(usage(.failed(.timeout)).retainingWindows(from: nil).windows.isEmpty)
-        #expect(usage(.failed(.timeout)).retainingWindows(from: usage(.ok, key: "k1")).windows.isEmpty)
+        #expect(usage(.unavailable(.cliMissing), auth: .unknown, key: nil).retainingWindows(from: prev, now: Date()).windows.isEmpty)
+        #expect(usage(.notReporting, key: "k1").retainingWindows(from: prev, now: Date()).windows.isEmpty)
+        #expect(usage(.ok, windows: []).retainingWindows(from: prev, now: Date()).windows.isEmpty)
+        #expect(usage(.failed(.timeout)).retainingWindows(from: nil, now: Date()).windows.isEmpty)
+        #expect(usage(.failed(.timeout)).retainingWindows(from: usage(.ok, key: "k1"), now: Date()).windows.isEmpty)
     }
 }
 

@@ -548,7 +548,7 @@ final class UsageModel: ObservableObject {
             && !enabled.contains(provider) {
             let rows = installations.contains(where: { $0.provider == provider })
                 ? [UsageCollection.connectionRequired(provider)] : []
-            usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
+            usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages, now: Date())
             clearPace(provider)
         }
         // Persist the swapped rows at once — a crash between the swap and the next refresh
@@ -603,7 +603,7 @@ final class UsageModel: ObservableObject {
     private func publishPartial(_ provider: UsageProvider, _ rows: [AccountUsage], generation: Int) {
         guard generation == self.generation else { return }
         // retained-window policy + stable provider order live in the core seam
-        usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages)
+        usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages, now: Date())
         // Old pace/ETA may belong to a different login behind the same label —
         // drop it now; the final finish recomputes pace once.
         clearPace(provider)
@@ -648,7 +648,7 @@ final class UsageModel: ObservableObject {
         // Same-login subscription readings keep their previous windows on failure; every other
         // case stands on its own — AccountUsage.retainingWindows decides, fail-closed.
         usages = UsageInstallations.visible(fresh, installations: installed).map { reading in
-            reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }))
+            reading.retainingWindows(from: usages.first(where: { $0.id == reading.id }), now: now)
         }
         updatePace()
         let store = suggestionStore ?? SuggestionStateStore(env: env, fs: SafeFS(env: env))
