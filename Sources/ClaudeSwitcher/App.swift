@@ -77,6 +77,9 @@ enum AppModel {
     static let tabs = TabSelection(forced: LaunchOptions.tab
         ?? LaunchOptions.fixture.map {
             $0.hasPrefix("usage") ? AppTab.usage : $0.hasPrefix("codex") ? AppTab.codex : AppTab.claude })
+
+    /// Sparkle owner. Inert until the bundle ships a feed URL + public key.
+    static let updater = UpdaterModel(isDemo: LaunchOptions.fixture != nil)
 }
 
 /// Strings come from a global table rather than view inputs, so the tree is rebuilt when the language changes.
@@ -177,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .resolve(override: LaunchOptions.appearance, choice: AppModel.shared.appearanceChoice)
             .appKitAppearance
         if let path = LaunchOptions.snapshot { takeSnapshot(to: path); return }
+        AppModel.updater.startIfAllowed()
         if !LaunchOptions.background && !Self.launchedAsLoginItem { showMainWindow() }
     }
 
