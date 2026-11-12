@@ -83,23 +83,38 @@ public struct APIKeyEntry: Codable, Equatable, Identifiable, Sendable {
     /// The stored label failed to decode; nickname carries the account ID tail and the entry
     /// stays deletable (audit B-06).
     public let isUnreadable: Bool
+    /// Admin billing keys live in the same vault but answer only read-only cost reads —
+    /// they are never bound to a request-running profile, and the refresh path reads them
+    /// through `revealUnattended` instead of the interactive `reveal`.
+    public let isAdmin: Bool
 
     public init(id: String, vendor: APIVendor, nickname: String, last4: String, createdAt: Date,
-                isUnreadable: Bool = false) {
+                isUnreadable: Bool = false, isAdmin: Bool = false) {
         self.id = id
         self.vendor = vendor
         self.nickname = nickname
         self.last4 = last4
         self.createdAt = createdAt
         self.isUnreadable = isUnreadable
+        self.isAdmin = isAdmin
     }
 }
 
 public protocol APIKeyVault: Sendable {
-    func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry
+    func register(vendor: APIVendor, nickname: String, key: String, admin: Bool) async throws -> APIKeyEntry
     func list() async throws -> [APIKeyEntry]
     func reveal(id: String) async throws -> String
+    /// Unattended read for the periodic cost query — admin entries only. Regular keys must
+    /// keep their interactive `reveal` path so a background refresh can never silently
+    /// surface a request-capable secret.
+    func revealUnattended(id: String) async throws -> String
     func delete(id: String) async throws
+}
+
+public extension APIKeyVault {
+    func register(vendor: APIVendor, nickname: String, key: String) async throws -> APIKeyEntry {
+        try await register(vendor: vendor, nickname: nickname, key: key, admin: false)
+    }
 }
 
 public struct APIKeyAccountKey: Hashable, Sendable {

@@ -55,8 +55,8 @@ struct UsageTransportTests {
         config.protocolClasses = [CountingURLProtocol.self]
         CountingURLProtocol.count = 0
         let t = SystemUsageHTTPTransport(configuration: config)
-        // Exactly the seven sanctioned hosts.
-        #expect(SystemUsageHTTPTransport.allowedHosts.count == 7)
+        // Exactly the nine sanctioned hosts.
+        #expect(SystemUsageHTTPTransport.allowedHosts.count == 9)
         // Each rejected request must die in the guard — zero URL traffic.
         let rejections: [UsageHTTPRequest] = [
             UsageHTTPRequest(url: URL(string: "http://api2.cursor.sh/x")!, method: .get, timeout: 1),
@@ -88,6 +88,12 @@ struct UsageTransportTests {
     @Test("GitHub API host is allowlisted for Copilot")
     func copilotHost() {
         #expect(SystemUsageHTTPTransport.allowedHosts.contains("api.github.com"))
+    }
+
+    @Test("vendor billing hosts are allowlisted for admin cost reads")
+    func billingHosts() {
+        #expect(SystemUsageHTTPTransport.allowedHosts.contains("api.anthropic.com"))
+        #expect(SystemUsageHTTPTransport.allowedHosts.contains("api.openai.com"))
     }
 }
 
