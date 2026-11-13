@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — new providers, real spend, and self-updates
+
+**GitHub Copilot usage.** A new usage connection (off by default) reads your
+GitHub Copilot quota when the GitHub CLI (`gh`) is installed and signed in. The
+app borrows `gh`'s own sign-in for one read-only request to GitHub's Copilot
+quota endpoint — the token is never stored. Because that endpoint is private,
+a schema change shows "unavailable" instead of a guessed figure.
+
+**Real spend for Anthropic and OpenAI.** Register a billing admin key in the
+API tab and the vendor's own organization cost endpoint replaces local
+estimates with actual figures — this month's spend and the last 7 days, with
+the read's timestamp. One read-only billing query per vendor every 30 minutes;
+a regular API key is still never sent anywhere. Keys are marked **Billing
+admin** so they can't be mistaken for ordinary keys.
+
+**Self-updates via Sparkle.** UsageSwitch now bundles Sparkle and, once a feed
+is published, **⚙︎ › Check for Updates…** checks in place instead of opening
+the browser. Automatic background checks stay off until you allow them in
+Sparkle's one-time prompt; installing an update always asks first.
+
+**Finishing a new sign-in.** Adding a Claude or Codex account now guides you
+through the last step: return to the previous account if the new sign-in isn't
+what you wanted, save the new account, or dismiss — instead of leaving you on
+the other person's login.
 
 **A failed read no longer erases a saved account's numbers.** When a saved Claude
 account's linked CLI profile (or a Codex sign-in) can't be read — signed out, a

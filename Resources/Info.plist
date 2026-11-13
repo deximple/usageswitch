@@ -27,7 +27,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.2.2</string>
+	<string>2.3.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -40,7 +40,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>14</string>
+	<string>15</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
@@ -53,10 +53,7 @@
 	<string>© 2026 Jay Song</string>
 	<key>SUFeedURL</key>
 	<string>https://github.com/deximple/usageswitch/releases/download/appcast/appcast.xml</string>
-	<!-- Placeholder until the owner runs Sparkle's `generate_keys --account usageswitch`
-	     and pastes the printed public key here. An unreadable value keeps the bundled
-	     updater inert (UpdaterLaunchPolicy treats it as disabled). -->
 	<key>SUPublicEDKey</key>
-	<string>PENDING-OWNER-EDDSA-KEY</string>
+	<string>m7+6TK3rx5Wk3zepcEFLzv9g7C3OJQ3mBSy+LNloOLM=</string>
 </dict>
 </plist>
