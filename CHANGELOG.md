@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.2 — signed-out profiles and a tidier usage list
+
+**A signed-out profile says so.** When a saved Claude account's CLI profile is
+signed out, its row now says it needs a sign-in and **Details** offers the
+`claude auth login` command for that profile. Claude Code 2.1.323 reports a
+signed-out profile without its account fields, which UsageSwitch read as "this
+Claude version may need a UsageSwitch update".
+
+**Tools you turn off leave the list.** Turning a tool off in **⚙︎ › Usage
+Connections** now removes its row from the usage list instead of leaving a
+**Connect usage** placeholder; turn it on there to bring it back. A tool you
+haven't turned on yet still shows **Connect usage**, now with **Hide** beside it
+for a tool you don't use.
+
 ## 2.3.1 — clearer API-key messages
 
 **Registering a key says what went wrong.** **Store key** now stays disabled
