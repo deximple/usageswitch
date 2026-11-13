@@ -59,6 +59,19 @@ private func profileAuthJSON(_ profile: URL, loggedIn: Bool = true,
     return String(decoding: data, as: UTF8.self)
 }
 
+/// `claude auth status --json` without the identity keys — CLI 2.1.323 prints this shape for a
+/// signed-out profile, omitting email, orgId, orgName and subscriptionType instead of sending null.
+private func authJSONWithoutIdentity(_ profile: URL, loggedIn: Bool) -> String {
+    let values: [String: Any] = [
+        "loggedIn": loggedIn, "authMethod": loggedIn ? "claude.ai" : "none",
+        "apiProvider": "firstParty", "analyticsDisabled": false, "loginExpiresAt": NSNull(),
+        "projectsDirectory": profile.appendingPathComponent("projects").path,
+        "configDirectory": profile.path,
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+    return String(decoding: data, as: UTF8.self)
+}
+
 private func profileRunner(home: URL, profile: URL, statusJSONs: [String]? = nil,
                            onUsage: (@Sendable () -> Void)? = nil) -> FakeUsageRunner {
     let runner = FakeUsageRunner()
@@ -338,6 +351,36 @@ struct ClaudeProfileUsageTests {
             #expect(result.state == expected)
             #expect(runner.requests.count == 1)
         }
+    }
+
+    @Test("a signed-out status that omits the identity keys (CLI 2.1.323) reads as signed out")
+    func signedOutStatusWithoutIdentityKeys() throws {
+        let home = try profileTestDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent("profile", isDirectory: true)
+        try makeClaudeProfile(profile)
+        let binary = try makeProfileBinary(home: home)
+        let runner = profileRunner(home: home, profile: profile,
+                                   statusJSONs: [authJSONWithoutIdentity(profile, loggedIn: false)])
+        let result = try #require(
+            profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect())
+        #expect(result.state == .unavailable(.noSignIn))
+        #expect(runner.requests.count == 1)
+    }
+
+    @Test("a signed-in status that omits the identity keys still fails closed as a schema change")
+    func signedInStatusWithoutIdentityKeys() throws {
+        let home = try profileTestDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent("profile", isDirectory: true)
+        try makeClaudeProfile(profile)
+        let binary = try makeProfileBinary(home: home)
+        let runner = profileRunner(home: home, profile: profile,
+                                   statusJSONs: [authJSONWithoutIdentity(profile, loggedIn: true)])
+        let result = try #require(
+            profileCollector(home: home, profile: profile, binary: binary, runner: runner).collect())
+        #expect(result.state == .failed(.schemaChanged))
+        #expect(runner.requests.count == 1)
     }
 
     @Test("identity rewrites, changed auth, or replaced directory suppress quota")

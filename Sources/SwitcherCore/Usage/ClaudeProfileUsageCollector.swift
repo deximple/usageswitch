@@ -222,12 +222,14 @@ public struct ClaudeProfileUsageCollector: Sendable {
             if value is NSNull { return nil }
             return value as? String
         }
+        guard let loggedIn = value["loggedIn"] as? Bool else { return nil }
         func hasValidOptionalString(_ key: String) -> Bool {
-            guard let value = value[key] else { return false }
+            // Signed out, CLI 2.1.323 omits the identity keys instead of sending null; a
+            // signed-in status must still carry every key.
+            guard let value = value[key] else { return !loggedIn }
             return value is NSNull || value is String
         }
-        guard let loggedIn = value["loggedIn"] as? Bool,
-              ["authMethod", "apiProvider", "projectsDirectory", "configDirectory",
+        guard ["authMethod", "apiProvider", "projectsDirectory", "configDirectory",
                "email", "orgId", "orgName", "subscriptionType"].allSatisfy(hasValidOptionalString),
               let analyticsDisabled = value["analyticsDisabled"] as? Bool
         else { return nil }
