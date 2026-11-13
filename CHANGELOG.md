@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1 — clearer API-key messages
+
+**Registering a key says what went wrong.** **Store key** now stays disabled
+until both a nickname and a key are entered. Before, a blank nickname got past
+the button and failed with "Key could not be stored." even though nothing was
+wrong with the key or the Keychain. Failures are now told apart: an invalid
+nickname or key, a Keychain write that failed, or authentication that was
+cancelled or failed.
+
+**Billing key wording matches what works.** OpenAI's cost endpoint accepts any
+key with the usage-read scope, not only admin keys, so the API tab's hint and
+the "not eligible" message now say: an admin key or one with usage-read
+permission. The README says so too.
+
 ## 2.3.0 — new providers, real spend, and self-updates
 
 **GitHub Copilot usage.** A new usage connection (off by default) reads your
