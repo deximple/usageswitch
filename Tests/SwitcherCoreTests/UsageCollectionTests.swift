@@ -23,6 +23,12 @@ private actor Rec {
     func leave() { inFlight -= 1 }
 }
 
+/// Rows each provider reported through `didCollect`.
+private actor RowCounts {
+    var byProvider: [UsageProvider: Int] = [:]
+    func record(_ p: UsageProvider, _ count: Int) { byProvider[p] = count }
+}
+
 @Suite("Usage collection scheduling")
 struct UsageCollectionTests {
     private let all = Set(UsageProvider.allCases)
@@ -63,6 +69,36 @@ struct UsageCollectionTests {
         #expect(out[0].state == .unavailable(.connectionRequired))
         let cbs = await rec.callbacks
         #expect(cbs == [.grok]) // placeholder also reports through didCollect
+    }
+
+    @Test("a connection the user turned off leaves no row; one never turned on keeps its placeholder")
+    func turnedOffConnectionLeavesNoRow() async {
+        let rec = Rec()
+        let counts = RowCounts()
+        let out = await UsageCollection.collect(
+            installations: [inst(.grok), inst(.devin)], enabledProviders: [],
+            hiddenProviders: [.grok],
+            collector: { i in await rec.call(i.provider); return [] },
+            didCollect: { p, rows in await counts.record(p, rows.count) })
+        let callsEmpty = await rec.calls.isEmpty
+        #expect(callsEmpty)
+        #expect(out.map(\.provider) == [.devin])
+        #expect(out.first?.state == .unavailable(.connectionRequired))
+        // The turned-off provider still reports, with no rows, so a stale row leaves at once.
+        let reported = await counts.byProvider
+        #expect(reported == [.grok: 0, .devin: 1])
+    }
+
+    @Test("a connection turned back on is collected even if a stale turned-off mark remains")
+    func enabledWinsOverTurnedOff() async {
+        let rec = Rec()
+        let out = await UsageCollection.collect(
+            installations: [inst(.grok)], enabledProviders: [.grok], hiddenProviders: [.grok],
+            collector: { i in await rec.call(i.provider); return [row(i.provider, "grok:current")] },
+            didCollect: { _, _ in })
+        let calls = await rec.calls
+        #expect(calls == [.grok])
+        #expect(out.map(\.id) == ["grok:current"])
     }
 
     @Test("placeholder ids match each real collector's row ids, Cursor especially")

@@ -18,6 +18,21 @@ struct UsageConnectionTests {
         }
     }
 
+    @Test("only connections turned off and still off are hidden; unknown and consent-free values never hide")
+    func hiddenConnections() {
+        let settings = SwitcherSettings(cursorUsageEnabled: false, usageConnections: ["grok"],
+                                        turnedOffUsageConnections: ["grok", "devin", "cursor", "claude", "bogus"])
+        #expect(settings.hiddenUsageProviders == [.devin, .cursor])
+    }
+
+    @Test("settings saved before this option hide nothing")
+    func olderSettingsHideNothing() throws {
+        let legacy = try JSONDecoder().decode(SwitcherSettings.self,
+                                              from: Data(#"{"usageConnections":["grok"]}"#.utf8))
+        #expect(legacy.turnedOffUsageConnections == nil)
+        #expect(legacy.hiddenUsageProviders.isEmpty)
+    }
+
     @Test("granted provider is not eligible")
     func granted() {
         let enabled: Set<UsageProvider> = [.grok]

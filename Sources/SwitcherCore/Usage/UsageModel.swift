@@ -49,6 +49,14 @@ public extension SwitcherSettings {
         if cursorUsageEnabled == true { out.insert(.cursor) }
         return out
     }
+
+    /// Providers whose rows stay out of the usage list: turned off in ⚙︎ › Usage Connections
+    /// and not turned on since. Unknown or consent-free entries hide nothing.
+    var hiddenUsageProviders: Set<UsageProvider> {
+        Set((turnedOffUsageConnections ?? []).compactMap { UsageProvider(rawValue: $0) }
+            .filter(\.requiresConsent))
+            .subtracting(enabledUsageProviders)
+    }
 }
 
 /// How the account authenticates to the provider. Subscription and API-key accounts are billed

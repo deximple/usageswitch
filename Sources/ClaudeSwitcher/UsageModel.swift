@@ -403,6 +403,7 @@ final class UsageModel: ObservableObject {
         lastReadStartedAt = startedAt
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ProductInfo.fallbackVersion
         let enabled = settings.enabledUsageProviders
+        let hidden = settings.hiddenUsageProviders
         let bindings = settings.claudeUsageProfiles
         let geminiRefreshAllowed = settings.geminiTokenRefreshAllowed
         let antigravityTokenCache = self.antigravityTokenCache
@@ -434,6 +435,7 @@ final class UsageModel: ObservableObject {
             let fresh = await UsageCollection.collect(
                 installations: installed,
                 enabledProviders: enabled,
+                hiddenProviders: hidden,
                 collector: { installation in
                     if Task.isCancelled { return [] }
                     switch installation.provider {
@@ -534,12 +536,15 @@ final class UsageModel: ObservableObject {
     /// affected providers' visible rows (fresh grant -> real read next refresh;
     /// revoked installed tool -> neutral placeholder; revoked absent tool -> gone),
     /// then refresh with the new enabled set. Demo keeps fixture rows in memory.
-    func applyConsent(_ enabled: Set<UsageProvider>) {
+    /// `hidden`: connections the user turned off — their rows leave the list instead of
+    /// turning into a Connect usage placeholder.
+    func applyConsent(_ enabled: Set<UsageProvider>, hidden: Set<UsageProvider> = []) {
         if isDemo {
             // memory-only substitution from the original fixture rows, never a real read
             var out: [AccountUsage] = []
             for fixture in demoRows {
                 if fixture.provider.requiresConsent && !enabled.contains(fixture.provider) {
+                    if hidden.contains(fixture.provider) { continue }
                     out.append(UsageCollection.connectionRequired(fixture.provider))
                 } else {
                     out.append(fixture)
@@ -556,10 +561,11 @@ final class UsageModel: ObservableObject {
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
         if !enabled.contains(.gemini) { geminiTokenCache.clear() }
         // revoked providers drop their rows now — installed ones leave a neutral
-        // placeholder, absent ones disappear entirely
+        // placeholder, absent or turned-off ones disappear entirely
         for provider in UsageProvider.allCases where provider.requiresConsent
             && !enabled.contains(provider) {
             let rows = installations.contains(where: { $0.provider == provider })
+                && !hidden.contains(provider)
                 ? [UsageCollection.connectionRequired(provider)] : []
             usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages, now: Date())
             clearPace(provider)

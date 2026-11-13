@@ -99,7 +99,7 @@ Cursor, Grok, Gemini, Antigravity, Devin y OpenCode Go están **apagados por def
 - lea el diálogo — indica exactamente qué se lee y a dónde van las peticiones;
 - haga clic en **Activar**.
 
-Apagar una conexión deja de leerla y elimina sus números.
+Apagar una conexión en **⚙︎ › Conexiones de uso** deja de leerla y quita su fila de la lista; vuelva a encenderla allí para recuperarla.
 
 ### 3. Dé a las cuentas de Claude guardadas sus propios números (opcional)
 
@@ -154,7 +154,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 
 | Mensaje | Por qué | Qué hacer |
 |---|---|---|
-| **Conexión de uso necesaria** | Esta herramienta opcional está apagada. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. |
+| **Conexión de uso necesaria** | Esta herramienta opcional aún no se ha encendido. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. |
 | **No se encontró sesión: inicie sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
 | **El perfil de CLI de esta cuenta no tiene la sesión iniciada — consulta Detalles** | El perfil de CLI enlazado a una cuenta de Claude guardada está desconectado, por lo que su última lectura queda atenuada. | En **Detalles**, copie el comando, ejecútelo en Terminal e inicie sesión con la misma cuenta. |
 | **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
@@ -284,7 +284,7 @@ Todo está en el menú **⚙︎**.
 | Mostrar uso en la barra de menús | Muestra el límite más ajustado (o fijado) junto al icono, por ejemplo *Semanal 25% restante*. Activado por defecto. |
 | Alertas de uso · Avisar al porcentaje usado | Envía una notificación de macOS cuando un límite supera el 70%, 80% (por defecto) o 90% usado. |
 | Mostrar el indicador de Guía | El punto junto a **Guía** cuando hay una sugerencia lista. |
-| Conexiones de uso | Enciende o apaga cada herramienta opcional. Solo lista herramientas encontradas en este Mac. |
+| Conexiones de uso | Enciende o apaga cada herramienta opcional; una herramienta apagada sale de la lista de uso. Solo lista herramientas encontradas en este Mac. |
 | Borrar datos de aprendizaje | Elimina los archivos locales de aprendizaje de la Guía. |
 | Mostrar la carpeta de datos en el Finder | Abre `~/Library/Application Support/com.jaysong.usageswitch/`. |
 | Buscar actualizaciones… | Abre la página de versiones en su navegador. |
