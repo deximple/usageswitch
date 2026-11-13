@@ -55,10 +55,10 @@ Una app nativa de macOS para la barra de menús, pensada para quienes trabajan c
 | | |
 |---|---|
 | 📊 **Todos los límites de un vistazo** | Límites de sesión, diarios, semanales y mensuales de cada cuenta, mostrados como la parte que **queda** y el tiempo hasta el reinicio. |
-| 🧭 **Solo lo que de verdad usa** | La lista muestra las herramientas instaladas en este Mac y las cuentas que registró. Una herramienta que no tiene nunca aparece, y nada se lee de ella. Para Claude y Codex, los registros de uso locales detrás de la Guía y la pestaña API siempre se leen — eso no se puede desactivar. |
+| 🧭 **Solo lo que de verdad usa** | La lista muestra las herramientas instaladas en este Mac y las cuentas que registró. Una herramienta que no tiene nunca aparece, y nada se lee de ella; una que apague u oculte sale de la lista. Para Claude y Codex, los registros de uso locales detrás de la Guía y la pestaña API siempre se leen — eso no se puede desactivar. |
 | 💡 **Una sugerencia, nunca un piloto automático** | La **Guía** — impulsada por esas lecturas locales siempre activas — sugiere qué cuenta — y qué modelo y esfuerzo — encaja con lo que queda. Nunca cambia, abre ni inicia sesión por sí misma. |
 | 🔁 **Cambio con un clic** | Cambie el inicio de sesión de Claude Desktop entre cuentas guardadas (con verificación y reversión automática), y use cuentas de Codex en paralelo en ventanas independientes. |
-| 🔒 **Privada por diseño** | Sin analítica, telemetría ni actualizaciones en segundo plano. Los correos se muestran ocultos. Las seis herramientas opcionales están apagadas hasta que las encienda una a una. |
+| 🔒 **Privada por diseño** | Sin analítica ni telemetría. Las actualizaciones solo se buscan cuando usted lo pide, o a diario si lo permite. Los correos se muestran ocultos. Las siete herramientas opcionales están apagadas hasta que las encienda una a una. |
 
 ## Verlo en acción
 
@@ -82,7 +82,7 @@ Usted decide cada paso. Que un límite se agote nunca desencadena un cambio, una
 
 Las versiones están firmadas con un Developer ID y notarizadas por Apple, así que macOS solo muestra el aviso habitual de "descargado de Internet" la primera vez.
 Cada versión incluye `SHA256SUMS.txt` por si quiere verificar la descarga.
-Para actualizar, use **⚙︎ › Buscar actualizaciones…**. Abre la página de versiones; UsageSwitch nunca se actualiza por sí mismo en segundo plano.
+Para actualizar, use **⚙︎ › Buscar actualizaciones…**. En las versiones con el canal de actualizaciones activado busca ahí mismo — instalar siempre le pregunta antes — y el aviso único de Sparkle decide si además puede comprobar a diario en segundo plano. Si no, abre la página de versiones.
 
 ## Primeros pasos
 
@@ -93,7 +93,7 @@ Si una lista está vacía, esa herramienta aún no ha iniciado sesión — vea [
 
 ### 2. Active las herramientas que usa (opcional)
 
-Cursor, Grok, Gemini, Antigravity, Devin y OpenCode Go están **apagados por defecto**. Para cada uno que use:
+Cursor, Grok, Gemini, Antigravity, Devin, OpenCode Go y GitHub Copilot están **apagados por defecto**. Para cada uno que use:
 
 - haga clic en **Conectar uso** en su fila, o abra **⚙︎ › Conexiones de uso**;
 - lea el diálogo — indica exactamente qué se lee y a dónde van las peticiones;
