@@ -271,7 +271,7 @@ For accounts that use an API key instead of a subscription:
 
 - **Budgets** — set a prepaid balance or a monthly quota (with its reset day) for Anthropic, OpenAI, Google or xAI.
 - **Estimates** — spend over the last 7 days, the average daily rate, and roughly how many days your budget lasts. These are estimated from local CLI logs of API-key accounts only, never fetched from the provider.
-- **Actual spend** — register a **billing admin key** (Anthropic `sk-ant-admin-*` or an OpenAI admin key) and the vendor's own organization cost endpoint replaces estimates with real figures: this month's spend and the last 7 days, with the read's timestamp. One read-only billing query per vendor every 30 minutes; a regular API key is never sent anywhere.
+- **Actual spend** — register a **billing admin key** (Anthropic `sk-ant-admin-*`, or an OpenAI admin key / a key granted `api.usage.read` scope) and the vendor's own organization cost endpoint replaces estimates with real figures: this month's spend and the last 7 days, with the read's timestamp. One read-only billing query per vendor every 30 minutes; a regular API key is never sent anywhere.
 - **API key vault** — the app asks for Touch ID or your password when you add, show or delete a key. Keys are stored in the login Keychain and follow its access rules. Regular API keys are never sent anywhere; a billing admin key goes only to its own vendor's billing endpoint.
 
 ## Settings
