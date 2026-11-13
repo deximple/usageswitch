@@ -594,11 +594,21 @@ struct UsageContent: View {
                         .foregroundStyle(isFailure(usage.state) ? Theme.danger : Theme.inkMuted)
                 }
             } else if UsageCollection.canConnect(usage, enabledProviders: settings.enabledUsageProviders) {
-                Button(L10n.t(.uiConnectUsage)) {
-                    SettingsMenu.enableUsageConnection(usage.provider, model: settings, usage: model)
+                HStack(spacing: 8) {
+                    Button(L10n.t(.uiConnectUsage)) {
+                        SettingsMenu.enableUsageConnection(usage.provider, model: settings, usage: model)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(Theme.active)
+                    .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsage))"))
+                    // A tool the user doesn't use leaves the list; ⚙︎ › Usage Connections brings it back.
+                    Button(L10n.t(.uiConnectUsageHide)) {
+                        settings.hideUsageConnection(usage.provider)
+                        model.applyConsent(settings.enabledUsageProviders,
+                                           hidden: settings.hiddenUsageProviders)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+                    .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsageHide))"))
                 }
-                .font(.system(size: 11)).foregroundStyle(Theme.active)
-                .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsage))"))
             } else if let reason = UsageText.reason(for: usage) {
                 Text(reason).font(.system(size: 11))
                     .foregroundStyle(usage.state == .ok || usage.state == .notReporting

@@ -99,7 +99,7 @@ Cursor, Grok, Gemini, Antigravity, Devin y OpenCode Go están **apagados por def
 - lea el diálogo — indica exactamente qué se lee y a dónde van las peticiones;
 - haga clic en **Activar**.
 
-Apagar una conexión en **⚙︎ › Conexiones de uso** deja de leerla y quita su fila de la lista; vuelva a encenderla allí para recuperarla.
+Apagar una conexión en **⚙︎ › Conexiones de uso** deja de leerla y quita su fila de la lista; vuelva a encenderla allí para recuperarla. Una herramienta que no use también puede ocultarse con **Ocultar** en su fila.
 
 ### 3. Dé a las cuentas de Claude guardadas sus propios números (opcional)
 
@@ -154,7 +154,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 
 | Mensaje | Por qué | Qué hacer |
 |---|---|---|
-| **Conexión de uso necesaria** | Esta herramienta opcional aún no se ha encendido. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. |
+| **Conexión de uso necesaria** | Esta herramienta opcional aún no se ha encendido. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. ¿No la usa? Haga clic en **Ocultar**. |
 | **No se encontró sesión: inicie sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
 | **El perfil de CLI de esta cuenta no tiene la sesión iniciada — consulta Detalles** | El perfil de CLI enlazado a una cuenta de Claude guardada está desconectado, por lo que su última lectura queda atenuada. | En **Detalles**, copie el comando, ejecútelo en Terminal e inicie sesión con la misma cuenta. |
 | **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |

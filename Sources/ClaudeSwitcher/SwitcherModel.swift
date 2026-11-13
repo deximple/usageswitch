@@ -537,7 +537,13 @@ final class SwitcherModel: ObservableObject {
     /// is turned on again. A provider never turned on keeps its Connect usage row.
     func turnOffUsageConnection(_ provider: UsageProvider) {
         setUsageConnection(provider, on: false)
-        guard !enabledUsageProviders.contains(provider) else { return }   // the revoke wasn't saved
+        hideUsageConnection(provider)
+    }
+
+    /// The Connect usage row's Hide: the same mark as turning the connection off, for a tool
+    /// that was never turned on (or was turned off before the mark existed).
+    func hideUsageConnection(_ provider: UsageProvider) {
+        guard provider.requiresConsent, !enabledUsageProviders.contains(provider) else { return }
         setUsageConnectionHidden(provider, true)
     }
 

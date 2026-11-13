@@ -161,6 +161,7 @@ extension Strings {
         .usageApiBillingNote: "Esta cuenta se factura por uso de API, no por suscripción.",
         .usageMoreLimits: "%d límites más",
         .uiConnectUsage: "Conectar uso",
+        .uiConnectUsageHide: "Ocultar",
         .usageConnectionHelp: "El uso se lee con el inicio de sesión local. Elija Conectar uso para revisar el acceso antes de activarlo.",
         .usageCursorDashboardNote: "Cursor Models y Other Models coinciden con los mismos grupos del panel de Cursor. Mensual es el uso total incluido que informa Cursor. Consulte el panel para Grok Bot y el gasto bajo demanda.",
         .uiCursorDashboard: "Abrir panel de Cursor",
