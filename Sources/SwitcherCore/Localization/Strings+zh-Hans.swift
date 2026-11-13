@@ -371,6 +371,7 @@ extension Strings {
         .apiKeyStored: "密钥已保存到钥匙串。",
         .apiKeyFailure: "无法保存密钥。",
         .apiKeyAccessFailure: "认证或钥匙串访问失败。",
+        .apiKeyInvalidEntry: "昵称或密钥无效。",
         .apiKeyAuthReason: "管理 API 密钥需要验证身份。",
         .apiKeyAdminToggle: "账单 admin 密钥（只读费用数据）",
         .apiKeyAdminTag: "admin",

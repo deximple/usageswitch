@@ -371,6 +371,7 @@ extension Strings {
         .apiKeyStored: "キーをキーチェーンに保存しました。",
         .apiKeyFailure: "キーを保存できませんでした。",
         .apiKeyAccessFailure: "認証またはキーチェーンへのアクセスに失敗しました。",
+        .apiKeyInvalidEntry: "ニックネームまたはキーが無効です。",
         .apiKeyAuthReason: "API キーを管理するには認証してください。",
         .apiKeyAdminToggle: "請求 admin キー（読み取り専用のコストデータ）",
         .apiKeyAdminTag: "admin",

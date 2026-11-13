@@ -371,6 +371,7 @@ extension Strings {
         .apiKeyStored: "Key stored in Keychain.",
         .apiKeyFailure: "Key could not be stored.",
         .apiKeyAccessFailure: "Authentication or Keychain access failed.",
+        .apiKeyInvalidEntry: "Nickname or key is invalid.",
         .apiKeyAuthReason: "Authenticate to manage API keys.",
         .apiKeyAdminToggle: "Billing admin key (read-only cost data)",
         .apiKeyAdminTag: "admin",

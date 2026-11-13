@@ -371,6 +371,7 @@ extension Strings {
         .apiKeyStored: "키를 키체인에 저장했습니다.",
         .apiKeyFailure: "키를 저장하지 못했습니다.",
         .apiKeyAccessFailure: "인증 또는 키체인 접근에 실패했습니다.",
+        .apiKeyInvalidEntry: "닉네임 또는 키가 올바르지 않습니다.",
         .apiKeyAuthReason: "API 키를 관리하려면 인증하세요.",
         .apiKeyAdminToggle: "청구 admin 키 (읽기 전용 비용 데이터)",
         .apiKeyAdminTag: "admin",

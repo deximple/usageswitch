@@ -436,6 +436,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case apiKeyStored = "api.key.stored"
     case apiKeyFailure = "api.key.failure"
     case apiKeyAccessFailure = "api.key.access_failure"
+    case apiKeyInvalidEntry = "api.key.invalid_entry"
     case apiKeyAuthReason = "api.key.auth_reason"
     case apiKeyAdminToggle = "api.key.admin_toggle"
     case apiKeyAdminTag = "api.key.admin_tag"

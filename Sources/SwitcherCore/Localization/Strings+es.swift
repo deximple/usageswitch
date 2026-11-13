@@ -371,6 +371,7 @@ extension Strings {
         .apiKeyStored: "Clave guardada en el Llavero.",
         .apiKeyFailure: "No se pudo guardar la clave.",
         .apiKeyAccessFailure: "Falló la autenticación o el acceso al Llavero.",
+        .apiKeyInvalidEntry: "El apodo o la clave no son válidos.",
         .apiKeyAuthReason: "Autentícate para administrar las claves API.",
         .apiKeyAdminToggle: "Clave admin de facturación (datos de costo de solo lectura)",
         .apiKeyAdminTag: "admin",
