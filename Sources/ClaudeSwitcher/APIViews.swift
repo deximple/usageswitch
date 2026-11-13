@@ -54,7 +54,9 @@ struct APIContent: View {
                         SecureField(L10n.t(.apiKeyValue), text: $key)
                             .textFieldStyle(.roundedBorder)
                         Button(L10n.t(.apiKeyRegister), action: registerKey)
-                            .disabled(key.isEmpty || settings.isDemo)
+                            .disabled(key.isEmpty
+                                || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || settings.isDemo)
                     }
                     if selectedVendor == .anthropic || selectedVendor == .openai {
                         Toggle(L10n.t(.apiKeyAdminToggle), isOn: $registerAsAdmin)
@@ -183,18 +185,22 @@ struct APIContent: View {
         let savedVendor = selectedVendor
         let savedNickname = nickname
         let savedKey = key
+        let savedAdmin = registerAsAdmin
+            && (savedVendor == .anthropic || savedVendor == .openai)
         Task {
             do {
                 _ = try await vault.register(vendor: savedVendor, nickname: savedNickname,
-                                             key: savedKey,
-                                             admin: registerAsAdmin
-                                                && (savedVendor == .anthropic || savedVendor == .openai))
+                                             key: savedKey, admin: savedAdmin)
                 key = ""
                 nickname = ""
                 keyMessage = L10n.t(.apiKeyStored)
                 await reloadKeys()
-            } catch {
+            } catch APIKeyVaultError.invalidEntry {
+                keyMessage = L10n.t(.apiKeyInvalidEntry)
+            } catch APIKeyVaultError.keychainFailure {
                 keyMessage = L10n.t(.apiKeyFailure)
+            } catch {
+                keyMessage = L10n.t(.apiKeyAccessFailure)
             }
         }
     }
