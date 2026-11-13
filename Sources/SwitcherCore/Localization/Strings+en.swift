@@ -161,6 +161,7 @@ extension Strings {
         .usageApiBillingNote: "This account is billed per API usage, not by subscription.",
         .usageMoreLimits: "More limits (%d)",
         .uiConnectUsage: "Connect usage",
+        .uiConnectUsageHide: "Hide",
         .usageConnectionHelp: "Usage is read using the local sign-in. Choose Connect usage to review access before enabling it.",
         .usageCursorDashboardNote: "Cursor Models and Other Models match the same pools on Cursor's dashboard. Monthly is the included total usage Cursor reports. Check the dashboard for Grok Bot and on-demand spending.",
         .uiCursorDashboard: "Open Cursor Dashboard",

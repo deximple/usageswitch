@@ -161,6 +161,7 @@ extension Strings {
         .usageApiBillingNote: "이 계정은 구독이 아닌 API 사용량 단위로 과금됩니다.",
         .usageMoreLimits: "한도 %d개 더",
         .uiConnectUsage: "사용량 연결",
+        .uiConnectUsageHide: "숨기기",
         .usageConnectionHelp: "로컬 로그인 정보로 사용량을 조회합니다. 사용량 연결을 눌러 접근 범위를 확인한 뒤 활성화할 수 있습니다.",
         .usageCursorDashboardNote: "Cursor Models와 Other Models는 Cursor 대시보드의 같은 이름 항목과 같은 값입니다. 월간은 Cursor가 알려 주는 포함 사용량 전체입니다. Grok Bot과 온디맨드 요금은 대시보드에서 확인하세요.",
         .uiCursorDashboard: "Cursor 대시보드 열기",

@@ -22,6 +22,7 @@ public enum UsageCollection {
     /// effective consent set; a consent-required provider not in it yields one
     /// stable connectionRequired placeholder WITHOUT invoking `collector` and is
     /// reported through `didCollect` immediately — it does not hold a worker slot.
+    /// One in `hiddenProviders` (turned off by the user) reports no rows instead.
     /// Slots are refilled as each result arrives, so a stalled provider cannot
     /// prevent later providers starting. Cancellation is checked before each
     /// scheduling, before each child call, and before each callback.
@@ -29,6 +30,7 @@ public enum UsageCollection {
     public static func collect(
         installations: [UsageInstallation],
         enabledProviders: Set<UsageProvider>,
+        hiddenProviders: Set<UsageProvider> = [],
         collector: @escaping @Sendable (UsageInstallation) async -> [AccountUsage],
         didCollect: @escaping @Sendable (UsageProvider, [AccountUsage]) async -> Void
     ) async -> [AccountUsage] {
@@ -43,8 +45,10 @@ public enum UsageCollection {
         pending.removeAll { job in
             guard job.provider.requiresConsent, !enabledProviders.contains(job.provider)
             else { return false }
-            let placeholder = [connectionRequired(job.provider)]
-            byProvider[job.provider] = placeholder
+            // A connection the user turned off leaves no row (its empty report drops a stale
+            // one); a connection never turned on keeps the Connect usage placeholder.
+            byProvider[job.provider] = hiddenProviders.contains(job.provider)
+                ? [] : [connectionRequired(job.provider)]
             return true
         }
         for (provider, rows) in byProvider where !Task.isCancelled {

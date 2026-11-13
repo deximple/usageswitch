@@ -161,6 +161,7 @@ extension Strings {
         .usageApiBillingNote: "このアカウントはサブスクリプションではなく API 使用量課金です。",
         .usageMoreLimits: "さらに %d 件の上限",
         .uiConnectUsage: "使用状況に接続",
+        .uiConnectUsageHide: "非表示",
         .usageConnectionHelp: "ローカルサインインを使って使用状況を読み取ります。「使用状況に接続」で有効化前にアクセスを確認できます。",
         .usageCursorDashboardNote: "Cursor Models と Other Models は Cursor ダッシュボードの同名の枠と同じ値です。月間は Cursor が報告する含まれる使用量の合計です。Grok Bot とオンデマンド料金はダッシュボードで確認してください。",
         .uiCursorDashboard: "Cursorダッシュボードを開く",

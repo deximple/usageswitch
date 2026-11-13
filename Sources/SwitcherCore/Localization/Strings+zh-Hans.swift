@@ -161,6 +161,7 @@ extension Strings {
         .usageApiBillingNote: "此账户按 API 用量计费，而非订阅。",
         .usageMoreLimits: "另有 %d 项上限",
         .uiConnectUsage: "连接用量",
+        .uiConnectUsageHide: "隐藏",
         .usageConnectionHelp: "用量将通过本地登录读取。选择「连接用量」可在启用前查看访问范围。",
         .usageCursorDashboardNote: "Cursor Models 和 Other Models 与 Cursor 控制台中同名的额度相同。每月是 Cursor 报告的包含用量总计。Grok Bot 和按需费用请在控制台查看。",
         .uiCursorDashboard: "打开 Cursor 控制台",

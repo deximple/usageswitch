@@ -100,7 +100,7 @@ Cursor, Grok, Gemini, Antigravity, Devin and OpenCode Go are **off by default**.
 - read the dialog — it says exactly what is read and where requests go;
 - click **Enable**.
 
-Turning a connection off stops reading it and removes its numbers.
+Turning a connection off in **⚙︎ › Usage Connections** stops reading it and removes its row; turn it back on there. A tool you don't use can be hidden the same way with **Hide** on its row.
 
 ### 3. Give saved Claude accounts their own numbers (optional)
 
@@ -155,7 +155,7 @@ A row without numbers always says why. Here is what each message means and what 
 
 | Message | Why | What to do |
 |---|---|---|
-| **Usage connection required** | This optional tool is turned off. | Click **Connect usage**, or use **⚙︎ › Usage Connections**. |
+| **Usage connection required** | This optional tool hasn't been turned on yet. | Click **Connect usage**, or use **⚙︎ › Usage Connections**. Don't use it? Click **Hide**. |
 | **No sign-in found — sign in to *X* first** | The tool is installed but not signed in on this Mac. | Sign in with that tool once. |
 | **This account's CLI profile isn't signed in — see Details** | A saved Claude account's linked CLI profile is signed out, so its last reading stays greyed. | In **Details**, copy the command shown, run it in Terminal, and sign in with the same account. |
 | **Sign-in expired — run *`command`* once in Terminal** | Its stored sign-in has expired. | Run the command shown: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login` or `gh auth login`. |
@@ -288,7 +288,7 @@ Everything lives in the **⚙︎** menu.
 | Show Usage in Menu Bar | Shows the tightest (or pinned) limit next to the icon, for example *Weekly 25% left*. On by default. |
 | Usage Alerts · Warn at used percentage | Sends a macOS notification when a limit passes 70 %, 80 % (default) or 90 % used. |
 | Show the Guide indicator | The dot next to **Guide** when a suggestion is ready. |
-| Usage Connections | Turns each optional tool on or off. Lists only tools found on this Mac. |
+| Usage Connections | Turns each optional tool on or off; a tool turned off leaves the usage list. Lists only tools found on this Mac. |
 | Flush learning data | Deletes the Guide's local learning files. |
 | Show Data Folder in Finder | Opens `~/Library/Application Support/com.jaysong.usageswitch/`. |
 | Check for Updates… | Checks the update feed when the updater is enabled; otherwise opens the releases page in your browser. |

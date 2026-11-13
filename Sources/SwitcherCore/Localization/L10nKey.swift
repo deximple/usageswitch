@@ -170,6 +170,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageApiBillingNote = "usage.apiBillingNote"
     case usageMoreLimits = "usage.moreLimits"
     case uiConnectUsage = "ui.connectUsage"
+    case uiConnectUsageHide = "ui.connectUsage.hide"
     case usageConnectionHelp = "usage.connectionHelp"
     case usageCursorDashboardNote = "usage.cursorDashboardNote"
     case uiCursorDashboard = "ui.cursorDashboard"

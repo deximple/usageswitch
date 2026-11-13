@@ -65,8 +65,9 @@ struct SettingsMenu: View {
                                 if on {
                                     Self.enableUsageConnection(provider, model: model, usage: usage)
                                 } else {
-                                    model.setUsageConnection(provider, on: false)
-                                    usage.applyConsent(model.enabledUsageProviders)
+                                    model.turnOffUsageConnection(provider)
+                                    usage.applyConsent(model.enabledUsageProviders,
+                                                       hidden: model.hiddenUsageProviders)
                                 }
                             }))
                     }
@@ -134,7 +135,7 @@ struct SettingsMenu: View {
         else { return }
         confirmUsageConnection(provider) {
             model.setUsageConnection(provider, on: true)
-            usage.applyConsent(model.enabledUsageProviders)
+            usage.applyConsent(model.enabledUsageProviders, hidden: model.hiddenUsageProviders)
         }
     }
 

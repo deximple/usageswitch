@@ -43,6 +43,8 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var cursorUsageEnabled = false
     /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
     @Published private(set) var usageConnections: Set<UsageProvider> = []
+    /// Connections the user turned off in ⚙︎ › Usage Connections; their rows stay hidden.
+    @Published private(set) var turnedOffUsageConnections: Set<UsageProvider> = []
     /// Granted only when Gemini was connected under the refresh-disclosing text.
     @Published private(set) var geminiTokenRefreshAllowed = false
     @Published private(set) var claudeUsageProfiles: [ClaudeProfileBinding] = []
@@ -103,6 +105,7 @@ final class SwitcherModel: ObservableObject {
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
+        turnedOffUsageConnections = demo == nil ? settings.hiddenUsageProviders : []
         geminiTokenRefreshAllowed = demo == nil && settings.geminiTokenRefreshAllowed
         claudeUsageProfiles = demo == nil ? settings.effectiveClaudeUsageProfiles : []
         appearanceChoice = demo == nil ? settings.effectiveAppearance : .system
@@ -514,6 +517,7 @@ final class SwitcherModel: ObservableObject {
     /// SSOT. The setter performs no dialog — the caller asks first when turning on.
     func setUsageConnection(_ provider: UsageProvider, on: Bool) {
         guard provider.requiresConsent else { return }
+        if on { setUsageConnectionHidden(provider, false) }   // turning it on shows its row again
         if provider == .cursor { setCursorUsageEnabled(on); return }
         let before = usageConnections
         if on { usageConnections.insert(provider) } else { usageConnections.remove(provider) }
@@ -526,6 +530,30 @@ final class SwitcherModel: ObservableObject {
                 geminiTokenRefresh: provider == .gemini ? on : self.geminiTokenRefreshAllowed)
         }) { usageConnections = before } else if provider == .gemini {
             geminiTokenRefreshAllowed = on
+        }
+    }
+
+    /// ⚙︎ › Usage Connections off: also takes the provider's row out of the usage list until it
+    /// is turned on again. A provider never turned on keeps its Connect usage row.
+    func turnOffUsageConnection(_ provider: UsageProvider) {
+        setUsageConnection(provider, on: false)
+        hideUsageConnection(provider)
+    }
+
+    /// The Connect usage row's Hide: the same mark as turning the connection off, for a tool
+    /// that was never turned on (or was turned off before the mark existed).
+    func hideUsageConnection(_ provider: UsageProvider) {
+        guard provider.requiresConsent, !enabledUsageProviders.contains(provider) else { return }
+        setUsageConnectionHidden(provider, true)
+    }
+
+    private func setUsageConnectionHidden(_ provider: UsageProvider, _ hidden: Bool) {
+        let before = turnedOffUsageConnections
+        if hidden { turnedOffUsageConnections.insert(provider) } else { turnedOffUsageConnections.remove(provider) }
+        guard turnedOffUsageConnections != before else { return }
+        let value = turnedOffUsageConnections.map(\.rawValue).sorted()
+        if !saveSettings({ $0.turnedOffUsageConnections = value.isEmpty ? nil : value }) {
+            turnedOffUsageConnections = before
         }
     }
 
@@ -621,6 +649,11 @@ final class SwitcherModel: ObservableObject {
         var out = usageConnections
         if cursorUsageEnabled { out.insert(.cursor) }
         return out
+    }
+
+    /// Providers whose rows the usage list leaves out: turned off and not turned on since.
+    var hiddenUsageProviders: Set<UsageProvider> {
+        turnedOffUsageConnections.subtracting(enabledUsageProviders)
     }
 
     func setUsageWarnPercent(_ percent: Int) {
