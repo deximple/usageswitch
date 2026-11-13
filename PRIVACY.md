@@ -4,7 +4,7 @@ UsageSwitch stores its account-switching data on your Mac. Optional usage connec
 
 ## Network
 
-UsageSwitch has no analytics, telemetry, or crash reporting. There are no background update checks unless you turn them on: the bundled Sparkle updater stays inert until the app ships a feed and you allow automatic checks in Sparkle's own prompt, and the feed is a static file under this repository's GitHub releases.
+UsageSwitch has no analytics, telemetry, or crash reporting. There are no background update checks unless you turn them on: the bundled Sparkle updater checks only when you choose **Check for Updates…**, or daily once you allow automatic checks in Sparkle's own prompt, and the feed is a static file under this repository's GitHub releases.
 
 **Settings > Usage Connections** offers only detected or previously connected providers. Cursor, Grok, Gemini, Antigravity, Devin, OpenCode and GitHub Copilot usage connections are off by default. Enabling one explains the local sign-in read and read-only HTTPS requests. Disabling it cancels further collection and removes its displayed quota; an already-authorized request may finish, but its obsolete result is discarded.
 
