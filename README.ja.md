@@ -474,6 +474,7 @@ swift build                    # デバッグビルド
 ./scripts/test.sh              # テストとカバレッジレポート
 python3 scripts/check-l10n.py  # 5 言語すべてに全文字列があるか確認
 ./scripts/bundle.sh            # ユニバーサル build/UsageSwitch.app(Developer ID があればそれ、なければアドホック)
+./scripts/vendor-drift.sh      # インストール済みベンダー CLI の出力がアプリの読む形式のままか確認(docs/vendor-drift.md)
 ```
 
 アカウントなしでインターフェースを試すには、バンドルをデモデータで起動してください — 実データには一切触れません：
