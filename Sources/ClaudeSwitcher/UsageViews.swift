@@ -581,6 +581,12 @@ struct UsageContent: View {
                 Text(L10n.t(.apiBalance, String(format: "$%.2f", balance)))
                     .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
             }
+            if let resets = UsageText.resetCredits(usage.resetCredits, now: now) {
+                Label(resets, systemImage: "ticket")
+                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                    .lineLimit(1)
+                    .accessibilityLabel(Text("\(accessibilityContext), \(resets)"))
+            }
             if compact, usage.windows.count > shown.count {
                 Button(L10n.t(.usageMoreLimits, usage.windows.count - shown.count)) {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)

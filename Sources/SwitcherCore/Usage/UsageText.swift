@@ -68,6 +68,16 @@ public enum UsageText {
         return L10n.t(.usageDurM, minutes)
     }
 
+    /// "Limit resets: 2 · first expires in 29d 3h" — nil when the account holds none. The expiry part
+    /// is left out when only the count is known.
+    public static func resetCredits(_ credits: UsageResetCredits?, now: Date) -> String? {
+        guard let credits, credits.available > 0 else { return nil }
+        guard let expiry = credits.nextExpiry(now: now) else {
+            return L10n.t(.usageResetCredits, credits.available)
+        }
+        return L10n.t(.usageResetCreditsExpiry, credits.available, countdown(to: expiry, from: now))
+    }
+
     /// "updated 5m ago" for a stale window.
     public static func updatedAgo(readAt: Date, now: Date) -> String {
         let interval = max(60, now.timeIntervalSince(readAt))

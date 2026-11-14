@@ -38,6 +38,7 @@ struct SettingsMenu: View {
             }))
             Toggle(L10n.t(.uiSettingShowUsage), isOn: Binding(get: { model.menuBarShowsUsage },
                                                             set: { model.setMenuBarShowsUsage($0) }))
+            menuBarUsagePicker
             Toggle(L10n.t(.uiSettingUsageAlerts), isOn: Binding(get: { model.usageAlertsEnabled },
                                                               set: { model.setUsageAlertsEnabled($0) }))
             Toggle(L10n.t(.suggestionQuietSignalSetting),
@@ -125,6 +126,25 @@ struct SettingsMenu: View {
         } message: {
             Text(L10n.t(.suggestionFlushMessage))
         }
+    }
+
+    /// Which limit the menu bar shows: automatic (pins, then the least left that isn't used up) or one
+    /// window the user picks. A chosen window that isn't read right now stays listed so the choice
+    /// survives a failed read; the bar falls back to automatic meanwhile.
+    private var menuBarUsagePicker: some View {
+        let choices = usage.menuBarChoices
+        let chosen = model.menuBarUsageKey
+        return Picker(L10n.t(.uiSettingMenuBarUsage), selection: Binding(
+            get: { chosen ?? "" }, set: { model.setMenuBarUsageKey($0) })) {
+            Text(L10n.t(.uiSettingMenuBarUsageAuto)).tag("")
+            if !choices.isEmpty || chosen != nil { Divider() }
+            ForEach(choices, id: \.key) { choice in Text(choice.title).tag(choice.key) }
+            if let chosen, !choices.contains(where: { $0.key == chosen }) {
+                Text(L10n.t(.uiSettingMenuBarUsageMissing)).tag(chosen)
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(!model.menuBarShowsUsage)
     }
 
     /// The single opt-in path used by the Settings toggle AND the inline Connect-usage

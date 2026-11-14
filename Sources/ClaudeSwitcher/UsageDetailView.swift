@@ -128,6 +128,9 @@ struct UsageDetailView: View {
             && !UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
         }
+        if let resets = UsageText.resetCredits(p.usage.resetCredits, now: Date()) {
+            Label(resets, systemImage: "ticket").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
         if p.usage.provider == .cursor,
            let destination = URL(string: "https://cursor.com/dashboard/spending") {
             Text(L10n.t(.usageCursorDashboardNote)).font(.system(size: 11))

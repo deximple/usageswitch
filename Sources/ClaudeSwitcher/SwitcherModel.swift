@@ -39,6 +39,8 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var usagePins: [String] = []
     /// Show the most constrained usage window in the menu bar instead of the account name.
     @Published private(set) var menuBarShowsUsage = true
+    /// The usage window (`UsagePriority.key`) the menu bar shows; nil = automatic (least left).
+    @Published private(set) var menuBarUsageKey: String?
     /// Cursor usage is opt-in: it reads Cursor's sign-in and calls Cursor's API.
     @Published private(set) var cursorUsageEnabled = false
     /// Consent grants for the four new consent-required providers (not Cursor's SSOT).
@@ -102,6 +104,7 @@ final class SwitcherModel: ObservableObject {
         showEmails = demo == nil ? settings.effectiveShowEmails : false
         usagePins = demo == nil ? settings.effectiveUsagePins : []
         menuBarShowsUsage = demo == nil ? settings.effectiveMenuBarShowsUsage : true
+        menuBarUsageKey = demo == nil ? settings.effectiveMenuBarUsageKey : nil
         cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
@@ -407,6 +410,7 @@ final class SwitcherModel: ObservableObject {
                         }
                         let keptPins = self.usagePins.filter { !$0.contains(id) }
                         if keptPins.count != self.usagePins.count { self.setUsagePins(keptPins) }
+                        if self.menuBarUsageKey?.contains(id) == true { self.setMenuBarUsageKey(nil) }
                     }
                     outcome = .success(L10n.t(.uiRemoveSavedDone, names[id] ?? id))
                 }
@@ -491,6 +495,14 @@ final class SwitcherModel: ObservableObject {
         let before = menuBarShowsUsage
         menuBarShowsUsage = on
         if !saveSettings({ $0.menuBarShowsUsage = on }) { menuBarShowsUsage = before }
+    }
+
+    /// nil (automatic) is stored as nil, so older settings files mean the same thing.
+    func setMenuBarUsageKey(_ key: String?) {
+        let before = menuBarUsageKey
+        let next = key.flatMap { $0.isEmpty ? nil : $0 }
+        menuBarUsageKey = next
+        if !saveSettings({ $0.menuBarUsageKey = next }) { menuBarUsageKey = before }
     }
 
     /// system is stored as nil so old and new settings files both mean "follow macOS".

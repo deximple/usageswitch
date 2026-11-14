@@ -330,11 +330,9 @@ final class UsageModel: ObservableObject {
         UsageText.accountLabel(usage, showEmails: settings.showEmails)
     }
 
-    /// The window the menu bar shows when usage is on: a pinned one first, else the most-used.
-    /// Only ok, fresh windows count — a stale or failed read is never shown as current.
-    var menuBarTitle: String? {
-        let now = Date()
-        let accounts = usages.map { usage -> [(key: String, window: UsageWindow)] in
+    /// Only ok, fresh windows can feed the menu bar — a stale or failed read is never shown as current.
+    private func menuBarCandidates(now: Date) -> [[(key: String, window: UsageWindow)]] {
+        usages.map { usage -> [(key: String, window: UsageWindow)] in
             guard usage.state == .ok,
                   (0...600).contains(now.timeIntervalSince(usage.readAt)) else { return [] }
             return usage.windows.filter {
@@ -343,10 +341,28 @@ final class UsageModel: ObservableObject {
                 (key: UsagePriority.key(usage, window), window: window)
             }
         }
-        guard let window = MenuBarTitle.selectWindow(accounts: accounts, pins: pins),
+    }
+
+    /// The window the menu bar shows when usage is on: the one chosen in ⚙︎ › Menu Bar Usage, else a
+    /// pinned one, else the least left that isn't used up.
+    var menuBarTitle: String? {
+        guard let window = MenuBarTitle.selectWindow(accounts: menuBarCandidates(now: Date()), pins: pins,
+                                                     chosen: settings.menuBarUsageKey),
               UsageText.percentLeft(window.usedPercent) != nil else { return nil }
         return MenuBarTitle.usage(windowName: UsageText.name(of: window, scoped: false),
                                 usedPercent: window.usedPercent)
+    }
+
+    /// The windows ⚙︎ › Menu Bar Usage offers, in list order: "Codex · Work · Weekly".
+    var menuBarChoices: [(key: String, title: String)] {
+        menuBarCandidates(now: Date()).enumerated().flatMap { index, windows in
+            windows.map { item in
+                let usage = usages[index]
+                let title = [UsageText.providerName(usage.provider), label(of: usage),
+                             UsageText.name(of: item.window)].joined(separator: " · ")
+                return (key: item.key, title: title)
+            }
+        }
     }
 
     // MARK: - Refreshing
