@@ -183,6 +183,16 @@ final class UsageModel: ObservableObject {
             usages: eligible, now: now, label: label)
     }
 
+    /// Actionable accounts holding a limit reset worth pointing out: left out at the warning
+    /// level, or with a reset about to expire. Text only — the app never uses a reset.
+    func suggestionResetTicketLines(now: Date = Date(), label: (AccountUsage) -> String) -> [String] {
+        let eligible = suggestionUsages(now: now)
+        return SuggestionText.resetTicketLines(
+            SuggestionOutlook.resetTickets(report: suggestionReport(now: now), usages: eligible,
+                                           now: now),
+            usages: eligible, now: now, label: label)
+    }
+
     /// The pick's weekly or monthly limit as a daily allowance, when it has one.
     func suggestionBudgetLine(now: Date = Date()) -> String? {
         SuggestionText.budgetLine(SuggestionOutlook.budget(

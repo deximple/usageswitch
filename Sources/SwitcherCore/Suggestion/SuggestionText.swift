@@ -152,6 +152,20 @@ public enum SuggestionText {
         }
     }
 
+    /// "Codex · Work — Limit resets: 2 · first expires in 18d 5h · you can use one yourself to
+    /// reset this account's limit now". The middle part is the row's own wording.
+    public static func resetTicketLines(_ tickets: [SuggestionOutlook.ResetTicket],
+                                        usages: [AccountUsage], now: Date,
+                                        label: (AccountUsage) -> String) -> [String] {
+        tickets.compactMap { ticket in
+            guard let usage = usages.first(where: { $0.id == ticket.accountID }),
+                  let held = UsageText.resetCredits(usage.resetCredits, now: now) else { return nil }
+            let key: L10nKey = ticket.reason == .blocked ? .suggestionTicketBlocked
+                                                         : .suggestionTicketExpiring
+            return L10n.t(key, "\(UsageText.providerName(usage.provider)) · \(label(usage))", held)
+        }
+    }
+
     /// "About 15% a day lasts to the reset" — rounded down, and silent under a point a day.
     public static func budgetLine(_ budget: SuggestionOutlook.Budget?) -> String? {
         guard let budget, budget.percentPerDay.isFinite, budget.percentPerDay >= 1 else { return nil }

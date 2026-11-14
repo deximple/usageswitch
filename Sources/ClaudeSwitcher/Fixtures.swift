@@ -215,7 +215,9 @@ enum Fixtures {
                         auth: .subscription, identityKey: "fixture-personal", windows: [
                     window(300, 95, resetsIn: 70 * 60),
                     window(10080, 31, resetsIn: 4 * 86400),
-                ]),
+                ], resetCredits: UsageResetCredits(available: 2, expiries: [
+                    Date().addingTimeInterval(18 * 86400 + 6 * 3600),
+                ])),
                 // The catalog can't rank Cursor, but its plan-wide limit has room.
                 account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
                     window(43200, 30, resetsIn: 12 * 86400),
