@@ -216,7 +216,7 @@ extension Strings {
         .uiLaunchAtLoginFailed: "No se pudo cambiar \"Abrir al iniciar sesión\": %@",
         .uiLaunchAtLoginApproval: "Para terminar, activa %@ en la sección de inicio (General) de la configuración del sistema que se acaba de abrir.",
         .uiSettings: "Ajustes",
-        .uiSettingShowName: "Mostrar el nombre de la cuenta en la barra de menús",
+        .uiSettingShowName: "Mostrar la cuenta en la barra de menús",
         .uiSettingShowEmails: "Mostrar siempre los correos",
         .uiOpenDataFolder: "Mostrar la carpeta de datos en el Finder",
         .uiAbout: "Acerca de %@",

@@ -279,7 +279,7 @@ Todo está en el menú **⚙︎**.
 | Idioma | English, 한국어, 日本語, 简体中文 o Español. Sigue al sistema por defecto. |
 | Apariencia | Seguir el sistema, Claro u Oscuro. |
 | Abrir al iniciar sesión | Arranca UsageSwitch al iniciar sesión. |
-| Mostrar el nombre de la cuenta en la barra de menús | Muestra el nombre de la cuenta de Claude actual junto al icono (los correos siguen ocultos). |
+| Mostrar la cuenta en la barra de menús | Muestra el nombre de la cuenta de Claude actual junto al icono (los correos siguen ocultos). |
 | Mostrar siempre los correos | Muestra los correos completos en lugar de ocultos. |
 | Mostrar uso en la barra de menús | Muestra el límite más ajustado (o fijado) junto al icono, por ejemplo *Semanal 25% restante*. Activado por defecto. |
 | Alertas de uso · Avisar al porcentaje usado | Envía una notificación de macOS cuando un límite supera el 70%, 80% (por defecto) o 90% usado. |

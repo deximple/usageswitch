@@ -18,12 +18,36 @@ public enum UsageText {
 
     /// The menu's short name for a window: its scope when that alone names it ("Fable"), else
     /// its kind. A scope shared with another window of the same account (Antigravity reports a
-    /// weekly and a 5-hour window per model group) can't tell the rows apart, so the kind
-    /// leads: "Weekly · Gemini Models".
+    /// weekly and a 5-hour window per model group) is the caption of their group (`menuGroups`),
+    /// so each row under it is named by its kind alone: the 84pt column can't hold both.
     public static func compactName(of window: UsageWindow, among windows: [UsageWindow]) -> String {
-        guard let scope = window.scope else { return name(of: window, scoped: false) }
-        let shared = windows.contains { $0 != window && $0.scope == scope }
-        return shared ? name(of: window) : scope
+        guard let scope = window.scope, sharedScope(of: window, among: windows) == nil else {
+            return name(of: window, scoped: false)
+        }
+        return scope
+    }
+
+    /// The menu's limit rows in order: windows that share a scope gather under that scope as a
+    /// caption, placed where the first of them is shown; every other window stands alone.
+    public static func menuGroups(_ shown: [UsageWindow], among windows: [UsageWindow]) -> [UsageMenuGroup] {
+        shown.reduce(into: [UsageMenuGroup]()) { groups, window in
+            guard let scope = sharedScope(of: window, among: windows) else {
+                groups.append(UsageMenuGroup(caption: nil, windows: [window]))
+                return
+            }
+            guard let index = groups.firstIndex(where: { $0.caption == scope }) else {
+                groups.append(UsageMenuGroup(caption: scope, windows: [window]))
+                return
+            }
+            groups[index] = UsageMenuGroup(caption: scope, windows: groups[index].windows + [window])
+        }
+    }
+
+    /// The window's scope when another window of the account reports the same one.
+    private static func sharedScope(of window: UsageWindow, among windows: [UsageWindow]) -> String? {
+        guard let scope = window.scope, windows.contains(where: { $0 != window && $0.scope == scope })
+        else { return nil }
+        return scope
     }
 
     /// Remaining share 0…100 as an Int, or nil for non-finite or negative input. 104% used is
@@ -202,5 +226,16 @@ public enum UsageText {
         case "free": return "Free"
         default: return raw
         }
+    }
+}
+
+/// One caption and the limit rows under it in the menu; a window that stands alone has no caption.
+public struct UsageMenuGroup: Hashable, Sendable {
+    public let caption: String?
+    public let windows: [UsageWindow]
+
+    public init(caption: String?, windows: [UsageWindow]) {
+        self.caption = caption
+        self.windows = windows
     }
 }
