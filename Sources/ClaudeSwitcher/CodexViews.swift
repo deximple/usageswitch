@@ -429,7 +429,7 @@ struct CodexMainContent: View {
                 .onChange(of: model.focusedAccountID) { _, _ in scrollToFocus(proxy) }
                 }
 
-                Divider().overlay(Theme.hairline)
+                Divider()
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Button(L10n.t(.codexAdd)) { model.add() }
@@ -463,15 +463,23 @@ struct CodexMenuContent: View {
             }
             if case .signingIn = model.phase { CodexSignInProgress(model: model) }
             if let banner = model.banner { BannerView(banner: banner) }
-            HStack(spacing: 8) {
-                Button(L10n.t(.codexAdd)) { model.add() }
-                    .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
-                    .disabled(model.isBusy || !status.installed)
-                    .help(L10n.t(.codexAddHelp))
-                if !status.found.isEmpty {
-                    // Adding a found home needs the explanation in the window.
-                    Button(L10n.t(.codexFoundCount, status.found.count)) { AppDelegate.shared?.showMainWindow() }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+            let add = Button(L10n.t(.codexAdd)) { model.add() }
+                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .disabled(model.isBusy || !status.installed)
+                .help(L10n.t(.codexAddHelp))
+            if status.found.isEmpty {
+                add
+            } else {
+                // Adding a found home needs the explanation in the window.
+                let found = Button(L10n.t(.codexFoundCount, status.found.count)) {
+                    AppDelegate.shared?.showMainWindow()
+                }
+                .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                // Side by side when both labels fit on one line; stacked when they don't
+                // (ja, es), so a label never wraps inside its button.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { add; found }
+                    VStack(alignment: .leading, spacing: 8) { add; found }
                 }
             }
         } else {

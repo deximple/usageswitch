@@ -2,12 +2,38 @@ import AppKit
 import SwiftUI
 import SwitcherCore
 
-/// Gauge colors: room to run, nearly out, empty; stale is always grey.
+/// Bar fill: the vendor's logo color while there is room; warning and used-up override it,
+/// and a stale reading is always grey.
 enum UsageColors {
-    static func forWindow(_ window: UsageWindow, stale: Bool, warnAt: Double = 80) -> Color {
-        if stale { return Theme.missing }
-        if window.usedPercent >= 100 { return Theme.danger }
-        return window.usedPercent >= warnAt ? Theme.usageLow : Theme.inkMuted
+    static func forWindow(_ window: UsageWindow, provider: UsageProvider, stale: Bool,
+                          warnAt: Double = 80) -> Color {
+        Theme.usageFill(UsageBarPalette.role(usedPercent: window.usedPercent, warnAt: warnAt,
+                                             stale: stale), provider: provider)
+    }
+}
+
+/// A status line that never rides on color alone: the marker carries the color, the text
+/// stays at full reading contrast.
+struct UsageNote: View {
+    enum Tone { case neutral, warning, failure }
+    let text: String
+    var tone: Tone = .neutral
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            switch tone {
+            case .neutral: EmptyView()
+            case .warning:
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.usageWarn)
+                    .accessibilityHidden(true)
+            case .failure:
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.usageExhausted)
+                    .accessibilityHidden(true)
+            }
+            Text(text).foregroundStyle(tone == .neutral ? Theme.inkMuted : Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(Theme.small)
     }
 }
 
@@ -27,7 +53,7 @@ struct UsageListHeader: View {
     var body: some View {
         HStack {
             Text(L10n.t(.usageListTitle))
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
+                .font(Theme.title).foregroundStyle(Theme.ink)
             Spacer()
             Button {
                 model.guideExpanded.toggle()
@@ -65,18 +91,18 @@ struct UsageFooter: View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             HStack {
                 if model.isRefreshing {
-                    Text(L10n.t(.usageRefreshing)).font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+                    Text(L10n.t(.usageRefreshing)).font(Theme.small).foregroundStyle(Theme.inkMuted)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         if let lastRead = model.usages.map(\.readAt).max() {
                             Text(UsageText.updatedAgo(readAt: lastRead, now: context.date))
-                                .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+                                .font(Theme.small).foregroundStyle(Theme.inkMuted)
                         }
                         Text(model.nextRefresh.timeIntervalSince(context.date) < 60
                             ? L10n.t(.usageRefreshingSoon)
                             : L10n.t(.usageNextUpdate,
                                      UsageText.countdown(to: model.nextRefresh, from: context.date)))
-                            .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+                            .font(Theme.small).foregroundStyle(Theme.inkMuted)
                     }
                 }
                 Spacer()
@@ -105,7 +131,13 @@ struct UsageContent: View {
                 if presentations.isEmpty {
                     emptyState
                 } else {
-                    if model.guideExpanded { guide(now: context.date) }
+                    if model.guideExpanded {
+                        // The guide is an aside folded into the list: one hairline closes it.
+                        VStack(alignment: .leading, spacing: Theme.gapRow) {
+                            guide(now: context.date)
+                            Divider()
+                        }
+                    }
                     allUsage(now: context.date)
                 }
             }
@@ -245,8 +277,7 @@ struct UsageContent: View {
                 }
             } else {
                 ForEach(items, id: \.id) { item in
-                    Text(item.text).font(.system(size: 12))
-                        .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
+                    UsageNote(text: item.text, tone: item.warn ? .warning : .neutral)
                 }
                 GuideOutlookView(lines: model.suggestionOutlookLines(now: now, label: currentLabel))
                 GuideNoteLines(lines: model.suggestionLighterLines(now: now, label: currentLabel))
@@ -304,9 +335,8 @@ struct UsageContent: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityLabel(Text(L10n.t(.suggestionModeLabel)))
-            HStack(spacing: 8) {
-                Text(L10n.t(.suggestionTaskSimple))
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+            // End labels sit under the track: beside it, a long label wrapped and squeezed it.
+            VStack(spacing: 0) {
                 Slider(value: Binding(
                     get: { taskDraft ?? settings.suggestionTask },
                     set: { taskDraft = $0 }), in: 0...1,
@@ -317,8 +347,12 @@ struct UsageContent: View {
                         }
                     })
                     .accessibilityLabel(Text(L10n.t(.suggestionTaskLabel)))
-                Text(L10n.t(.suggestionTaskReasoning))
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                HStack {
+                    Text(L10n.t(.suggestionTaskSimple))
+                    Spacer(minLength: 8)
+                    Text(L10n.t(.suggestionTaskReasoning))
+                }
+                .font(Theme.small).foregroundStyle(Theme.inkMuted).lineLimit(1)
             }
         }
     }
@@ -368,7 +402,7 @@ struct UsageContent: View {
                             ? L10n.t(.usageRefreshingSoon)
                             : L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now)))
                     } else {
-                        Text(L10n.t(.usageRefreshNeeded)).foregroundStyle(Theme.usageLow)
+                        UsageNote(text: L10n.t(.usageRefreshNeeded), tone: .warning)
                     }
                 }
             }
@@ -430,11 +464,9 @@ struct UsageContent: View {
                                     compact: compact,
                                     pace: model.pace[UsagePriority.key(usage, window)])
                     }
-                    if let reason = UsageText.reason(for: usage) {
-                        Text(reason).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
-                    }
+                    if let reason = UsageText.reason(for: usage) { UsageNote(text: reason) }
                 } else if let reason = UsageText.reason(for: usage) {
-                    Text(reason).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+                    UsageNote(text: reason)
                 }
             }
         }
@@ -471,12 +503,13 @@ struct UsageContent: View {
                         ProviderIcon(provider: provider)
                             .frame(width: 18, height: 18)
                         Text(UsageText.providerName(provider))
-                            .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
+                            .font(Theme.title).foregroundStyle(Theme.ink)
                     }
+                    .padding(.bottom, Theme.gapTight)
                     ForEach(usages) { usage in
                         accountBlock(usage, now: now,
                                      presentation: presentations.first { $0.id == usage.id })
-                        if usage.id != usages.last?.id { Divider().overlay(Theme.hairline) }
+                        if usage.id != usages.last?.id { Divider().padding(.vertical, Theme.gapTight) }
                     }
                 }
             }
@@ -490,47 +523,61 @@ struct UsageContent: View {
         let p = p ?? presentations.first { $0.id == usage.id }
         let accessibilityContext =
             "\(UsageText.providerName(usage.provider)), \(displayedName(p, fallback: usage))"
-        return VStack(alignment: .leading, spacing: 8) {
-            // line 1: masked name + lock + env badge + plan — all from current registry
-            HStack(spacing: 4) {
-                Text(displayedName(p, fallback: usage))
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.ink)
-                    .lineLimit(1).truncationMode(.middle)
-                lockIcon(p)
-                if let env = environmentBadge(p) {
-                    Text(env).font(.system(size: 10))
-                        .foregroundStyle(p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background((p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted).opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: 3))
-                        .fixedSize()
-                        .help(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : env)
-                        .accessibilityValue(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : "")
-                }
-                if let plan = shortPlan(usage) {
-                    Text(plan).font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
-                        .lineLimit(1).fixedSize()
-                }
-                Spacer(minLength: 8)
+        // The second identity line exists only for an email that isn't already the name.
+        let email = p?.email.flatMap { $0 == p?.name ? nil : $0 }
+        let details = Button(L10n.t(.uiDetails)) { AppDelegate.shared?.showUsageDetail(id: usage.id) }
+            .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false, small: true))
+            .fixedSize()
+            .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
+        // line 1: masked name + lock + env badge + plan — all from current registry
+        let nameLine = HStack(spacing: 4) {
+            Text(displayedName(p, fallback: usage))
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
+                .lineLimit(1).truncationMode(.middle)
+            lockIcon(p)
+            if let env = environmentBadge(p) {
+                Text(env).font(Theme.small)
+                    .foregroundStyle(p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background((p?.badgeActive == true ? Theme.environmentActive : Theme.inkMuted).opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .fixedSize()
+                    .help(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : env)
+                    .accessibilityValue(p?.badgeActive == true ? L10n.t(.usageActiveEnvironment) : "")
             }
-            // line 2: masked email + Details — every row opens the read-only detail
-            HStack {
-                if let email = p?.email, email != p?.name {
-                    Text(settings.showEmails ? email : Privacy.maskEmails(in: email))
-                        .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
-                        .lineLimit(1).truncationMode(.middle)
+            if let plan = shortPlan(usage) {
+                Text(plan).font(Theme.small).foregroundStyle(Theme.inkMuted)
+                    .lineLimit(1).fixedSize()
+            }
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Theme.gapTight) {
+                if let email {
+                    HStack(spacing: 0) { nameLine; Spacer(minLength: 8) }
+                    // line 2: masked email + Details — every row opens the read-only detail
+                    HStack {
+                        Text(settings.showEmails ? email : Privacy.maskEmails(in: email))
+                            .font(Theme.small).foregroundStyle(Theme.inkMuted)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        details
+                    }
+                } else {
+                    // No email to sit next to: Details joins the name line instead of leaving a
+                    // row that holds nothing but the button — unless that would cut the name.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 0) { nameLine; Spacer(minLength: 8); details }
+                        VStack(alignment: .leading, spacing: Theme.gapTight) {
+                            HStack(spacing: 0) { nameLine; Spacer(minLength: 8) }
+                            HStack { Spacer(); details }
+                        }
+                    }
                 }
-                Spacer()
-                Button(L10n.t(.uiDetails)) { AppDelegate.shared?.showUsageDetail(id: usage.id) }
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
-                    .buttonStyle(.plain).fixedSize()
-                    .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
             if p?.environment == .app,
                UsagePresentations.claudeAppUnlinked(
                    usage: usage, boundAccountIDs: Set(model.claudeBindings.map(\.accountId))) {
-                Text(L10n.t(.usageNotLinked)).font(.system(size: 10))
-                    .foregroundStyle(Theme.inkMuted)
+                UsageNote(text: L10n.t(.usageNotLinked))
             }
             let shown = compact ? UsagePresentations.compactWindows(usage, now: now) : usage.windows
             ForEach(shown, id: \.self) { window in
@@ -540,11 +587,11 @@ struct UsageContent: View {
             }
             if let balance = model.apiUsageBalanceHint(for: usage, shownWindows: usage.windows, now: now) {
                 Text(L10n.t(.apiBalance, String(format: "$%.2f", balance)))
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                    .font(Theme.small).foregroundStyle(Theme.inkMuted)
             }
             if let resets = UsageText.resetCredits(usage.resetCredits, now: now) {
                 Label(resets, systemImage: "ticket")
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                    .font(Theme.small).foregroundStyle(Theme.inkMuted)
                     .lineLimit(1)
                     .accessibilityLabel(Text("\(accessibilityContext), \(resets)"))
             }
@@ -552,20 +599,19 @@ struct UsageContent: View {
                 Button(L10n.t(.usageMoreLimits, usage.windows.count - shown.count)) {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
-                .font(.system(size: 11)).foregroundStyle(Theme.active)
+                .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false, small: true))
                 .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.usageMoreLimits, usage.windows.count - shown.count))"))
             }
             if usage.accountRef.hasPrefix("app:"), usage.provider == .claude {
                 if let reason = UsageText.reason(for: usage) {
-                    Text(reason).font(.system(size: 11))
-                        .foregroundStyle(isFailure(usage.state) ? Theme.danger : Theme.inkMuted)
+                    UsageNote(text: reason, tone: isFailure(usage.state) ? .failure : .neutral)
                 }
             } else if UsageCollection.canConnect(usage, enabledProviders: settings.enabledUsageProviders) {
                 HStack(spacing: 8) {
                     Button(L10n.t(.uiConnectUsage)) {
                         SettingsMenu.enableUsageConnection(usage.provider, model: settings, usage: model)
                     }
-                    .font(.system(size: 11)).foregroundStyle(Theme.active)
+                    .buttonStyle(ActionButtonStyle(tint: Theme.active, prominent: false, small: true))
                     .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsage))"))
                     // A tool the user doesn't use leaves the list; ⚙︎ › Usage Connections brings it back.
                     Button(L10n.t(.uiConnectUsageHide)) {
@@ -573,14 +619,11 @@ struct UsageContent: View {
                         model.applyConsent(settings.enabledUsageProviders,
                                            hidden: settings.hiddenUsageProviders)
                     }
-                    .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false, small: true))
                     .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiConnectUsageHide))"))
                 }
             } else if let reason = UsageText.reason(for: usage) {
-                Text(reason).font(.system(size: 11))
-                    .foregroundStyle(usage.state == .ok || usage.state == .notReporting
-                        ? Theme.inkMuted
-                        : isFailure(usage.state) ? Theme.danger : Theme.inkMuted)
+                UsageNote(text: reason, tone: isFailure(usage.state) ? .failure : .neutral)
             }
         }
         .accessibilityElement(children: .contain)
@@ -594,15 +637,15 @@ struct UsageContent: View {
 
     @ViewBuilder private func lockIcon(_ p: UsageAccountPresentation?) -> some View {
         switch p?.login {
-        case .verified: Image(systemName: "lock.open.fill").font(.system(size: 9))
+        case .verified: Image(systemName: "lock.open.fill").font(.system(size: 10))
                 .foregroundStyle(Theme.active)
                 .help(L10n.t(.usageLockVerified))
                 .accessibilityLabel(L10n.t(.usageLockVerified))
-        case .saved: Image(systemName: "lock.open.fill").font(.system(size: 9))
+        case .saved: Image(systemName: "lock.open.fill").font(.system(size: 10))
                 .foregroundStyle(Theme.inkMuted)
                 .help(L10n.t(.usageLockSaved))
                 .accessibilityLabel(L10n.t(.usageLockSaved))
-        case .requiresSignIn: Image(systemName: "lock.fill").font(.system(size: 9))
+        case .requiresSignIn: Image(systemName: "lock.fill").font(.system(size: 10))
                 .foregroundStyle(Theme.inkMuted)
                 .help(L10n.t(.usageLockRequiredHelp, L10n.t(.uiRelogin)))
                 .accessibilityLabel(L10n.t(.usageLockRequired))
@@ -639,6 +682,9 @@ struct UsageBarRow: View {
     @ObservedObject var settings: SwitcherModel
     let now: Date
     var compact = false
+    /// The detail's own layout: name and remaining share on one line, a full-width bar, then
+    /// the full reset sentence — the list's column widths don't apply there.
+    var stacked = false
     /// Drain speed for this window, when two readings line up.
     var pace: UsagePace.Reading?
 
@@ -651,7 +697,8 @@ struct UsageBarRow: View {
     /// Anything that isn't a live current reading renders greyed.
     private var stale: Bool { display != .current }
     private var color: Color {
-        UsageColors.forWindow(window, stale: stale, warnAt: Double(settings.usageWarnPercent))
+        UsageColors.forWindow(window, provider: usage.provider, stale: stale,
+                              warnAt: Double(settings.usageWarnPercent))
     }
     private var earlyRunOut: Date? {
         guard !stale, let pace else { return nil }
@@ -671,20 +718,31 @@ struct UsageBarRow: View {
         }
     }
 
-    /// Reset column text. The menu gets the compact form and ALWAYS the real reset time — the
-    /// estimated run-out lives on the marker icon; the main window keeps the full readable
-    /// one. A stale row never shows a countdown — its age is the label (compact: a dash).
+    /// Reset column text: ALWAYS the real reset time (compact form in the menu, the readable one
+    /// in the main window), so the column keeps one width and the bars line up. A stale row
+    /// never shows a countdown — a dash here, its age in `note`.
     private var trailingText: String {
-        if display == .resetSinceRead {
-            return compact ? "—" : L10n.t(.usageResetSinceRead)
+        guard !stale, let resetsAt = window.resetsAt else { return "—" }
+        return compact ? UsageText.compactCountdown(to: resetsAt, from: now)
+                       : UsageText.countdown(to: resetsAt, from: now)
+    }
+
+    /// What doesn't fit a fixed column, shown on its own line outside the menu: why a stale
+    /// number is stale, or the estimated run-out (the menu keeps that on the marker alone).
+    private var note: String? {
+        if display == .resetSinceRead { return L10n.t(.usageResetSinceRead) }
+        if stale { return UsageText.updatedAgo(readAt: usage.readAt, now: now) }
+        return runOutText
+    }
+
+    /// The detail's reset line: the full sentence, then the note.
+    private var stackedCaption: String? {
+        let reset = stale ? nil : window.resetsAt.map {
+            $0.timeIntervalSince(now) < 60 ? L10n.t(.usageRefreshingSoon)
+                : L10n.t(.usageResetsIn, UsageText.countdown(to: $0, from: now))
         }
-        if stale { return compact ? "—" : UsageText.updatedAgo(readAt: usage.readAt, now: now) }
-        if compact {
-            return window.resetsAt.map { UsageText.compactCountdown(to: $0, from: now) } ?? "—"
-        }
-        if let runOutText { return runOutText }
-        guard let resetsAt = window.resetsAt else { return "—" }
-        return UsageText.countdown(to: resetsAt, from: now)
+        let parts = [reset, note].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// Warning/exhausted marker so the state never rides on color alone; nil when fine or stale.
@@ -697,12 +755,12 @@ struct UsageBarRow: View {
         return nil
     }
 
-    /// Marker before the percentage: the compact stale clock, else exhausted/warning, else (compact
-    /// only) the early run-out warning — the estimate never rides in the reset column.
+    /// Marker before the percentage: the compact stale clock, else exhausted/warning, else the
+    /// early run-out warning — a state is never told by the bar's color or the note's text alone.
     private var marker: (name: String, tint: Color)? {
         if stale { return compact ? ("clock", Theme.inkMuted) : nil }
         if let statusIcon { return (statusIcon.name, color) }
-        if compact, earlyRunOut != nil { return ("exclamationmark.triangle.fill", Theme.usageLow) }
+        if earlyRunOut != nil { return ("exclamationmark.triangle.fill", Theme.usageWarn) }
         return nil
     }
 
@@ -738,7 +796,7 @@ struct UsageBarRow: View {
     /// remaining model/version text. Any other provider/shape uses the full name.
     private var windowLabel: String {
         let fallback = compact
-            ? (window.scope ?? UsageText.name(of: window, scoped: false))
+            ? UsageText.compactName(of: window, among: usage.windows)
             : UsageText.name(of: window)
         guard usage.provider == .gemini, let scope = window.scope else { return fallback }
         for (suffix, tag) in [(" [input]", "IN"), (" [output]", "OUT")] where scope.hasSuffix(suffix) {
@@ -750,40 +808,10 @@ struct UsageBarRow: View {
         return fallback
     }
 
-    /// One line: name 84 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
-    /// the main window) · marker + percent 58 · reset 52 (full text in the main window), 8pt
-    /// gaps; the compact cells flex so percent and reset sit on the row's right edge.
+    /// Reading order is the same in every layout: name, bar, marker + remaining share, reset.
     var body: some View {
-        HStack(spacing: 8) {
-            Text(windowLabel)
-                .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
-                .lineLimit(1).truncationMode(.tail)
-                .minimumScaleFactor(usage.provider == .gemini ? 0.8 : (compact ? 0.85 : 1))
-                .frame(width: compact ? 84 : 168, alignment: .leading)
-            ZStack(alignment: .leading) {
-                GeometryReader { proxy in
-                    Capsule().fill(color.opacity(0.25))
-                    Capsule().fill(color)
-                        .frame(width: proxy.size.width * CGFloat(shownLeft ?? 0) / 100)
-                }
-            }
-            .frame(maxWidth: compact ? 88 : .infinity)
-            .frame(height: 6)
-            if compact { Spacer(minLength: 0) }
-            HStack(spacing: 3) {
-                if let marker {
-                    Image(systemName: marker.name).font(.system(size: 10))
-                        .foregroundStyle(marker.tint)
-                }
-                Text(shownLeft.map { "\($0)%" } ?? "—")
-                    .font(.system(size: 12).monospacedDigit())
-                    .foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
-            }
-            .frame(width: 58, alignment: .trailing)
-            Text(trailingText).font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(!compact && earlyRunOut != nil ? Theme.usageLow : Theme.inkMuted)
-                .lineLimit(1).minimumScaleFactor(0.8)
-                .frame(width: compact ? 52 : nil, alignment: .trailing)
+        Group {
+            if stacked { stackedRow } else { listRow }
         }
         .help(accessibilitySummary)
         .accessibilityElement(children: .ignore)
@@ -792,6 +820,83 @@ struct UsageBarRow: View {
             let key = UsagePriority.key(usage, window)
             let isPinned = settings.usagePins.contains(key)
             Button(isPinned ? L10n.t(.usageUnpin) : L10n.t(.usagePin)) { AppModel.usage.togglePin(key) }
+        }
+    }
+
+    /// Width of the name column outside the menu; the note below the row lines up with the bar.
+    /// Fits the longest full name seen, "週間 · Claude And Gpt Models" (196pt), without cutting it.
+    private static let wideNameWidth: CGFloat = 200
+    /// Fits the longest localized countdown ("11日 23時間") without scaling.
+    private static let wideResetWidth: CGFloat = 88
+
+    /// One line: name 84 (compact: scope only, else the unscoped kind) · bar ≤88 (flexible in
+    /// the main window) · marker + percent 58 · reset 52 (88 in the main window), 8pt gaps; the
+    /// compact cells flex so percent and reset sit on the row's right edge. Every column is a
+    /// fixed width, so bars and numbers align down the list.
+    private var listRow: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                nameLabel.frame(width: compact ? 84 : Self.wideNameWidth, alignment: .leading)
+                bar.frame(maxWidth: compact ? 88 : .infinity)
+                if compact { Spacer(minLength: 0) }
+                percent.frame(width: 58, alignment: .trailing)
+                Text(trailingText).font(Theme.small.monospacedDigit())
+                    .foregroundStyle(Theme.inkMuted)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .frame(width: compact ? 52 : Self.wideResetWidth, alignment: .trailing)
+            }
+            if !compact, let note {
+                Text(note).font(Theme.small).foregroundStyle(Theme.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Self.wideNameWidth + 8)
+            }
+        }
+    }
+
+    /// The detail's two-line limit: name and remaining share, a full-width bar, the reset sentence.
+    private var stackedRow: some View {
+        VStack(alignment: .leading, spacing: Theme.gapTight) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                nameLabel
+                Spacer(minLength: 8)
+                percent
+            }
+            bar
+            if let stackedCaption {
+                Text(stackedCaption).font(Theme.small).foregroundStyle(Theme.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var nameLabel: some View {
+        Text(windowLabel)
+            .font(.system(size: 12)).foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
+            .lineLimit(1).truncationMode(.tail)
+            .minimumScaleFactor(usage.provider == .gemini ? 0.8 : (compact ? 0.85 : 1))
+    }
+
+    /// The track is always neutral, so an empty bar reads as empty — never as a pale full one.
+    private var bar: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.usageTrack)
+                Capsule().fill(color)
+                    .frame(width: proxy.size.width * CGFloat(shownLeft ?? 0) / 100)
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private var percent: some View {
+        HStack(spacing: 3) {
+            if let marker {
+                Image(systemName: marker.name).font(.system(size: 10))
+                    .foregroundStyle(marker.tint)
+            }
+            Text(shownLeft.map { "\($0)%" } ?? "—")
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(stale ? Theme.inkMuted : Theme.ink)
         }
     }
 }

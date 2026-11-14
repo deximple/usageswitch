@@ -34,7 +34,7 @@ struct APIContent: View {
 
                 ForEach(APIVendor.allCases) { vendor in
                     vendorSection(vendor)
-                    Divider().overlay(Theme.hairline)
+                    Divider()
                 }
 
                 VStack(alignment: .leading, spacing: Theme.gapTight) {

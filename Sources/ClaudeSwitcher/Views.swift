@@ -390,15 +390,18 @@ struct MainView: View {
                             .frame(maxWidth: 712)
                             .frame(maxWidth: .infinity)
                             .padding([.horizontal, .top], Theme.gapGroup)
+                            .padding(.bottom, Theme.gapRow)
                         ScrollView {
                             UsageContent(model: usage, settings: model, codex: codex, tabs: tabs)
                                 .frame(maxWidth: 712, alignment: .top)
                                 .frame(maxWidth: .infinity)
                                 .padding([.horizontal, .bottom], Theme.gapGroup)
                         }
+                        // Fixed chrome: a hairline keeps the last row from running into it.
+                        Divider()
                         UsageFooter(model: usage)
                             .padding(.horizontal, Theme.gapGroup)
-                            .padding(.bottom, 12)
+                            .padding(.vertical, Theme.gapRow)
                     }
                 case .api:
                     APIContent(usage: usage, settings: model)
@@ -488,7 +491,7 @@ struct MainView: View {
                 .padding(Theme.gapGroup)
             }
 
-            Divider().overlay(Theme.hairline)
+            Divider()
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Button(L10n.t(.uiCapture)) { model.requestCapture() }
@@ -593,7 +596,7 @@ struct MenuView: View {
             }
             VStack(alignment: .leading, spacing: Theme.gapRow) {
                 if tabs.effectiveTab(providers) == .usage { UsageFooter(model: usage) }
-                Divider().overlay(Theme.hairline)
+                Divider()
                 HStack {
                     Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }
                         .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))

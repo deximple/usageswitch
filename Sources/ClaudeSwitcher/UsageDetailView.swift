@@ -59,10 +59,19 @@ struct UsageDetailView: View {
     }
 
     @ViewBuilder private func content(for p: UsageAccountPresentation) -> some View {
-        Text(displayedName(p)).font(.system(size: 15, weight: .semibold))
-        if let email = p.email {
-            Text(model.showEmails ? email : Privacy.maskEmails(in: email))
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+        // Which provider this is: two accounts can share a name across providers.
+        VStack(alignment: .leading, spacing: Theme.gapTight) {
+            HStack(spacing: 6) {
+                ProviderIcon(provider: p.usage.provider, size: 16)
+                Text(providerLine(p)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+            }
+            .accessibilityElement(children: .combine)
+            Text(displayedName(p)).font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+            if let email = p.email, email != p.name {
+                Text(model.showEmails ? email : Privacy.maskEmails(in: email))
+                    .font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+            }
         }
         let savedApp = p.usage.provider == .claude && p.usage.accountRef.hasPrefix("app:")
         if savedApp {
@@ -121,7 +130,7 @@ struct UsageDetailView: View {
         }
         ForEach(p.usage.windows, id: \.self) { w in
             UsageBarRow(usage: p.usage, window: w, settings: model, now: Date(),
-                        compact: false,
+                        compact: false, stacked: true,
                         pace: usage.pace[UsagePriority.key(p.usage, w)])
         }
         if p.usage.windows.isEmpty && !savedApp
@@ -129,7 +138,7 @@ struct UsageDetailView: View {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         if let resets = UsageText.resetCredits(p.usage.resetCredits, now: Date()) {
-            Label(resets, systemImage: "ticket").font(.system(size: 11)).foregroundStyle(.secondary)
+            Label(resets, systemImage: "ticket").font(Theme.small).foregroundStyle(.secondary)
         }
         if p.usage.provider == .cursor,
            let destination = URL(string: "https://cursor.com/dashboard/spending") {
@@ -143,13 +152,23 @@ struct UsageDetailView: View {
             Text(L10n.t(.usageApiBillingNote)).font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
-        if let v = p.usage.toolVersion {
-            Text(v).font(.system(size: 10)).foregroundStyle(.secondary)
-        }
         LabeledContent(L10n.t(.usageSourceLabel)) {
-            Text(sourceDescription(p)).foregroundStyle(.secondary)
-        }.font(.system(size: 11))
+            Text([sourceDescription(p), p.usage.toolVersion].compactMap { $0 }.joined(separator: " · "))
+                .foregroundStyle(.secondary)
+        }.font(Theme.small)
         editor(for: p)
+    }
+
+    /// "Codex · App · Pro Lite": provider, confirmed environment, plan — only what is known.
+    private func providerLine(_ p: UsageAccountPresentation) -> String {
+        let environment: String? = switch p.environment {
+        case .cli: L10n.t(.usageEnvCLI)
+        case .app: L10n.t(.usageEnvApp)
+        case nil: nil
+        }
+        let plan = p.usage.authentication == .apiKey ? "API" : UsageText.planName(p.usage.plan)
+        return [UsageText.providerName(p.usage.provider), environment, plan]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     private func sourceDescription(_ p: UsageAccountPresentation) -> String {
@@ -280,7 +299,7 @@ struct UsageDetailView: View {
                 }
             }
         } else {
-            Text(L10n.t(.usageUnregisteredName)).font(.system(size: 10))
+            Text(L10n.t(.usageUnregisteredName)).font(Theme.small)
                 .foregroundStyle(.secondary)
         }
     }

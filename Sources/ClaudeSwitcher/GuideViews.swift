@@ -12,7 +12,7 @@ struct GuideOutlookView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if line.basis == .recentPace {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Theme.relogin)
+                        .foregroundStyle(Theme.usageWarn)
                         .accessibilityHidden(true)
                 }
                 Text(line.text)

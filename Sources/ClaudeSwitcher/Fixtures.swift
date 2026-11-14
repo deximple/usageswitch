@@ -280,6 +280,14 @@ enum Fixtures {
                 UsageWindow(scope: "gemini-pro [output]", durationMinutes: nil, usedPercent: 42,
                             resetsAt: Date().addingTimeInterval(3600)),
             ])], segment: .all)
+        case "usage-antigravity":
+            // Two model groups, each with a weekly and a 5-hour window: the scope repeats.
+            return demo([account(.antigravity, "current", "Antigravity", .ok, windows: [
+                window(10080, 25, scope: "Gemini Models", resetsIn: 4 * 86400),
+                window(300, 60, scope: "Gemini Models", resetsIn: 2 * 3600),
+                window(10080, 75, scope: "Claude And Gpt Models", resetsIn: 4 * 86400),
+                window(300, 40, scope: "Claude And Gpt Models", resetsIn: 2 * 3600),
+            ])], segment: .all)
         case "usage-bound":
             let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"
             settings.seedDemoClaudeBindings([

@@ -16,6 +16,16 @@ public enum UsageText {
         return L10n.t(.usageWinScope, base, scope)
     }
 
+    /// The menu's short name for a window: its scope when that alone names it ("Fable"), else
+    /// its kind. A scope shared with another window of the same account (Antigravity reports a
+    /// weekly and a 5-hour window per model group) can't tell the rows apart, so the kind
+    /// leads: "Weekly · Gemini Models".
+    public static func compactName(of window: UsageWindow, among windows: [UsageWindow]) -> String {
+        guard let scope = window.scope else { return name(of: window, scoped: false) }
+        let shared = windows.contains { $0 != window && $0.scope == scope }
+        return shared ? name(of: window) : scope
+    }
+
     /// Remaining share 0…100 as an Int, or nil for non-finite or negative input. 104% used is
     /// still 0 left; a runaway value never overflows into a fake hundred.
     public static func percentLeft(_ usedPercent: Double) -> Int? {

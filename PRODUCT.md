@@ -109,4 +109,5 @@
 
 `--ui-fixture`로 정적 데모 렌더 — 실제 계정·키체인·수집기 없음. 사용량 fixture:
 `usage-local-three`, `usage-claude-only`, `usage-seven`, `usage-none`,
-`usage-connecting`, `usage-long`, `usage-last-known` — 합성 데이터와 메모리 전용 동의 상태로 동작한다.
+`usage-connecting`, `usage-long`, `usage-last-known`, `usage-antigravity` — 합성 데이터와 메모리 전용 동의 상태로 동작한다.
+`--snapshot`에 `--detail <usage-id>`를 더하면 그 계정의 상세(460pt)를 같은 방식으로 렌더한다.
