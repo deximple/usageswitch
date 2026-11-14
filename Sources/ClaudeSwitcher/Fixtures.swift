@@ -188,6 +188,18 @@ enum Fixtures {
             model.guideExpanded = true
             model.guideBasisExpanded = name == "usage-guide-basis"
             return model
+        case "usage-guide-outlook":
+            // A weekly limit about to reset with room to spare, beside limits over their pace.
+            let model = demo(guideUsages() + [
+                account(.codex, "m-9a8b7c6d", "Weekend", .ok, plan: "plus",
+                        auth: .subscription, identityKey: "fixture-weekend", windows: [
+                    window(300, 10, resetsIn: 3 * 3600),
+                    window(10080, 45, resetsIn: 5 * 3600),
+                ]),
+            ], segment: .guide)
+            model.guideExpanded = true
+            model.guideBasisExpanded = true
+            return model
         case "usage-guide-none":
             // Every account at or past the warning level: no pick, only when one frees up.
             let model = demo([

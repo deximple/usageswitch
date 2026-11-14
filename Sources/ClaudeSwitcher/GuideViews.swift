@@ -1,6 +1,29 @@
 import SwiftUI
 import SwitcherCore
 
+/// Limits on course to empty before they reset, one line each. A measured pace carries a
+/// warning mark and full-strength text — never colour alone; a window's own average stays
+/// neutral, since it is an estimate from one reading, not a slope.
+struct GuideOutlookView: View {
+    let lines: [SuggestionText.OutlookLine]
+
+    var body: some View {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if line.basis == .recentPace {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.relogin)
+                        .accessibilityHidden(true)
+                }
+                Text(line.text)
+                    .foregroundStyle(line.basis == .recentPace ? Theme.ink : Theme.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(size: 12))
+        }
+    }
+}
+
 /// The Guide's "why": the lines for a missing pick, then the folded comparison — every weighed
 /// account in rank order and every account left out with the limit in its way. Text only;
 /// nothing here switches, opens or signs in.

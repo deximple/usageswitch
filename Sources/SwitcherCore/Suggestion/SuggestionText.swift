@@ -32,9 +32,6 @@ public enum SuggestionText {
         func account(_ usage: AccountUsage) -> String {
             "\(UsageText.providerName(usage.provider)) · \(label(usage))"
         }
-        func window(_ usage: AccountUsage, _ key: String) -> UsageWindow? {
-            usage.windows.first { UsagePriority.key(usage, $0) == key }
-        }
         func model(_ option: SuggestionReport.Option) -> String? {
             guard let name = modelNames[option.modelKey] else { return nil }
             return option.effort == nil ? name : "\(name) · \(effortName(option.effort))"
@@ -75,10 +72,15 @@ public enum SuggestionText {
             }
             let left = UsageText.percentLeft(window.usedPercent) ?? 0
             let base: String
-            switch pick.situation {
-            case .windowHeadroom:
+            if pick.situation == .expiringHeadroom,
+               let expiring = pick.expiringWindowKey.flatMap({ self.window(usage, $0) }),
+               let resetsAt = expiring.resetsAt {
+                base = L10n.t(.suggestionSituationExpiring, UsageText.name(of: expiring),
+                              UsageText.percentLeft(expiring.usedPercent) ?? 0,
+                              UsageText.countdown(to: resetsAt, from: now))
+            } else if pick.situation == .windowHeadroom {
                 base = L10n.t(.suggestionSituationHeadroom, UsageText.name(of: window), left)
-            case .remainingShare:
+            } else {
                 base = L10n.t(.suggestionSituationRemaining, UsageText.name(of: window), left)
             }
             situation = base + (recentEffort(usage).map {
@@ -90,6 +92,36 @@ public enum SuggestionText {
                            leftOut: leftOut,
                            empty: emptyLines(report, usageByID: usageByID, account: account,
                                              window: window, now: now))
+    }
+
+    /// One forecast line and where its evidence comes from, so the view can tell a measured
+    /// pace from an average.
+    public struct OutlookLine: Equatable, Sendable {
+        public let text: String
+        public let basis: SuggestionOutlook.Basis
+    }
+
+    /// "Codex · Work — Weekly may run out in 1d 12h at its average pace so far · resets in 3d 12h".
+    public static func outlookLines(_ runOuts: [SuggestionOutlook.RunOut], usages: [AccountUsage],
+                                    now: Date, label: (AccountUsage) -> String) -> [OutlookLine] {
+        runOuts.compactMap { runOut in
+            guard let usage = usages.first(where: { $0.id == runOut.accountID }),
+                  let window = window(usage, runOut.windowKey) else { return nil }
+            let key: L10nKey = runOut.basis == .recentPace ? .suggestionOutlookRecent
+                                                           : .suggestionOutlookAverage
+            let account = "\(UsageText.providerName(usage.provider)) · \(label(usage))"
+            return OutlookLine(
+                text: L10n.t(key, account, UsageText.name(of: window),
+                             UsageText.countdown(to: runOut.at, from: now))
+                    + resetSuffix(window.resetsAt, now: now),
+                basis: runOut.basis)
+        }
+    }
+
+    /// "About 15% a day lasts to the reset" — rounded down, and silent under a point a day.
+    public static func budgetLine(_ budget: SuggestionOutlook.Budget?) -> String? {
+        guard let budget, budget.percentPerDay.isFinite, budget.percentPerDay >= 1 else { return nil }
+        return L10n.t(.suggestionBudget, Int(budget.percentPerDay.rounded(.down)))
     }
 
     public static func effortName(_ effort: String?) -> String {
@@ -127,6 +159,10 @@ public enum SuggestionText {
         default:
             return []
         }
+    }
+
+    private static func window(_ usage: AccountUsage, _ key: String) -> UsageWindow? {
+        usage.windows.first { UsagePriority.key(usage, $0) == key }
     }
 
     /// " · resets in 2d 4h"; nothing for an unknown reset or one under a minute away.

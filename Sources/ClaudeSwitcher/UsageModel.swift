@@ -146,6 +146,22 @@ final class UsageModel: ObservableObject {
             label: label, recentEffort: { self.suggestionLogEffort(for: $0) })
     }
 
+    /// Limits on course to empty before their reset, worded for the Guide. Readings of every
+    /// listed account count here — a forecast is about a limit, not about switching to it.
+    func suggestionOutlookLines(now: Date = Date(),
+                                label: (AccountUsage) -> String) -> [SuggestionText.OutlookLine] {
+        SuggestionText.outlookLines(
+            SuggestionOutlook.runOuts(usages: usages, pace: pace, now: now,
+                                      warnThreshold: Double(settings.usageWarnPercent)),
+            usages: usages, now: now, label: label)
+    }
+
+    /// The pick's weekly or monthly limit as a daily allowance, when it has one.
+    func suggestionBudgetLine(now: Date = Date()) -> String? {
+        SuggestionText.budgetLine(SuggestionOutlook.budget(
+            for: suggestionReport(now: now).options.first, usages: usages, now: now))
+    }
+
     func hasSuggestion(now: Date = Date()) -> Bool {
         let result = suggestionResult(now: now)
         switch result {

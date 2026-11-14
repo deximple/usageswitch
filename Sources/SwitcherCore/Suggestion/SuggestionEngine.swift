@@ -32,6 +32,8 @@ public enum SuggestionMode: String, Codable, CaseIterable, Equatable, Sendable {
 public enum SituationCode: String, Codable, Equatable, Sendable {
     case windowHeadroom
     case remainingShare
+    /// The longest limit resets soon with room to spare; what would lapse counts in its favour.
+    case expiringHeadroom
 }
 
 public enum SuggestionNoneReason: Equatable, Sendable {
@@ -62,6 +64,11 @@ public enum SuggestionGuideFallback {
 public enum SuggestionEngine {
     public static let defaultWarnThreshold = 80.0
     public static let maximumReadingAge: TimeInterval = 600
+    /// A limit is about to reset inside the last tenth of its length, and never more than a day out.
+    public static let expiringShare = 0.1
+    public static let expiringHorizon: TimeInterval = 86400
+    /// Percent points that must still be unspent at the reset, at the limit's own average pace.
+    public static let expiringLeftoverFloor = 10.0
 
     private struct Candidate {
         let usage: AccountUsage
@@ -69,6 +76,7 @@ public enum SuggestionEngine {
         let effort: String?
         let situation: SituationCode
         let limitingWindowKey: String
+        let expiringWindowKey: String?
         let remaining: Double
         let score: Double
     }
@@ -138,17 +146,20 @@ public enum SuggestionEngine {
                     blocks[usage.id, default: []].append(block)
                     continue
                 }
-                guard let remaining = windows.map({ (100 - $0.usedPercent) / 100 }).min(),
-                      let limiting = windows.enumerated().min(by: {
-                          let left = (100 - $0.element.usedPercent)
-                          let right = (100 - $1.element.usedPercent)
-                          return left != right ? left < right
-                              : UsagePriority.key(usage, $0.element) < UsagePriority.key(usage, $1.element)
-                      })
-                else { continue }
+                // What would lapse unused on a limit about to reset counts on top of its
+                // remaining share, so that limit binds less — or not at all.
+                let lapsing = lapsingShares(in: windows, paceReadings: paceReadings, now: now)
+                let shares = windows.enumerated().map { index, window in
+                    min(1, (100 - window.usedPercent) / 100 + (lapsing[index] ?? 0))
+                }
+                guard let limiting = windows.indices.min(by: {
+                    shares[$0] != shares[$1] ? shares[$0] < shares[$1]
+                        : UsagePriority.key(usage, windows[$0]) < UsagePriority.key(usage, windows[$1])
+                }) else { continue }
+                let remaining = shares[limiting]
 
-                let situation: SituationCode = paceReadings.contains(.unknown)
-                    ? .remainingShare : .windowHeadroom
+                let situation: SituationCode = !lapsing.isEmpty ? .expiringHeadroom
+                    : paceReadings.contains(.unknown) ? .remainingShare : .windowHeadroom
                 for entry in entries {
                     guard let quality = quality(entry.rank, task: task) else { continue }
                     candidates.append(Candidate(
@@ -156,7 +167,8 @@ public enum SuggestionEngine {
                         modelKey: mapped.model.key,
                         effort: mapped.model.efforts.isEmpty ? nil : entry.effort,
                         situation: situation,
-                        limitingWindowKey: UsagePriority.key(usage, limiting.element),
+                        limitingWindowKey: UsagePriority.key(usage, windows[limiting]),
+                        expiringWindowKey: lapsing.keys.min().map { UsagePriority.key(usage, windows[$0]) },
                         remaining: remaining,
                         score: quality * remaining))
                 }
@@ -170,7 +182,8 @@ public enum SuggestionEngine {
             SuggestionReport.Option(
                 accountID: $0.usage.id, provider: $0.usage.provider, modelKey: $0.modelKey,
                 effort: $0.effort, situation: $0.situation,
-                limitingWindowKey: $0.limitingWindowKey, remainingShare: $0.remaining)
+                limitingWindowKey: $0.limitingWindowKey, remainingShare: $0.remaining,
+                expiringWindowKey: $0.expiringWindowKey)
         }
         // An account is left out only when none of its models carries a candidate.
         let excluded = usages.compactMap { usage -> SuggestionReport.Excluded? in
@@ -196,6 +209,31 @@ public enum SuggestionEngine {
             limitingWindowKey: best.limitingWindowKey
         )
         return SuggestionReport(result: result, options: options, excluded: excluded)
+    }
+
+    /// For the longest limits (every one of that length) that reset soon: the share each
+    /// would still hold at the reset, keyed by window index — the smaller of what its own
+    /// average pace and a measured pace leave. A limit that would hold less than
+    /// `expiringLeftoverFloor` points is left alone.
+    private static func lapsingShares(in windows: [UsageWindow], paceReadings: [UsagePace.Reading],
+                                      now: Date) -> [Int: Double] {
+        guard let longest = windows.compactMap(\.durationMinutes).max(), longest > 0 else { return [:] }
+        let soon = min(TimeInterval(longest) * 60 * expiringShare, expiringHorizon)
+        var shares: [Int: Double] = [:]
+        for (index, window) in windows.enumerated() {
+            guard window.durationMinutes == longest, let resetsAt = window.resetsAt,
+                  resetsAt.timeIntervalSince(now) <= soon,
+                  let projection = UsageForecast.projection(window, now: now) else { continue }
+            var leftover = 100 - projection.projectedUsedAtReset
+            if case .depleting(let emptyAt) = paceReadings[index] {
+                // The measured slope spends (100 - used) over the time to `emptyAt`.
+                let untilEmpty = emptyAt.timeIntervalSince(now)
+                let spentShare = untilEmpty > 0 ? min(1, resetsAt.timeIntervalSince(now) / untilEmpty) : 1
+                leftover = min(leftover, (100 - window.usedPercent) * (1 - spentShare))
+            }
+            if leftover >= expiringLeftoverFloor { shares[index] = leftover / 100 }
+        }
+        return shares
     }
 
     /// Why these windows can't carry a candidate, or nil when they can. An untrustworthy
