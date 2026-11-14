@@ -57,16 +57,30 @@ struct UIStringFitTests {
     /// as they arrive today.
     private static let scopes = [CursorUsageParser.cursorModelsScope, CursorUsageParser.otherModelsScope,
                                  "Fable", "Gemini Models", "Claude And Gpt Models"]
-    /// Antigravity's group name needs 134pt: the menu's 84pt column shows "Claude And G…".
-    private static let scopesCutToday: Set<String> = ["Claude And Gpt Models"]
+    /// Antigravity's model groups each report a weekly and a 5-hour window, so the menu puts the group
+    /// name on a caption line over its rows (`UsageText.menuGroups`) instead of in the name column.
+    private static let captionScopes: Set<String> = ["Gemini Models", "Claude And Gpt Models"]
 
-    @Test(arguments: scopes)
+    @Test(arguments: scopes.filter { !captionScopes.contains($0) })
     func scopeIsNotCutInTheNameColumn(scope: String) {
-        withKnownIssue("vendor scope name is cut off in the menu") {
-            #expect(MenuLimitRow.name.fit(scope) != .truncates, "\(MenuLimitRow.name.describe(scope))")
-        } when: {
-            Self.scopesCutToday.contains(scope)
+        #expect(MenuLimitRow.name.fit(scope) != .truncates, "\(MenuLimitRow.name.describe(scope))")
+    }
+
+    /// The caption is one 11pt line across the menu's content width.
+    @Test(arguments: Array(captionScopes))
+    func groupCaptionFitsOneLine(scope: String) {
+        let caption = TextSlot(width: MenuLimitRow.contentWidth, style: TextStyle(size: 11))
+        #expect(caption.fit(scope) == .fits, "\(caption.describe(scope))")
+    }
+
+    /// Under a caption each row is named by its kind, which `windowNamesFitTheNameColumn` measures.
+    @Test func sharedScopesBecomeCaptions() {
+        let windows = Self.captionScopes.sorted().flatMap { scope in
+            [10080, 300].map { UsageWindow(scope: scope, durationMinutes: $0, usedPercent: 10, resetsAt: nil) }
         }
+        let groups = UsageText.menuGroups(windows, among: windows)
+        #expect(Set(groups.compactMap(\.caption)) == Self.captionScopes)
+        #expect(windows.allSatisfy { UsageText.compactName(of: $0, among: windows) == UsageText.name(of: $0, scoped: false) })
     }
 
     @Test func percentColumnHoldsAMarkerAndAFullPercent() throws {
@@ -199,13 +213,8 @@ struct UIStringFitTests {
             item.state = .on   // toggles reserve the checkmark column
         }
         menu.items.first?.submenu = NSMenu()   // the pickers are submenus: the arrow column is reserved too
-        // Spanish: "Mostrar el nombre de la cuenta en la barra de menús" makes the menu about 396pt wide.
-        withKnownIssue("the Spanish gear menu is wider than the menu panel") {
-            #expect(menu.size.width <= MenuLimitRow.menuWidth,
-                    "\(language.rawValue) gear menu is \(menu.size.width)pt wide")
-        } when: {
-            language == .es
-        }
+        #expect(menu.size.width <= MenuLimitRow.menuWidth,
+                "\(language.rawValue) gear menu is \(menu.size.width)pt wide")
     }
 
     /// Strings in `SettingsMenu.swift` that are not menu items: the gear's own label, alerts and About.

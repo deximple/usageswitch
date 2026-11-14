@@ -516,6 +516,11 @@ struct UsageContent: View {
         }
     }
 
+    private func limitRow(_ usage: AccountUsage, _ window: UsageWindow, now: Date) -> some View {
+        UsageBarRow(usage: usage, window: window, settings: settings, now: now, compact: compact,
+                    pace: model.pace[UsagePriority.key(usage, window)])
+    }
+
     /// One account: label + billing + confirmed environment + plan, then its windows —
     /// remaining share on a plain bar. Non-reporting accounts stay listed; nothing disappears.
     private func accountBlock(_ usage: AccountUsage, now: Date,
@@ -580,10 +585,23 @@ struct UsageContent: View {
                 UsageNote(text: L10n.t(.usageNotLinked))
             }
             let shown = compact ? UsagePresentations.compactWindows(usage, now: now) : usage.windows
-            ForEach(shown, id: \.self) { window in
-                UsageBarRow(usage: usage, window: window, settings: settings, now: now,
-                            compact: compact,
-                            pace: model.pace[UsagePriority.key(usage, window)])
+            if compact {
+                // A model group's name doesn't fit the 84pt name column next to the window kind,
+                // so it gets a line of its own over its rows.
+                ForEach(UsageText.menuGroups(shown, among: usage.windows), id: \.self) { group in
+                    VStack(alignment: .leading, spacing: Theme.gapTight) {
+                        if let caption = group.caption {
+                            Text(caption).font(Theme.small).foregroundStyle(Theme.inkMuted)
+                                .lineLimit(1).truncationMode(.tail)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(group.windows, id: \.self) { limitRow(usage, $0, now: now) }
+                        }
+                    }
+                }
+            } else {
+                ForEach(shown, id: \.self) { limitRow(usage, $0, now: now) }
             }
             if let balance = model.apiUsageBalanceHint(for: usage, shownWindows: usage.windows, now: now) {
                 Text(L10n.t(.apiBalance, String(format: "$%.2f", balance)))
