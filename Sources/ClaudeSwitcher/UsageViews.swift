@@ -585,7 +585,7 @@ struct UsageContent: View {
             }
             if let resets = UsageText.resetCredits(usage.resetCredits, now: now) {
                 Label(resets, systemImage: "ticket")
-                    .font(.system(size: 10)).foregroundStyle(Theme.inkMuted)
+                    .font(Theme.small).foregroundStyle(Theme.inkMuted)
                     .lineLimit(1)
                     .accessibilityLabel(Text("\(accessibilityContext), \(resets)"))
             }

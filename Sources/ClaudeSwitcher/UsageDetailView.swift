@@ -138,7 +138,7 @@ struct UsageDetailView: View {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         if let resets = UsageText.resetCredits(p.usage.resetCredits, now: Date()) {
-            Label(resets, systemImage: "ticket").font(.system(size: 11)).foregroundStyle(.secondary)
+            Label(resets, systemImage: "ticket").font(Theme.small).foregroundStyle(.secondary)
         }
         if p.usage.provider == .cursor,
            let destination = URL(string: "https://cursor.com/dashboard/spending") {
