@@ -83,7 +83,11 @@ main-claude-error 850 --ui-fixture error --tab claude
 main-codex 850 --ui-fixture list --tab codex
 main-api 850 --ui-fixture usage --tab api
 EOF
-    # The detail window renders only where the build has --detail.
+    # Screens only some builds have: a fixture with a repeated scope, and the detail window (--detail).
+    if grep -q '"usage-antigravity"' "$SOURCE/Sources/ClaudeSwitcher/Fixtures.swift"; then
+        echo "menu-usage-antigravity 1600 --menu-preview --ui-fixture usage-antigravity --tab usage"
+        echo "main-usage-antigravity 1400 --ui-fixture usage-antigravity --tab usage"
+    fi
     if grep -q '"--detail"' "$SOURCE/Sources/ClaudeSwitcher/App.swift"; then
         cat <<'EOF'
 detail-codex-work 420 --ui-fixture usage-all --detail codex:found:.codex-work

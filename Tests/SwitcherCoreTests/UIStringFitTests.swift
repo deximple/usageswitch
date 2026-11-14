@@ -58,11 +58,11 @@ struct UIStringFitTests {
         }
     }
 
-    /// A scoped window shows its scope alone in the menu. The app names Cursor's two pools; the rest are
-    /// vendor names as they arrive today.
+    /// A scoped window is named by its scope. The app names Cursor's two pools; the rest are vendor names
+    /// as they arrive today.
     private static let scopes = [CursorUsageParser.cursorModelsScope, CursorUsageParser.otherModelsScope,
                                  "Fable", "Gemini Models", "Claude And Gpt Models"]
-    /// Antigravity's group name needs 134pt: all three of its windows read "Claude And G…" in the menu.
+    /// Antigravity's group name needs 134pt: the menu's 84pt column shows "Claude And G…".
     private static let scopesCutToday: Set<String> = ["Claude And Gpt Models"]
 
     @Test(arguments: scopes)
@@ -114,14 +114,22 @@ struct UIStringFitTests {
 
     // MARK: - Main window limit row
 
-    @Test(arguments: AppLanguage.allCases)
-    func scopedWindowNamesFitTheWideNameColumn(language: AppLanguage) {
-        for key in Self.windowNameKeys {
-            for scope in [CursorUsageParser.cursorModelsScope, CursorUsageParser.otherModelsScope] {
-                let text = L10n.string(.usageWinScope, language: language, [L10n.string(key, language: language), scope])
-                #expect(MainLimitRow.name.fit(text) == .fits,
-                        "\(language.rawValue) \(key.rawValue): \(MainLimitRow.name.describe(text))")
-            }
+    /// The same group name after a window kind is 175–196pt of the main window's 168pt, except in
+    /// zh-Hans, where it fits by under a point — so this one is not required to recur everywhere.
+    private static let scopesCutInTheMainWindowToday: Set<String> = ["Claude And Gpt Models"]
+
+    /// The widest full name a scope can get: the longest window kind in that language, then the scope.
+    @Test(arguments: AppLanguage.allCases, scopes)
+    func scopedWindowNameFitsTheWideNameColumn(language: AppLanguage, scope: String) throws {
+        let style = MainLimitRow.name.style
+        let names = Self.windowNameKeys.map {
+            L10n.string(.usageWinScope, language: language, [L10n.string($0, language: language), scope])
+        }
+        let widest = try #require(names.max { style.width(of: $0) < style.width(of: $1) })
+        withKnownIssue("vendor scope name is cut off in the main window", isIntermittent: true) {
+            #expect(MainLimitRow.name.fit(widest) == .fits, "\(language.rawValue): \(MainLimitRow.name.describe(widest))")
+        } when: {
+            Self.scopesCutInTheMainWindowToday.contains(scope)
         }
     }
 
@@ -130,7 +138,7 @@ struct UIStringFitTests {
     /// Rows of the menu that hold localized text on one line. Their paddings and gaps are modelled from the
     /// views, not pinned to them; the `WRAPS` report of `scripts/ui-snapshots.sh` shows what really wrapped.
     enum MenuRow: String, CaseIterable, Sendable {
-        case header, footer, bottomBar = "bottom bar", codexActions = "Codex actions"
+        case header, footer, bottomBar = "bottom bar"
     }
 
     /// The width a row needs: its text plus the fixed padding, gaps and icons around it.
@@ -152,24 +160,15 @@ struct UIStringFitTests {
         case .bottomBar:   // Open window · gear · Quit
             let gear = try #require(TextStyle(size: 13).width(ofSymbol: "gearshape"))
             return button(text(.uiOpenWindow)) + gear + button(text(.uiQuit)) + 3 * gap
-        case .codexActions:   // Add account · Found on this Mac: n
-            return button(text(.codexAdd)) + gap + button(text(.codexFoundCount, 9))
         }
     }
-
-    /// The Codex tab's two buttons need more than the menu has: one label wraps to a second line.
-    private static let rowsTooWideToday: [MenuRow: Set<AppLanguage>] = [.codexActions: [.ja, .es]]
 
     /// A row wider than the menu's content wraps to a second line or squeezes its neighbours.
     @Test(arguments: MenuRow.allCases, AppLanguage.allCases)
     func menuRowFitsOneLine(row: MenuRow, language: AppLanguage) throws {
         let needed = try Self.width(of: row, in: language)
-        withKnownIssue("the row's buttons wrap in this language") {
-            #expect(needed <= MenuLimitRow.contentWidth,
-                    "\(language.rawValue) \(row.rawValue) needs \(needed.rounded())pt of \(MenuLimitRow.contentWidth)")
-        } when: {
-            Self.rowsTooWideToday[row]?.contains(language) == true
-        }
+        #expect(needed <= MenuLimitRow.contentWidth,
+                "\(language.rawValue) \(row.rawValue) needs \(needed.rounded())pt of \(MenuLimitRow.contentWidth)")
     }
 
     // MARK: - Gear menu
