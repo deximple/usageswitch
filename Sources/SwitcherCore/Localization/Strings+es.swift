@@ -353,6 +353,8 @@ extension Strings {
         .suggestionBudget: "Repartido por igual, alrededor de %d%% al día alcanza hasta el reinicio",
         .suggestionOutlookRecent: "%1$@ — %2$@ podría agotarse en %3$@ a este ritmo",
         .suggestionOutlookAverage: "%1$@ — %2$@ podría agotarse en %3$@ a su ritmo medio hasta ahora",
+        .suggestionLighter: "%1$@ — últimamente sobre todo %2$@ · opción más ligera: %3$@",
+        .suggestionOtherTool: "Sin clasificar, pero con margen: %1$@ — %2$@ %3$d%% restante",
         .apiTitle: "Presupuestos y estimaciones de API",
         .apiEmptyState: "No hay cuentas con clave API para estimar el gasto. Las cuentas de suscripción no se incluyen; solo se usan registros CLI locales de cuentas con clave API.",
         .apiKeyHelp: "Las claves API permanecen en el Llavero de macOS y nunca se envían a ningún sitio. No hay un endpoint de saldo de solo lectura verificado.",

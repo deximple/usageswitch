@@ -353,6 +353,8 @@ extension Strings {
         .suggestionBudget: "均等に使えば1日あたり約%d%%でリセットまで持ちます",
         .suggestionOutlookRecent: "%1$@ — %2$@ このペースなら%3$@で枯渇する可能性",
         .suggestionOutlookAverage: "%1$@ — %2$@ これまでの平均ペースなら%3$@で枯渇する可能性",
+        .suggestionLighter: "%1$@ — 最近は主に%2$@ · より軽い組み合わせ: %3$@",
+        .suggestionOtherTool: "順位付けの対象外ですが余裕あり: %1$@ — %2$@ 残り%3$d%%",
         .apiTitle: "API 予算と推定",
         .apiEmptyState: "支出を推定できる API キーアカウントがありません。サブスクリプションは対象外で、API キーアカウントのローカル CLI ログのみを使用します。",
         .apiKeyHelp: "API キーは macOS キーチェーンに保存され、どこにも送信されません。検証済みの読み取り専用残高 API はありません。",

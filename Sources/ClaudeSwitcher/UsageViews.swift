@@ -231,6 +231,7 @@ struct UsageContent: View {
     private func guide(now: Date) -> some View {
         let suggestion = model.suggestionResult(now: now)
         let explanation = model.suggestionExplanation(now: now, label: currentLabel)
+        let otherTools = model.suggestionOtherToolLines(now: now, label: currentLabel)
         let proposals = UsageGuidance.proposals(model.suggestionUsages(now: now), now: now,
                                                 warnAt: Double(settings.usageWarnPercent))
         let items = attention(now: now)
@@ -247,6 +248,7 @@ struct UsageContent: View {
                         .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
                 }
                 GuideOutlookView(lines: model.suggestionOutlookLines(now: now, label: currentLabel))
+                GuideNoteLines(lines: model.suggestionLighterLines(now: now, label: currentLabel))
                 if let headline = explanation?.headline {
                     Text(headline).font(.system(size: 13)).foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
@@ -272,8 +274,10 @@ struct UsageContent: View {
                 if let explanation {
                     GuideBasisView(explanation: explanation, expanded: $model.guideBasisExpanded)
                 }
+                GuideNoteLines(lines: otherTools)
                 claudeRow(now: now)
                 if explanation?.headline == nil && explanation?.empty.isEmpty != false
+                    && otherTools.isEmpty
                     && proposals.isEmpty && items.isEmpty && claudeUsage == nil {
                     Text(L10n.t(.usageGuideNone)).font(Theme.body).foregroundStyle(Theme.inkMuted)
                 }

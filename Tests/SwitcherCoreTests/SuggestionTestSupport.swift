@@ -10,6 +10,8 @@ enum SuggestionTestSupport {
         let efforts: [String]
         /// Output price per million tokens; nil leaves the model without a price fact.
         var outputPrice: Double? = nil
+        /// The effort the maker's tool uses when none is chosen; nil leaves the fact out.
+        var defaultEffort: String? = nil
 
         var key: String { "\(vendor)/\(model)" }
     }
@@ -29,11 +31,17 @@ enum SuggestionTestSupport {
             "version": 1,
             "date": "2027-01-01",
             "models": models.map { model in
-                let values: [[String: Any]] = model.outputPrice.map { price in
+                let price: [[String: Any]] = model.outputPrice.map { price in
                     [["id": "\(model.key)/outputPricePerMTok", "code": "outputPricePerMTok",
                       "number": price, "source": "https://prices.example.invalid/models",
                       "checkedAt": "2027-01-01"]]
                 } ?? []
+                let effort: [[String: Any]] = model.defaultEffort.map { effort in
+                    [["id": "\(model.key)/defaultEffort", "code": "defaultEffort",
+                      "text": effort, "source": "https://docs.example.invalid/models",
+                      "checkedAt": "2027-01-01"]]
+                } ?? []
+                let values = price + effort
                 return ["vendorId": model.vendor, "model": model.model, "name": model.name,
                         "efforts": model.efforts, "values": values] as [String: Any]
             },

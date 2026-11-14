@@ -50,6 +50,7 @@ final class UsageModel: ObservableObject {
     private static let adminCostInterval: TimeInterval = 1800
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
+    private var demoLogHints: [String: SuggestionLogSummary.Hint] = [:]
     private(set) var claudeBindings: [ClaudeProfileBinding]
     private var timer: Timer?
     /// When the in-flight (or last) read began; the refresh policy compares resets against it.
@@ -154,6 +155,32 @@ final class UsageModel: ObservableObject {
             SuggestionOutlook.runOuts(usages: usages, pace: pace, now: now,
                                       warnThreshold: Double(settings.usageWarnPercent)),
             usages: usages, now: now, label: label)
+    }
+
+    /// For accounts on course to run out: the combination their logs say they mostly ran in
+    /// the last day, with a lighter one beside it.
+    func suggestionLighterLines(now: Date = Date(), label: (AccountUsage) -> String) -> [String] {
+        guard let catalog = Self.suggestionCatalog else { return [] }
+        let runOuts = SuggestionOutlook.runOuts(usages: usages, pace: pace, now: now,
+                                                warnThreshold: Double(settings.usageWarnPercent))
+        let hints = Dictionary(usages.compactMap { usage in
+            suggestionLogHint(for: usage).map { (usage.id, $0) }
+        }, uniquingKeysWith: { first, _ in first })
+        return SuggestionText.lighterLines(
+            SuggestionOutlook.lighterOptions(runOuts: runOuts, hints: hints, catalog: catalog,
+                                             task: settings.suggestionTask),
+            usages: usages, catalog: catalog, label: label)
+    }
+
+    /// With no pick: actionable accounts the catalog can't rank that still have room.
+    func suggestionOtherToolLines(now: Date = Date(), label: (AccountUsage) -> String) -> [String] {
+        guard let catalog = Self.suggestionCatalog else { return [] }
+        let eligible = suggestionUsages(now: now)
+        return SuggestionText.otherToolLines(
+            SuggestionOutlook.otherTools(report: suggestionReport(now: now), usages: eligible,
+                                         catalog: catalog, pace: pace, now: now,
+                                         warnThreshold: Double(settings.usageWarnPercent)),
+            usages: eligible, now: now, label: label)
     }
 
     /// The pick's weekly or monthly limit as a daily allowance, when it has one.
@@ -312,8 +339,21 @@ final class UsageModel: ObservableObject {
     }
 
     func suggestionLogEffort(for usage: AccountUsage) -> String? {
+        suggestionLogHint(for: usage)?.effort
+    }
+
+    /// What this account's logs say it mostly ran in the last day. A demo has no logs, only
+    /// what its fixture seeded.
+    private func suggestionLogHint(for usage: AccountUsage) -> SuggestionLogSummary.Hint? {
+        if isDemo { return demoLogHints[usage.id] }
         guard let accountRef = suggestionLogReader?.accountRefKey(for: usage.accountRef) else { return nil }
-        return SuggestionLogSummary.recentEffort(for: accountRef, in: suggestionLogHints)
+        return SuggestionLogSummary.matchingHint(for: accountRef, in: suggestionLogHints)
+    }
+
+    /// Fixture-only: recent model and effort per `AccountUsage.id`, memory only.
+    func seedDemoLogHints(_ hints: [String: SuggestionLogSummary.Hint]) {
+        guard isDemo else { return }
+        demoLogHints = hints
     }
 
     func apiBudgetRemaining(for vendor: APIVendor, now: Date = Date()) -> Double? {
