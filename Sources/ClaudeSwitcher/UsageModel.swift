@@ -183,8 +183,8 @@ final class UsageModel: ObservableObject {
             usages: eligible, now: now, label: label)
     }
 
-    /// Actionable accounts holding a limit reset worth pointing out: left out at the warning
-    /// level, or with a reset about to expire. Text only — the app never uses a reset.
+    /// Actionable accounts holding a limit reset worth pointing out: left out with a limit
+    /// fully used, or with a reset about to expire. Text only — the app never uses a reset.
     func suggestionResetTicketLines(now: Date = Date(), label: (AccountUsage) -> String) -> [String] {
         let eligible = suggestionUsages(now: now)
         return SuggestionText.resetTicketLines(

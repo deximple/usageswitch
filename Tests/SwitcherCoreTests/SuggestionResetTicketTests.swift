@@ -34,13 +34,30 @@ struct SuggestionResetTicketTests {
                       resetCredits: credits)
     }
 
-    @Test("an account left out at the warning level that holds a reset is pointed out")
+    @Test("an account left out with a limit fully used that holds a reset is pointed out")
     func blockedAccountWithAReset() throws {
         let account = blocked("spent", credits: UsageResetCredits(
             available: 2, expiries: [now.addingTimeInterval(18 * day)]))
         #expect(try tickets([account]) == [
             SuggestionOutlook.ResetTicket(accountID: "codex:spent", reason: .blocked),
         ])
+    }
+
+    @Test("an account at the warning level with share still left is not pointed out for its reset")
+    func warnedButNotSpent() throws {
+        let warned = Support.usage("warned", windows: [
+            Support.window(10080, used: 85, resetsIn: 2 * day),
+        ], resetCredits: UsageResetCredits(available: 1))
+        #expect(try tickets([warned]).isEmpty)
+    }
+
+    @Test("blocked accounts are listed in a fixed order whatever order the readings come in")
+    func blockedOrderIsStable() throws {
+        let credits = UsageResetCredits(available: 1)
+        let forward = try tickets([blocked("b", credits: credits), blocked("a", credits: credits)])
+        let backward = try tickets([blocked("a", credits: credits), blocked("b", credits: credits)])
+        #expect(forward == backward)
+        #expect(forward.map(\.accountID) == ["codex:a", "codex:b"])
     }
 
     @Test("a reset expiring within two days is pointed out even when the account has room")
@@ -95,6 +112,20 @@ struct SuggestionResetTicketTests {
         #expect(try tickets([far], pace: [
             UsagePriority.key(far, window): .depleting(at: now.addingTimeInterval(day)),
         ]).isEmpty)
+    }
+
+    @Test("a reset known to have expired is not counted in the line")
+    func expiredResetsAreNotCounted() throws {
+        let nextExpiry = now.addingTimeInterval(30 * hour)
+        let account = Support.usage("a", label: "Work", windows: [
+            Support.window(10080, used: 100, resetsIn: 2 * day),
+        ], resetCredits: UsageResetCredits(available: 2, expiries: [
+            now.addingTimeInterval(-60), nextExpiry,
+        ]))
+        let text = SuggestionText.resetTicketLines(try tickets([account]), usages: [account],
+                                                   now: now, label: { $0.label })
+        #expect(text == [string(.suggestionTicketBlocked, "Codex · Work", try #require(
+            UsageText.resetCredits(UsageResetCredits(available: 1, expiries: [nextExpiry]), now: now)))])
     }
 
     @Test("the lines repeat the row's reset wording and say what the user could do")

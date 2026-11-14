@@ -72,7 +72,7 @@ public enum SuggestionOutlook {
 
     /// Why an account's limit reset is worth pointing out.
     public enum ResetTicketReason: Equatable, Sendable {
-        /// The account is left out at the warning level and holds a reset.
+        /// The account is left out with a limit fully used, and holds a reset.
         case blocked
         /// A reset the account holds expires soon.
         case expiring(at: Date)
@@ -180,9 +180,9 @@ public enum SuggestionOutlook {
         }.prefix(maximumOtherTools))
     }
 
-    /// Accounts holding a limit reset worth pointing out: those left out at the warning level
-    /// first, then those whose next reset expires within `resetTicketHorizon`, soonest first.
-    /// Fresh, readable readings only, and only a reset not known to have expired.
+    /// Accounts holding a limit reset worth pointing out: those left out with a limit fully
+    /// used first, then those whose next reset expires within `resetTicketHorizon`, soonest
+    /// first. Fresh, readable readings only, and only a reset not known to have expired.
     public static func resetTickets(report: SuggestionReport, usages: [AccountUsage],
                                     now: Date) -> [ResetTicket] {
         let blockedIDs = Set(report.excluded.filter { $0.reason == .overWarnThreshold }
@@ -194,10 +194,16 @@ public enum SuggestionOutlook {
             // Every reset could have lapsed only if as many expiries passed as resets are held.
             return credits.expiries.filter { $0 <= now }.count < credits.available
         }
-        let blocked = holders.filter { blockedIDs.contains($0.id) }
-            .map { ResetTicket(accountID: $0.id, reason: .blocked) }
+        // At the warning level with share still left the account can go on; a reset is
+        // worth pointing at once a limit is spent.
+        let blocked = holders.filter { usage in
+            blockedIDs.contains(usage.id) && usage.windows.contains { $0.usedPercent >= 100 }
+        }
+        .map { ResetTicket(accountID: $0.id, reason: .blocked) }
+        .sorted { $0.accountID < $1.accountID }
+        let listed = Set(blocked.map(\.accountID))
         let expiring = holders.compactMap { usage -> (ticket: ResetTicket, at: Date)? in
-            guard !blockedIDs.contains(usage.id),
+            guard !listed.contains(usage.id),
                   let expiry = usage.resetCredits?.nextExpiry(now: now),
                   expiry.timeIntervalSince(now) <= resetTicketHorizon else { return nil }
             return (ResetTicket(accountID: usage.id, reason: .expiring(at: expiry)), expiry)

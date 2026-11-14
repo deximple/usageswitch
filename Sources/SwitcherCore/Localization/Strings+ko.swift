@@ -355,7 +355,7 @@ extension Strings {
         .suggestionOutlookAverage: "%1$@ — %2$@ 지금까지의 평균 속도면 %3$@ 후 소진될 수 있음",
         .suggestionLighter: "%1$@ — 최근 주로 %2$@ 사용 · 더 가벼운 조합: %3$@",
         .suggestionOtherTool: "순위는 매기지 못하지만 여유 있음: %1$@ — %2$@ %3$d%% 남음",
-        .suggestionTicketBlocked: "%1$@ — %2$@ · 직접 쓰면 이 계정의 한도를 지금 리셋할 수 있습니다",
+        .suggestionTicketBlocked: "%1$@ — %2$@ · 직접 쓸 수 있습니다",
         .suggestionTicketExpiring: "%1$@ — %2$@ · 쓰지 않은 티켓은 만료되면 사라집니다",
         .apiTitle: "API 예산 및 예상 지출",
         .apiEmptyState: "지출을 예상할 API 키 계정이 없습니다. 구독 계정은 포함하지 않으며, API 키 계정의 로컬 CLI 로그만 사용합니다.",

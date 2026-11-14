@@ -355,7 +355,7 @@ extension Strings {
         .suggestionOutlookAverage: "%1$@ — %2$@ may run out in %3$@ at its average pace so far",
         .suggestionLighter: "%1$@ — mostly %2$@ lately · lighter option: %3$@",
         .suggestionOtherTool: "Not ranked, but has room: %1$@ — %2$@ %3$d%% left",
-        .suggestionTicketBlocked: "%1$@ — %2$@ · you can use one yourself to reset this account's limit now",
+        .suggestionTicketBlocked: "%1$@ — %2$@ · you could use one yourself",
         .suggestionTicketExpiring: "%1$@ — %2$@ · a reset left unused is lost when it expires",
         .apiTitle: "API budgets & estimates",
         .apiEmptyState: "No API-key accounts are available for spend estimates. Subscription accounts aren't included; estimates use only local CLI logs for API-key accounts.",
