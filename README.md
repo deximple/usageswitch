@@ -57,7 +57,7 @@ often with more than one account each.
 |---|---|
 | 📊 **Every limit at a glance** | Session, daily, weekly and monthly limits for each account, shown as the share you have **left** and the time until it resets. |
 | 🧭 **Only what you actually use** | The list shows the tools installed on this Mac and the accounts you registered. A tool you don't have never appears, and nothing is read for it; one you turn off or hide leaves the list. For Claude and Codex, the local usage logs behind the Guide and the API tab are always read — that part can't be turned off. |
-| 💡 **A hint, never an autopilot** | The **Guide** suggests which account, model and effort fit what's left, using those local log reads. It never switches, launches or signs in on its own. |
+| 💡 **A hint, never an autopilot** | The **Guide** suggests which account, model and effort fit what's left, using those local log reads, shows why, and warns when a limit is on course to run out before it resets. It never switches, launches or signs in on its own. |
 | 🔁 **Switch in one click** | Swap the Claude Desktop sign-in between saved accounts (verified, with automatic rollback), and run Codex accounts side by side in separate windows. |
 | 🔒 **Private by design** | No analytics or telemetry. Updates are checked only when you ask, or daily once you allow it. Emails are masked. The seven optional tools stay off until you turn each one on. |
 
@@ -134,16 +134,17 @@ Each account is a small block: who it is, then one line per limit.
 | `API` · *API key · billed separately* | An API-key profile. It's billed per use and has no subscription limit, so it never counts as remaining quota. |
 | `al•••kim@example.com` | The masked email. Turn on **⚙︎ › Always Show Emails** to show it in full. |
 | `Weekly ▬▬▬▭▭ 45%  3d 23h` | A limit: its name, a bar, the share **left**, and the time until it resets. |
-| `Cursor Models`, `Gemini Models`… | A limit that applies only to some models, named as the provider names it. |
+| `Cursor Models`, `Gemini Models`… | A limit that applies only to some models, named as the provider names it. In the menu, a model group with more than one limit (Antigravity) gets a heading line, and the rows under it show only *Weekly*, *Session*… |
 | *may run out in 5h* | At the current pace, this limit empties before it resets. |
+| *Limit resets: 2 · first expires in 18d 5h* | Free limit resets OpenAI granted this Codex account: how many, and when the first one expires. UsageSwitch only reads them — use a reset in Codex itself. |
 | **More limits (2)** | The compact menu shows up to three limits per account. The rest are in **Details**. |
 | **Details** | Opens a window with every limit, reset times, where the reading came from and the tool version. |
 
-**Bar colors:** grey has room; orange has passed your warning level (80 % used by default); red is used up; a faded bar is an old reading waiting for a refresh — or, for a saved Claude account or Codex sign-in that can't be read right now, that account's last successful reading with the time it was seen. A window whose reset already passed shows no number.
+**Bar colors:** a bar with room is filled with the tool's logo color — Claude's terracotta, blue for Gemini and Antigravity, black (white in dark mode) for the others; amber with a warning icon has passed your warning level (80 % used by default); a red icon and an empty bar mean used up; a faded grey bar is an old reading waiting for a refresh — or, for a saved Claude account or Codex sign-in that can't be read right now, that account's last successful reading with the time it was seen. A window whose reset already passed shows no number.
 
 **Footer:** *updated 1m ago · Next update in 4m*. UsageSwitch refreshes every 5 minutes, right after a limit resets, and when you click ↻.
 
-**Pin a limit:** right-click a limit and choose **Pin**. The menu bar then shows that limit (for example *Weekly 25% left*) instead of whichever limit is tightest.
+**Choose the menu bar limit:** pick any limit in **⚙︎ › Menu Bar Usage**, or right-click a limit and choose **Pin**. The menu bar then shows that limit (for example *Weekly 25% left*) instead of whichever limit is tightest. A choice in **Menu Bar Usage** wins over pins; **Automatic (least left)** goes back to pins, then the tightest limit.
 
 <p align="center">
   <img src="docs/screenshots/en/all-usage.png" width="640" alt="The main window listing every detected tool: Claude, Codex, Cursor, Grok, Gemini, Devin and OpenCode with their limits">
@@ -178,7 +179,7 @@ A row without numbers always says why. Here is what each message means and what 
 |---|---|---|---|
 | **Claude Code** | Session (5 h), weekly, and per-model weekly limits | The `claude` CLI's `/usage` | Automatic |
 | **Saved Claude Desktop accounts** | Same as Claude Code | A Claude Code profile you link (`claude auth status`, then `/usage`) | Per account, in **Details** |
-| **Codex** | Session and weekly limits, per ChatGPT account | `codex app-server` | Automatic |
+| **Codex** | Session and weekly limits, per ChatGPT account, plus any limit resets the account holds | `codex app-server` | Automatic |
 | **Cursor** | Monthly total, plus *Cursor Models* and *Other Models* | Cursor's usage API, using the `cursor-agent` sign-in | ⚙︎ › Usage Connections |
 | **Grok** | Weekly limit | The Grok CLI's usage endpoint | ⚙︎ › Usage Connections |
 | **Gemini** | Per-model input and output limits | Gemini Code Assist quota, using the Gemini CLI sign-in | ⚙︎ › Usage Connections |
@@ -225,9 +226,14 @@ Click **Guide** above the list to open it. A small dot next to it means a sugges
   | *Urgent* | frontier models, maximum effort — asks first, and returns to *Balanced* at the next 5-hour Claude reset (or after five hours) |
 
 - **Task** — slide from *Simple coding* to *Maximum reasoning* to say what you're about to do.
-- **Suggestion** — one line naming the account, the model and the effort that fit what's left right now. When no model suggestion fits, the Guide shows the account with the most room among comparable subscription accounts. API-key profiles are never suggested.
+- **Suggestion** — one line naming the provider and account, the model and the effort that fit what's left right now (*Suggested: …*; with only one account to weigh, *Available: …*). When no model suggestion fits, the Guide shows the account with the most room among comparable subscription accounts. API-key profiles are never suggested.
+- **Why this suggestion** — fold it open to see up to four accounts the suggestion was weighed against (the limit in the way, the share left, when it resets) and the accounts **Left out**: at the warning level, likely to run out before the reset, or waiting for a new reading.
+- **Looking ahead** — from each limit's pace (the recent one when two readings line up, else its average so far), the Guide lists up to three accounts that may run out before they reset, soonest first. Nothing is projected before 15 % of a limit's window has passed. A limit about to reset counts the share that would otherwise lapse unused, so 60 % left three hours before a weekly reset ranks above 70 % left for six more days. For the suggested account it adds *Spread evenly, about 15% a day lasts to the reset*.
+- **A lighter option** — when an account is on course to run out and its logs show what it mostly ran in the last day, the Guide names a lighter model or effort from the same maker (*lighter option: …*). It points a direction, not a saving.
+- **When nothing has room** — the Guide says *No account has room right now.* and which limit frees up first. Tools it can't rank (Cursor, Devin, Copilot, Antigravity) that still have room are listed as *Not ranked, but has room*, two at most.
+- **Limit resets** — a used-up Codex account that holds a limit reset is pointed out (*you could use one yourself*), and so is a reset that expires within two days.
 
-The Guide only suggests. To act on it, you switch yourself.
+Forecasts are estimates from the readings already shown. The Guide only suggests: it never switches, signs in or uses a limit reset. To act on it, you switch yourself.
 
 <details>
 <summary><b>What the Guide reads and keeps</b></summary>
@@ -285,7 +291,8 @@ Everything lives in the **⚙︎** menu.
 | Open at Login | Starts UsageSwitch when you log in. |
 | Show Account Name in Menu Bar | Shows the current Claude account's name next to the icon (emails stay masked). |
 | Always Show Emails | Shows full emails instead of masked ones. |
-| Show Usage in Menu Bar | Shows the tightest (or pinned) limit next to the icon, for example *Weekly 25% left*. On by default. |
+| Show Usage in Menu Bar | Shows a limit next to the icon, for example *Weekly 25% left*. On by default. |
+| Menu Bar Usage | Which limit that is. **Automatic (least left)** uses a pinned limit, else the one with the least left that isn't used up; or pick one limit from the list. |
 | Usage Alerts · Warn at used percentage | Sends a macOS notification when a limit passes 70 %, 80 % (default) or 90 % used. |
 | Show the Guide indicator | The dot next to **Guide** when a suggestion is ready. |
 | Usage Connections | Turns each optional tool on or off; a tool turned off leaves the usage list. Lists only tools found on this Mac. |
