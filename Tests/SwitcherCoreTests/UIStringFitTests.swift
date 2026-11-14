@@ -144,7 +144,7 @@ struct UIStringFitTests {
     /// Rows of the menu that hold localized text on one line. Their paddings and gaps are modelled from the
     /// views, not pinned to them; the `WRAPS` report of `scripts/ui-snapshots.sh` shows what really wrapped.
     enum MenuRow: String, CaseIterable, Sendable {
-        case header, footer, bottomBar = "bottom bar"
+        case header, footer, bottomBar = "bottom bar", resetTickets = "reset tickets"
     }
 
     /// The width a row needs: its text plus the fixed padding, gaps and icons around it.
@@ -166,6 +166,10 @@ struct UIStringFitTests {
         case .bottomBar:   // Open window · gear · Quit
             let gear = try #require(TextStyle(size: 13).width(ofSymbol: "gearshape"))
             return button(text(.uiOpenWindow)) + gear + button(text(.uiQuit)) + 3 * gap
+        case .resetTickets:   // ticket icon, then the count and the first expiry; one line, cut if too long
+            let small = TextStyle(size: 11)
+            let ticket = try #require(small.width(ofSymbol: "ticket"))
+            return ticket + gap + small.width(of: text(.usageResetCreditsExpiry, 99, text(.usageDurDH, 30, 23)))
         }
     }
 
@@ -204,15 +208,21 @@ struct UIStringFitTests {
         }
     }
 
-    /// Every string the gear menu shows, read from the view so a new item is covered without editing this test.
+    /// Strings in `SettingsMenu.swift` that are not menu items: the gear's own label, alerts and About.
+    private static let notGearMenuItems: Set<L10nKey> = [
+        .uiSettings, .uiCancel, .uiAboutCredits, .uiConnectUsageTitle, .uiConnectUsageEnable,
+        .suggestionFlushConfirm, .suggestionFlushMessage, .suggestionFlushFailure,
+    ]
+
+    /// Every string the gear menu shows: all the keys `SettingsMenu.swift` uses except the ones listed
+    /// above, so a new item is covered without editing this test (a new alert text has to be listed).
     private static func gearMenuKeys() throws -> [L10nKey] {
         let source = try String(contentsOf: appSources.appendingPathComponent("SettingsMenu.swift"), encoding: .utf8)
-        // The menu's items come before its label; the alerts after it are not menu items.
-        let items = try #require(source.components(separatedBy: "} label: {").first)
         let byName = Dictionary(uniqueKeysWithValues: L10nKey.allCases.map { ("\($0)", $0) })
-        let keys = try items.matches(of: /L10n\.t\(\.(\w+)/).map { try #require(byName[String($0.output.1)]) }
-        try #require(keys.count >= 10, "SettingsMenu.swift no longer reads as a menu followed by its label")
-        return keys
+        let keys = try Set(source.matches(of: /L10n\.t\(\.(\w+)/).map { try #require(byName[String($0.output.1)]) })
+            .subtracting(notGearMenuItems)
+        try #require(keys.count >= 10, "SettingsMenu.swift no longer names its strings as L10n.t(.key)")
+        return keys.sorted { $0.rawValue < $1.rawValue }
     }
 
     // MARK: - The measurement itself
