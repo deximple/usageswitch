@@ -110,6 +110,33 @@ struct SuggestionExpiringTests {
         #expect(abs(pick.remainingShare - 0.1) < 0.000_001)
     }
 
+    @Test("a measured pace that would spend the leftover before the reset takes the bonus away")
+    func measuredPaceCanCancelTheBonus() throws {
+        // 60% left, 3 hours to go. The measured pace empties it 12 minutes after the reset:
+        // on course to last, but under 10 points would be left over.
+        let window = Support.window(10080, used: 40, resetsIn: 3 * hour)
+        let account = Support.usage("a", windows: [window])
+        let pick = try #require(try report([account], pace: [
+            UsagePriority.key(account, window): .depleting(at: now.addingTimeInterval(3.2 * hour)),
+        ]).options.first)
+        #expect(pick.expiringWindowKey == nil)
+        #expect(pick.situation == .windowHeadroom)
+        #expect(abs(pick.remainingShare - 0.6) < 0.000_001)
+    }
+
+    @Test("a slower measured pace keeps the bonus at the smaller of the two leftovers")
+    func measuredPaceCanShrinkTheBonus() throws {
+        // The measured pace empties it 3 hours after the reset, so half of the 60% would
+        // lapse; the week's average alone would say nearly all of it.
+        let window = Support.window(10080, used: 40, resetsIn: 3 * hour)
+        let account = Support.usage("a", windows: [window])
+        let pick = try #require(try report([account], pace: [
+            UsagePriority.key(account, window): .depleting(at: now.addingTimeInterval(6 * hour)),
+        ]).options.first)
+        #expect(pick.expiringWindowKey == "codex:a/weekly/")
+        #expect(abs(pick.remainingShare - 0.9) < 0.000_001)
+    }
+
     @Test("the warning level and a measured early run-out still leave an expiring account out")
     func exclusionsStillWin() throws {
         let warned = Support.usage("warned", windows: [

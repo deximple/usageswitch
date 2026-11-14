@@ -148,7 +148,7 @@ public enum SuggestionEngine {
                 }
                 // What would lapse unused on a limit about to reset counts on top of its
                 // remaining share, so that limit binds less — or not at all.
-                let lapsing = lapsingShares(in: windows, now: now)
+                let lapsing = lapsingShares(in: windows, paceReadings: paceReadings, now: now)
                 let shares = windows.enumerated().map { index, window in
                     min(1, (100 - window.usedPercent) / 100 + (lapsing[index] ?? 0))
                 }
@@ -212,9 +212,11 @@ public enum SuggestionEngine {
     }
 
     /// For the longest limits (every one of that length) that reset soon: the share each
-    /// would still hold at the reset at its own average pace, keyed by window index. A limit
-    /// that would hold less than `expiringLeftoverFloor` points is left alone.
-    private static func lapsingShares(in windows: [UsageWindow], now: Date) -> [Int: Double] {
+    /// would still hold at the reset, keyed by window index — the smaller of what its own
+    /// average pace and a measured pace leave. A limit that would hold less than
+    /// `expiringLeftoverFloor` points is left alone.
+    private static func lapsingShares(in windows: [UsageWindow], paceReadings: [UsagePace.Reading],
+                                      now: Date) -> [Int: Double] {
         guard let longest = windows.compactMap(\.durationMinutes).max(), longest > 0 else { return [:] }
         let soon = min(TimeInterval(longest) * 60 * expiringShare, expiringHorizon)
         var shares: [Int: Double] = [:]
@@ -222,7 +224,13 @@ public enum SuggestionEngine {
             guard window.durationMinutes == longest, let resetsAt = window.resetsAt,
                   resetsAt.timeIntervalSince(now) <= soon,
                   let projection = UsageForecast.projection(window, now: now) else { continue }
-            let leftover = 100 - projection.projectedUsedAtReset
+            var leftover = 100 - projection.projectedUsedAtReset
+            if case .depleting(let emptyAt) = paceReadings[index] {
+                // The measured slope spends (100 - used) over the time to `emptyAt`.
+                let untilEmpty = emptyAt.timeIntervalSince(now)
+                let spentShare = untilEmpty > 0 ? min(1, resetsAt.timeIntervalSince(now) / untilEmpty) : 1
+                leftover = min(leftover, (100 - window.usedPercent) * (1 - spentShare))
+            }
             if leftover >= expiringLeftoverFloor { shares[index] = leftover / 100 }
         }
         return shares
