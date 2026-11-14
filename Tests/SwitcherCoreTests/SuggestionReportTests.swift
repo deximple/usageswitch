@@ -110,6 +110,50 @@ struct SuggestionReportTests {
             windowKey: "codex:stale/session/", unblocksAt: nil)])
     }
 
+    @Test("the unblock moment waits for every blocker, whatever its kind")
+    func unblockWaitsForEveryBlocker() throws {
+        // The session is spent (resets in 40 min) and the weekly drains before its own reset
+        // in 3 days: the account stays blocked until the weekly resets.
+        let session = Support.window(300, used: 100, resetsIn: 40 * 60)
+        let weekly = Support.window(10080, used: 50, resetsIn: 3 * 86400)
+        let account = Support.usage("mixed", windows: [session, weekly])
+        let runsOutAt = now.addingTimeInterval(2 * 86400)
+        let excluded = try #require(try report([account], pace: [
+            UsagePriority.key(account, weekly): .depleting(at: runsOutAt),
+        ]).excluded.first)
+
+        #expect(excluded.reason == .runsOutEarly(at: runsOutAt))
+        #expect(excluded.windowKey == "codex:mixed/weekly/")
+        #expect(excluded.unblocksAt == now.addingTimeInterval(3 * 86400))
+    }
+
+    @Test("with two draining windows the later reset is the unblock moment")
+    func unblockWaitsForTheLastDrainingWindow() throws {
+        let session = Support.window(300, used: 50, resetsIn: 3600)
+        let weekly = Support.window(10080, used: 50, resetsIn: 3 * 86400)
+        let account = Support.usage("draining", windows: [session, weekly])
+        let excluded = try #require(try report([account], pace: [
+            UsagePriority.key(account, session): .depleting(at: now.addingTimeInterval(600)),
+            UsagePriority.key(account, weekly): .depleting(at: now.addingTimeInterval(86400)),
+        ]).excluded.first)
+
+        #expect(excluded.reason == .runsOutEarly(at: now.addingTimeInterval(86400)))
+        #expect(excluded.windowKey == "codex:draining/weekly/")
+        #expect(excluded.unblocksAt == now.addingTimeInterval(3 * 86400))
+    }
+
+    @Test("an unreadable window beside a blocked one leaves no unblock moment")
+    func unreadableWindowHidesTheUnblockMoment() throws {
+        let account = Support.usage("mixed", windows: [
+            Support.window(300, used: 95, resetsIn: 3600),
+            Support.window(10080, used: 20, resetsIn: -60),
+        ])
+        let excluded = try #require(try report([account]).excluded.first)
+        #expect(excluded.reason == .invalidWindow)
+        #expect(excluded.windowKey == "codex:mixed/weekly/")
+        #expect(excluded.unblocksAt == nil)
+    }
+
     @Test("failed, aged and unmapped readings appear in neither list")
     func ignoredReadings() throws {
         let window = Support.window(300, used: 20, resetsIn: 3600)

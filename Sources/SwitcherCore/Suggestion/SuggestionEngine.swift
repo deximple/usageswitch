@@ -199,7 +199,7 @@ public enum SuggestionEngine {
     }
 
     /// Why these windows can't carry a candidate, or nil when they can. An untrustworthy
-    /// number comes first, then the warning level, then a measured early run-out.
+    /// number says nothing more; otherwise the blocker named is the one that clears last.
     private static func block(_ windows: [UsageWindow], paceReadings: [UsagePace.Reading],
                               usage: AccountUsage, now: Date, warnThreshold: Double) -> Block? {
         if let invalid = windows.first(where: {
@@ -209,28 +209,28 @@ public enum SuggestionEngine {
             return Block(reason: .invalidWindow, windowKey: UsagePriority.key(usage, invalid),
                          unblocksAt: nil)
         }
-        // The account frees up when its last blocking limit resets; a blocking limit
-        // without a reset time never says when.
-        let over = windows.filter { $0.usedPercent >= warnThreshold }
-        if let blocker = over.min(by: { lhs, rhs in
-            switch (lhs.resetsAt, rhs.resetsAt) {
+        // Every limit in the way: at the warning level, or draining before its own reset.
+        let blockers = zip(windows, paceReadings).compactMap {
+            window, reading -> (window: UsageWindow, reason: SuggestionExclusion)? in
+            if window.usedPercent >= warnThreshold { return (window, .overWarnThreshold) }
+            if let runsOutAt = UsagePace.runsOutEarly(reading, window: window) {
+                return (window, .runsOutEarly(at: runsOutAt))
+            }
+            return nil
+        }
+        // The account frees up when its last blocker resets; a blocker without a reset
+        // time never says when.
+        guard let last = blockers.min(by: { lhs, rhs in
+            switch (lhs.window.resetsAt, rhs.window.resetsAt) {
             case (nil, .some): return true
             case (.some, nil): return false
             case (let left?, let right?) where left != right: return left > right
-            default: return UsagePriority.key(usage, lhs) < UsagePriority.key(usage, rhs)
+            default:
+                return UsagePriority.key(usage, lhs.window) < UsagePriority.key(usage, rhs.window)
             }
-        }) {
-            return Block(reason: .overWarnThreshold, windowKey: UsagePriority.key(usage, blocker),
-                         unblocksAt: blocker.resetsAt)
-        }
-        for (window, reading) in zip(windows, paceReadings) {
-            if let runsOutAt = UsagePace.runsOutEarly(reading, window: window) {
-                return Block(reason: .runsOutEarly(at: runsOutAt),
-                             windowKey: UsagePriority.key(usage, window),
-                             unblocksAt: window.resetsAt)
-            }
-        }
-        return nil
+        }) else { return nil }
+        return Block(reason: last.reason, windowKey: UsagePriority.key(usage, last.window),
+                     unblocksAt: last.window.resetsAt)
     }
 
     /// Orders an account's blocked models by when they free up; unknown times go last.
