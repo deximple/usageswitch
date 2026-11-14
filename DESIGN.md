@@ -123,6 +123,16 @@
 - 제공자 아이콘은 로컬 설치 앱의 NSWorkspace 아이콘을 정확히 쓰고, 벤더 자산 번들링 없이
   없으면 텍스트 폴백.
 
+## 앱 아이콘
+
+- Dock·Finder 아이콘은 **남은 한도 목록**이다: 따뜻한 종이색 타일에 계정 점과 남은 한도 막대가 세 줄.
+  첫 줄은 현재 계정이라 시스템 블루, 나머지는 먹색, 트랙은 중립색이고 막대 끝은 앱 막대처럼 반원이다.
+  32px 이하에서는 점을 빼고 막대를 굵게 그린다. 벤더 로고·상표·로고 색은 쓰지 않는다(독립 앱).
+- 정본은 `scripts/make-icon.swift`다. `Resources/AppIcon.icns`와 `docs/screenshots/icon.png`는
+  그 산출물이라 직접 고치지 않는다. 메뉴바 아이콘(SF Symbol `person.2.circle`)은 별개다.
+- macOS 26 이상은 `.icns`만 있는 앱을 16pt에서 회색 테두리 안에 줄여 그린다. Icon Composer
+  아이콘(`Assets.car`)은 아직 넣지 않았다.
+
 ## 외관·동작·접근성
 
 - 외관: 기본 System, Light/Dark 명시 — 기존 AppAppearance로 지속되고 시스템은 OS를 실시간 추적,
