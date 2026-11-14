@@ -1,6 +1,16 @@
 import Foundation
 import SwitcherCore
 
+/// The first bytes of a Mach-O file: what a fake CLI starts with so it isn't taken for a script.
+let machOMagic: [UInt8] = [0xCF, 0xFA, 0xED, 0xFE]
+
+/// Bytes followed by text, as one file's content.
+func bytes(_ prefix: [UInt8], then text: String = "") -> Data {
+    var data = Data(prefix)
+    data.append(Data(text.utf8))
+    return data
+}
+
 /// A throwaway folder under the temporary directory, removed when the test ends.
 final class TempFolder {
     let url: URL
@@ -58,12 +68,16 @@ enum Sample {
     static let email = "someone@example.com"
     static let accountId = "11111111-2222-3333-4444-555555555555"
 
+    private static func line(_ object: [String: Any]) -> String {
+        String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+    }
+
     static func claudeStream(_ panel: String) -> [String] {
         let result: [String: Any] = ["type": "result", "subtype": "success", "is_error": false,
                                      "num_turns": 0, "total_cost_usd": 0, "result": panel]
-        let line = String(decoding: try! JSONSerialization.data(withJSONObject: result), as: UTF8.self)
-        return [#"{"type":"system","subtype":"init","account":"\#(email)"}"#,
-                #"{"type":"assistant","message":{"model":"<synthetic>"}}"#, line]
+        let initLine = #"{"type":"system","subtype":"init","account":"\#(email)"}"#
+        let assistant = #"{"type":"assistant","message":{"model":"<synthetic>"}}"#
+        return [initLine, assistant, line(result)]
     }
 
     static let claudePanel = """
@@ -80,92 +94,143 @@ enum Sample {
         """
 
     static func authStatus(loggedIn: Bool = true, dropping dropped: String? = nil) -> String {
-        var status: [String: Any] = [
-            "loggedIn": loggedIn, "authMethod": "claude.ai", "apiProvider": "firstParty",
-            "analyticsDisabled": false, "projectsDirectory": "/Users/someone/.claude/projects",
-            "configDirectory": "/Users/someone/.claude", "email": email, "orgId": accountId,
-            "orgName": "Someone's Org", "subscriptionType": "max",
-        ]
+        var status: [String: Any] = [:]
+        status["loggedIn"] = loggedIn
+        status["authMethod"] = "claude.ai"
+        status["apiProvider"] = "firstParty"
+        status["analyticsDisabled"] = false
+        status["projectsDirectory"] = "/Users/someone/.claude/projects"
+        status["configDirectory"] = "/Users/someone/.claude"
+        status["email"] = email
+        status["orgId"] = accountId
+        status["orgName"] = "Someone's Org"
+        status["subscriptionType"] = "max"
         if let dropped { status[dropped] = nil }
-        return String(decoding: try! JSONSerialization.data(withJSONObject: status), as: UTF8.self)
+        return line(status)
+    }
+
+    static var defaultWindow: [String: Any] {
+        ["usedPercent": 31, "windowDurationMins": 10080, "resetsAt": 1_794_301_834]
     }
 
     /// A `codex app-server` exchange whose answer is built from the names in `CodexAppContract`.
-    static func codexAnswer(window: [String: Any] = ["usedPercent": 31, "windowDurationMins": 10080,
-                                                       "resetsAt": 1_794_301_834]) -> [String] {
-        let snapshot: [String: Any] = ["primary": window, "secondary": NSNull(), "planType": "plus",
-                                       "limitId": "codex"]
-        let answer: [String: Any] = ["id": 2, "result": [
-            "rateLimits": snapshot, "rateLimitsByLimitId": ["codex": snapshot, "other-limit": snapshot],
-            "accountId": accountId,
-        ]]
-        return [#"{"id":1,"result":{"userAgent":"usageswitch"}}"#,
-                String(decoding: try! JSONSerialization.data(withJSONObject: answer), as: UTF8.self)]
+    static func codexAnswer(window: [String: Any] = defaultWindow) -> [String] {
+        var snapshot: [String: Any] = [:]
+        snapshot["primary"] = window
+        snapshot["secondary"] = NSNull()
+        snapshot["planType"] = "plus"
+        snapshot["limitId"] = "codex"
+        let byLimit: [String: Any] = ["codex": snapshot, "other-limit": snapshot]
+        var result: [String: Any] = [:]
+        result["rateLimits"] = snapshot
+        result["rateLimitsByLimitId"] = byLimit
+        result["accountId"] = accountId
+        let answer: [String: Any] = ["id": 2, "result": result]
+        return [#"{"id":1,"result":{"userAgent":"usageswitch"}}"#, line(answer)]
+    }
+
+    // MARK: - A schema bundle
+
+    private static func reference(_ name: String) -> [String: Any] { ["$ref": "#/definitions/\(name)"] }
+
+    private static func type(_ name: String) -> [String: Any] { ["type": name] }
+
+    private static func nullable(_ name: String, format: String? = nil) -> [String: Any] {
+        let names: [String] = [name, "null"]
+        var schema: [String: Any] = ["type": names]
+        if let format { schema["format"] = format }
+        return schema
+    }
+
+    private static func orNull(_ schema: [String: Any]) -> [String: Any] {
+        let alternatives: [[String: Any]] = [schema, type("null")]
+        return ["anyOf": alternatives]
+    }
+
+    private static func object(_ properties: [String: Any], required: [String] = []) -> [String: Any] {
+        var schema: [String: Any] = ["type": "object", "properties": properties]
+        if !required.isEmpty { schema["required"] = required }
+        return schema
+    }
+
+    private static func method(_ name: String, _ params: [String: Any]) -> [String: Any] {
+        let names: [String] = [name]
+        let tag: [String: Any] = ["enum": names, "type": "string"]
+        let properties: [String: Any] = ["method": tag, "params": params]
+        return ["properties": properties]
+    }
+
+    private static var sharedDefinitions: [String: Any] {
+        var window: [String: Any] = [:]
+        window["usedPercent"] = ["type": "integer", "format": "int32"] as [String: Any]
+        window["windowDurationMins"] = nullable("integer", format: "int64")
+        window["resetsAt"] = nullable("integer", format: "int64")
+
+        var snapshot: [String: Any] = [:]
+        snapshot["primary"] = orNull(reference("RateLimitWindow"))
+        snapshot["secondary"] = orNull(reference("RateLimitWindow"))
+        snapshot["planType"] = orNull(reference("PlanType"))
+        snapshot["limitId"] = nullable("string")
+
+        let plans: [String] = ["free", "plus", "pro"]
+        let clientInfo: [String: Any] = ["name": type("string"), "version": type("string")]
+        let initialize: [String: Any] = ["clientInfo": reference("ClientInfo")]
+        let readParams: [String: Any] = ["excludeResetCreditDetails": type("boolean")]
+        let consumeParams: [String: Any] = ["idempotencyKey": type("string")]
+
+        var shared: [String: Any] = [:]
+        shared["RateLimitWindow"] = object(window, required: ["usedPercent"])
+        shared["RateLimitSnapshot"] = object(snapshot)
+        shared["PlanType"] = ["enum": plans, "type": "string"] as [String: Any]
+        shared["ClientInfo"] = object(clientInfo, required: ["name", "version"])
+        shared["InitializeParams"] = object(initialize, required: ["clientInfo"])
+        shared["GetAccountRateLimitsParams"] = object(readParams)
+        shared["ConsumeAccountRateLimitResetCreditParams"] = object(consumeParams, required: ["idempotencyKey"])
+        return shared
     }
 
     /// The smallest schema bundle `CodexProtocolSnapshot.read` understands, written the way
     /// `codex app-server generate-json-schema --out` lays it out. `edit` changes it first.
     static func writeSchema(to directory: URL, edit: (inout [String: [String: Any]]) -> Void = { _ in }) {
-        func reference(_ name: String) -> [String: Any] { ["$ref": "#/definitions/\(name)"] }
-        func method(_ name: String, _ params: Any) -> [String: Any] {
-            ["properties": ["method": ["enum": [name], "type": "string"], "params": params]]
-        }
-        let window: [String: Any] = [
-            "type": "object", "required": ["usedPercent"],
-            "properties": ["usedPercent": ["type": "integer", "format": "int32"],
-                           "windowDurationMins": ["type": ["integer", "null"], "format": "int64"],
-                           "resetsAt": ["type": ["integer", "null"], "format": "int64"]],
+        let shared: [String: Any] = sharedDefinitions
+        let requests: [[String: Any]] = [
+            method("initialize", reference("InitializeParams")),
+            method("account/rateLimits/read", orNull(reference("GetAccountRateLimitsParams"))),
+            method("account/rateLimitResetCredit/consume", reference("ConsumeAccountRateLimitResetCreditParams")),
+            method("thread/start", type("null")),
         ]
-        let nullableWindow: [String: Any] = ["anyOf": [reference("RateLimitWindow"), ["type": "null"]]]
-        let snapshot: [String: Any] = [
-            "type": "object",
-            "properties": ["primary": nullableWindow, "secondary": nullableWindow,
-                           "planType": ["anyOf": [reference("PlanType"), ["type": "null"]]],
-                           "limitId": ["type": ["string", "null"]]],
+        let initializedTag: [String: Any] = ["enum": ["initialized"] as [String], "type": "string"]
+        let initialized: [String: Any] = ["properties": ["method": initializedTag] as [String: Any],
+                                          "required": ["method"] as [String]]
+        let clientNotifications: [[String: Any]] = [initialized]
+        let serverNotifications: [[String: Any]] = [
+            method("account/rateLimits/updated", reference("AccountRateLimitsUpdatedNotification")),
+            method("thread/started", type("null")),
         ]
-        let shared: [String: Any] = [
-            "RateLimitWindow": window, "RateLimitSnapshot": snapshot,
-            "PlanType": ["enum": ["free", "plus", "pro"], "type": "string"],
-            "ClientInfo": ["type": "object", "required": ["name", "version"],
-                           "properties": ["name": ["type": "string"], "version": ["type": "string"]]],
-            "InitializeParams": ["type": "object", "required": ["clientInfo"],
-                                 "properties": ["clientInfo": reference("ClientInfo")]],
-            "GetAccountRateLimitsParams": ["type": "object",
-                                           "properties": ["excludeResetCreditDetails": ["type": "boolean"]]],
-            "ConsumeAccountRateLimitResetCreditParams": [
-                "type": "object", "required": ["idempotencyKey"],
-                "properties": ["idempotencyKey": ["type": "string"]]],
-        ]
-        var files: [String: [String: Any]] = [
-            "ClientRequest.json": ["definitions": shared, "oneOf": [
-                method("initialize", reference("InitializeParams")),
-                method("account/rateLimits/read",
-                       ["anyOf": [reference("GetAccountRateLimitsParams"), ["type": "null"]]]),
-                method("account/rateLimitResetCredit/consume",
-                       reference("ConsumeAccountRateLimitResetCreditParams")),
-                method("thread/start", ["type": "null"]),
-            ]],
-            "ClientNotification.json": ["oneOf": [
-                ["properties": ["method": ["enum": ["initialized"], "type": "string"]], "required": ["method"]],
-            ]],
-            "ServerNotification.json": ["definitions": shared, "oneOf": [
-                method("account/rateLimits/updated", reference("AccountRateLimitsUpdatedNotification")),
-                method("thread/started", ["type": "null"]),
-            ]],
-            "v2/GetAccountRateLimitsResponse.json": [
-                "definitions": shared, "type": "object", "required": ["rateLimits"],
-                "properties": ["rateLimits": ["allOf": [reference("RateLimitSnapshot")]],
-                               "rateLimitsByLimitId": ["type": ["object", "null"],
-                                                       "additionalProperties": reference("RateLimitSnapshot")],
-                               "accountId": ["type": ["string", "null"]]]],
-            "JSONRPCErrorError.json": [
-                "type": "object", "required": ["code", "message"],
-                "properties": ["code": ["type": "integer", "format": "int64"],
-                               "message": ["type": "string"], "data": true]],
-        ]
+
+        var byLimit: [String: Any] = nullable("object")
+        byLimit["additionalProperties"] = reference("RateLimitSnapshot")
+        var answer: [String: Any] = [:]
+        answer["rateLimits"] = ["allOf": [reference("RateLimitSnapshot")] as [[String: Any]]] as [String: Any]
+        answer["rateLimitsByLimitId"] = byLimit
+        answer["accountId"] = nullable("string")
+        var response: [String: Any] = object(answer, required: ["rateLimits"])
+        response["definitions"] = shared
+
+        var errorMembers: [String: Any] = [:]
+        errorMembers["code"] = ["type": "integer", "format": "int64"] as [String: Any]
+        errorMembers["message"] = type("string")
+        errorMembers["data"] = true
+
+        var files: [String: [String: Any]] = [:]
+        files["ClientRequest.json"] = ["definitions": shared, "oneOf": requests]
+        files["ClientNotification.json"] = ["oneOf": clientNotifications]
+        files["ServerNotification.json"] = ["definitions": shared, "oneOf": serverNotifications]
+        files["v2/GetAccountRateLimitsResponse.json"] = response
+        files["JSONRPCErrorError.json"] = object(errorMembers, required: ["code", "message"])
         edit(&files)
         for (name, content) in files {
-            let file = directory.appendingPathComponent(name)
+            let file: URL = directory.appendingPathComponent(name)
             try! FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                      withIntermediateDirectories: true)
             try! JSONSerialization.data(withJSONObject: content).write(to: file)

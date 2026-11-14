@@ -48,8 +48,10 @@ struct DriftReportTests {
     @Test("anything shaped like account data is taken out of the printed text")
     func scrubbing() {
         // Put together here so the repository itself holds nothing shaped like a secret.
-        let jwt = ["eyJ" + "hbGciOiJIUzI1NiJ9", "eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0", "abc_DEF-123"].joined(separator: ".")
-        let key = "sk-" + "proj-" + "abcdefghijklmnop1234"
+        let head = "eyJ"
+        let jwt = "\(head)hbGciOiJIUzI1NiJ9.\(head)zdWIiOiIxMjM0NTY3ODkwIn0.abc_DEF-123"
+        let prefix = "sk"
+        let key = "\(prefix)-proj-abcdefghijklmnop1234"
         let text = """
             path /Users/someone/.local/bin/claude and /Users/someone
             mail \(Sample.email) id \(Sample.accountId)
@@ -80,12 +82,19 @@ struct DriftReportTests {
 
     @Test("a JSON shape is key names and types — never a value, never an unvetted key")
     func jsonShape() {
-        let value: [String: Any] = [
-            "email": Sample.email, "count": 3, "on": true, "none": NSNull(), "list": [1, 2],
-            "nested": ["inner": ["deep": ["deeper": "x"]]],
-            "byId": ["first-id": ["used": 1], "second-id": ["used": 2, "extra": "x"]],
-            "surprise-\(Sample.accountId)": "x",
-        ]
+        let deep: [String: Any] = ["deeper": "x"]
+        let inner: [String: Any] = ["deep": deep]
+        let first: [String: Any] = ["used": 1]
+        let second: [String: Any] = ["used": 2, "extra": "x"]
+        var value: [String: Any] = [:]
+        value["email"] = Sample.email
+        value["count"] = 3
+        value["on"] = true
+        value["none"] = NSNull()
+        value["list"] = [1, 2] as [Int]
+        value["nested"] = ["inner": inner] as [String: Any]
+        value["byId"] = ["first-id": first, "second-id": second] as [String: Any]
+        value["surprise-\(Sample.accountId)"] = "x"
         let known: Set<String> = ["email", "count", "on", "none", "list", "nested", "inner", "deep", "deeper",
                                   "byId", "used"]
         #expect(JSONShape.keys(of: value, depth: 3, known: known) == [

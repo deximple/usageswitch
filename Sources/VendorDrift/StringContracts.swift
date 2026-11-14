@@ -26,22 +26,32 @@ public enum StringContracts {
     public static var claude: [StringContract] {
         let panel = "ClaudeUsageText reads the usage windows from this panel line"
         let stream = "ClaudeUsageOutput decides from it whether the answer is clean"
-        let separator: [[UInt8]] = [
-            Array(#"% used \xB7 resets "#.utf8),         // as written in the bundled script
-            Array("% used · resets ".utf8),              // UTF-8
-            Array("% used ".utf8) + [0xB7] + Array(" resets ".utf8),  // Latin-1 string table
-        ]
-        return [
+        let passed = "ClaudeUsageCollector passes it to keep the run quiet and local"
+        var contracts: [StringContract] = [
             StringContract("Current session", reason: panel),
             StringContract("Current week (all models)", reason: panel),
-            StringContract(label: "% used · resets ", reason: panel, bytes: separator),
+            StringContract(label: "% used · resets ", reason: panel, bytes: panelSeparator),
             StringContract("<synthetic>", reason: stream),
             StringContract("num_turns", reason: stream),
             StringContract("total_cost_usd", reason: stream),
             StringContract("is_error", reason: stream),
-        ] + invocation(ClaudeUsageCollector.arguments).map {
-            StringContract($0, reason: "ClaudeUsageCollector passes it to keep the run quiet and local")
+        ]
+        for word in invocation(ClaudeUsageCollector.arguments) {
+            contracts.append(StringContract(word, reason: passed))
         }
+        return contracts
+    }
+
+    /// `% used · resets ` the three ways a binary may store its middle dot.
+    private static var panelSeparator: [[UInt8]] {
+        let before: [UInt8] = Array("% used ".utf8)
+        let after: [UInt8] = Array(" resets ".utf8)
+        let escaped: [UInt8] = Array(#"% used \xB7 resets "#.utf8)   // as written in the bundled script
+        let utf8: [UInt8] = Array("% used · resets ".utf8)
+        var latin1: [UInt8] = before                                 // a Latin-1 string table
+        latin1.append(0xB7)
+        latin1.append(contentsOf: after)
+        return [escaped, utf8, latin1]
     }
 
     /// The `/usage` screen title `AntigravityUsageScreen` looks for. The screen's footer is
@@ -63,14 +73,18 @@ public enum StringContracts {
     /// The long options and settings keys in a command line: `--flag` words, the value after
     /// `--output-format`, and the keys of a JSON object argument.
     static func invocation(_ arguments: [String]) -> [String] {
-        arguments.enumerated().flatMap { index, argument -> [String] in
-            if argument.hasPrefix("--") { return [argument] }
-            if index > 0, arguments[index - 1] == "--output-format" { return [argument] }
-            guard argument.hasPrefix("{"),
-                  let object = try? JSONSerialization.jsonObject(with: Data(argument.utf8)) as? [String: Any]
-            else { return [] }
-            return object.keys.sorted()
+        var words: [String] = []
+        for (index, argument) in arguments.enumerated() {
+            if argument.hasPrefix("--") {
+                words.append(argument)
+            } else if index > 0, arguments[index - 1] == "--output-format" {
+                words.append(argument)
+            } else if argument.hasPrefix("{"),
+                      let object = try? JSONSerialization.jsonObject(with: Data(argument.utf8)) as? [String: Any] {
+                words.append(contentsOf: object.keys.sorted())
+            }
         }
+        return words
     }
 }
 
@@ -90,13 +104,17 @@ public enum BinaryStrings {
         guard let data = try? Data(contentsOf: file, options: .alwaysMapped), !data.isEmpty
         else { return .unreadable }
         guard !data.starts(with: Array("#!".utf8)) else { return .script }
-        return data.withUnsafeBytes { buffer in
-            .scanned(missing: contracts.filter { contract in
-                !contract.alternatives.contains { needle in
-                    guard !needle.isEmpty, buffer.count >= needle.count else { return false }
-                    return memmem(buffer.baseAddress, buffer.count, needle, needle.count) != nil
-                }
-            })
+        let missing: [StringContract] = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> [StringContract] in
+            contracts.filter { (contract: StringContract) -> Bool in !contains(contract, in: buffer) }
         }
+        return .scanned(missing: missing)
+    }
+
+    private static func contains(_ contract: StringContract, in buffer: UnsafeRawBufferPointer) -> Bool {
+        for needle in contract.alternatives {
+            guard !needle.isEmpty, buffer.count >= needle.count else { continue }
+            if memmem(buffer.baseAddress, buffer.count, needle, needle.count) != nil { return true }
+        }
+        return false
     }
 }

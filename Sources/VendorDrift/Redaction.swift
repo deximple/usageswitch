@@ -17,18 +17,22 @@ public enum Redaction {
     public static func scrub(_ text: String, home: URL) -> String {
         // The home folder as a whole path component run: not inside `/private/Users/x`, and
         // not the front of `/Users/x-other`. Those fall to the `/Users/<user>` pattern.
-        let homePattern = #"(?<![A-Za-z0-9_./-])"#
-            + NSRegularExpression.escapedPattern(for: home.standardizedFileURL.path) + #"(?![A-Za-z0-9_.-])"#
-        let withoutHome = text.replacingOccurrences(of: homePattern, with: "~", options: .regularExpression)
-        return patterns.reduce(withoutHome) { out, pattern in
-            out.replacingOccurrences(of: pattern.0, with: pattern.1, options: .regularExpression)
+        let escapedHome: String = NSRegularExpression.escapedPattern(for: home.standardizedFileURL.path)
+        let homePattern = #"(?<![A-Za-z0-9_./-])\#(escapedHome)(?![A-Za-z0-9_.-])"#
+        var out: String = text.replacingOccurrences(of: homePattern, with: "~", options: .regularExpression)
+        for (pattern, replacement) in patterns {
+            out = out.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
         }
+        return out
     }
 
     /// A path with the home folder shown as `~`.
     public static func display(_ url: URL, home: URL) -> String {
-        let path = url.standardizedFileURL.path, root = home.standardizedFileURL.path
-        return path == root || path.hasPrefix(root + "/") ? "~" + path.dropFirst(root.count) : path
+        let path: String = url.standardizedFileURL.path
+        let root: String = home.standardizedFileURL.path
+        if path == root { return "~" }
+        guard path.hasPrefix("\(root)/") else { return path }
+        return "~\(path.dropFirst(root.count))"
     }
 }
 
@@ -37,16 +41,20 @@ public enum Redaction {
 enum JSONShape {
     /// `a.b: string` lines down to `depth` levels. A key outside `known` is shown as `*`.
     static func keys(of value: Any, depth: Int = 3, known: Set<String>) -> [String] {
-        lines(of: value, prefix: "", depth: depth, known: known).sorted()
+        var found = Set<String>()
+        collect(value, prefix: "", depth: depth, known: known, into: &found)
+        return found.sorted()
     }
 
-    private static func lines(of value: Any, prefix: String, depth: Int, known: Set<String>) -> [String] {
-        guard let object = value as? [String: Any], depth > 0 else { return [] }
-        return Array(Set(object.flatMap { key, child -> [String] in
-            let path = prefix + (known.contains(key) ? key : "*")
-            return ["\(path): \(type(of: child))"]
-                + lines(of: child, prefix: path + ".", depth: depth - 1, known: known)
-        }))
+    private static func collect(_ value: Any, prefix: String, depth: Int, known: Set<String>,
+                                into found: inout Set<String>) {
+        guard let object = value as? [String: Any], depth > 0 else { return }
+        for (key, child) in object {
+            let name: String = known.contains(key) ? key : "*"
+            let path = "\(prefix)\(name)"
+            found.insert("\(path): \(type(of: child))")
+            collect(child, prefix: "\(path).", depth: depth - 1, known: known, into: &found)
+        }
     }
 
     private static func type(of value: Any) -> String {

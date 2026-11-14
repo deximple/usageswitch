@@ -80,8 +80,7 @@ struct StringContractsTests {
     @Test("text found anywhere in the file is present; the rest is reported missing")
     func scanning() {
         let folder = TempFolder()
-        let binary = Data([0xCF, 0xFA, 0xED, 0xFE, 0x00]) + Data("…Current session\u{0}junk".utf8)
-        let file = folder.write(binary, to: "cli")
+        let file = folder.write(bytes(machOMagic, then: "\u{0}…Current session\u{0}junk"), to: "cli")
         #expect(BinaryStrings.scan(contracts, in: file) == .scanned(missing: [contracts[1]]))
         #expect(BinaryStrings.scan([contracts[0]], in: file) == .scanned(missing: []))
     }
@@ -90,11 +89,12 @@ struct StringContractsTests {
     func separatorEncodings() throws {
         let folder = TempFolder()
         let separator = try #require(StringContracts.claude.first { $0.label.hasPrefix("% used") })
-        let encodings: [Data] = [
-            Data(#"x% used \xB7 resets ${y}"#.utf8),
-            Data("x% used · resets y".utf8),
-            Data("x% used ".utf8) + Data([0xB7]) + Data(" resets y".utf8),
-        ]
+        var latin1 = Data("x% used ".utf8)
+        latin1.append(0xB7)
+        latin1.append(Data(" resets y".utf8))
+        let escaped = Data(#"x% used \xB7 resets ${y}"#.utf8)
+        let utf8 = Data("x% used · resets y".utf8)
+        let encodings: [Data] = [escaped, utf8, latin1]
         for (index, bytes) in encodings.enumerated() {
             #expect(BinaryStrings.scan([separator], in: folder.write(bytes, to: "cli-\(index)"))
                 == .scanned(missing: []))

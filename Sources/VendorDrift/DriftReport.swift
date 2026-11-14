@@ -59,40 +59,72 @@ public struct DriftReport: Equatable, Sendable {
     public let tools: [Tool]
     public let findings: [DriftFinding]
 
-    public var hasDrift: Bool { findings.contains { $0.status == .drift } }
+    public var hasDrift: Bool { count(of: .drift) > 0 }
+
+    private func count(of status: DriftStatus) -> Int {
+        findings.filter { (finding: DriftFinding) -> Bool in finding.status == status }.count
+    }
 
     public func markdown(timeZone: TimeZone = .current) -> String {
         let stamp = DateFormatter()
         stamp.locale = Locale(identifier: "en_US_POSIX")
         stamp.timeZone = timeZone
         stamp.dateFormat = "yyyy-MM-dd HH:mm"
-        let drift = findings.filter { $0.status == .drift }.count
-        let look = findings.filter { $0.status == .attention }.count
-        let headline = drift > 0
-            ? "**Drift found: \(drift) check\(drift == 1 ? " needs" : "s need") a fix.**"
-            : "**No drift found.**"
-        var lines = ["# Vendor drift report — \(stamp.string(from: generatedAt))", "",
-                     headline + (look > 0 ? " \(look) more worth a look." : ""), "",
-                     "| Check | Result | What was found |", "|---|---|---|"]
-        lines += findings.map { "| \(cell($0.check)) | \($0.status.label) | \(cell($0.summary)) |" }
-        lines += ["", "## Installed tools", ""]
-        lines += tools.isEmpty ? ["None of the tools UsageSwitch reads is installed."]
-            : tools.map { "- \($0.name): `\($0.path)`" + ($0.version.map { " — \($0)" } ?? "") }
+
+        var lines: [String] = []
+        lines.append("# Vendor drift report — \(stamp.string(from: generatedAt))")
+        lines.append("")
+        lines.append(headline)
+        lines.append("")
+        lines.append("| Check | Result | What was found |")
+        lines.append("|---|---|---|")
+        for finding in findings {
+            lines.append("| \(cell(finding.check)) | \(finding.status.label) | \(cell(finding.summary)) |")
+        }
+        lines.append("")
+        lines.append("## Installed tools")
+        lines.append("")
+        if tools.isEmpty { lines.append("None of the tools UsageSwitch reads is installed.") }
+        for tool in tools {
+            var line = "- \(tool.name): `\(tool.path)`"
+            if let version = tool.version { line += " — \(version)" }
+            lines.append(line)
+        }
         for section in DriftFinding.Section.allCases {
-            let own = findings.filter { $0.section == section }
+            let own: [DriftFinding] = findings.filter { (finding: DriftFinding) -> Bool in finding.section == section }
             guard !own.isEmpty else { continue }
-            lines += ["", "## \(section.rawValue)"]
+            lines.append("")
+            lines.append("## \(section.rawValue)")
             for finding in own {
-                lines += ["", "### \(finding.check) — \(finding.status.label)", "", finding.summary]
-                if !finding.details.isEmpty { lines += [""] + finding.details.map { "- \($0)" } }
+                lines.append("")
+                lines.append("### \(finding.check) — \(finding.status.label)")
+                lines.append("")
+                lines.append(finding.summary)
+                if !finding.details.isEmpty { lines.append("") }
+                for detail in finding.details { lines.append("- \(detail)") }
             }
         }
-        lines += ["", "## Running this regularly", "", Self.scheduleNote, ""]
+        lines.append("")
+        lines.append("## Running this regularly")
+        lines.append("")
+        lines.append(Self.scheduleNote)
+        lines.append("")
         return lines.joined(separator: "\n")
     }
 
+    private var headline: String {
+        let drift: Int = count(of: .drift)
+        let look: Int = count(of: .attention)
+        var text = "**No drift found.**"
+        if drift == 1 { text = "**Drift found: 1 check needs a fix.**" }
+        if drift > 1 { text = "**Drift found: \(drift) checks need a fix.**" }
+        if look > 0 { text += " \(look) more worth a look." }
+        return text
+    }
+
     private func cell(_ text: String) -> String {
-        text.replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: " ")
+        let escaped: String = text.replacingOccurrences(of: "|", with: "\\|")
+        return escaped.replacingOccurrences(of: "\n", with: " ")
     }
 
     static let scheduleNote = """

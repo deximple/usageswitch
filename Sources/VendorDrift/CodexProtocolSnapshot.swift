@@ -66,22 +66,32 @@ public struct CodexProtocolSnapshot: Codable, Equatable, Sendable {
     /// What the app sends or reads that this snapshot doesn't have. A snapshot with anything
     /// here came from a schema this reader no longer follows, and must not be frozen.
     public var missingFromContract: [String] {
-        CodexAppContract.requests.filter { requests[$0] == nil }.map { "request \($0)" }
-            + CodexAppContract.clientNotifications.filter { clientNotifications[$0] == nil }
-                .map { "client notification \($0)" }
-            + CodexAppContract.members.keys.sorted().flatMap { type in
-                (CodexAppContract.members[type] ?? []).filter { types[type]?[$0] == nil }.map { "\(type).\($0)" }
-            }
+        let requests: [String] = CodexAppContract.requests
+            .filter { (method: String) -> Bool in self.requests[method] == nil }
+            .map { (method: String) -> String in "request \(method)" }
+        let sent: [String] = CodexAppContract.clientNotifications
+            .filter { (method: String) -> Bool in clientNotifications[method] == nil }
+            .map { (method: String) -> String in "client notification \(method)" }
+        let members: [String] = CodexAppContract.members.keys.sorted().flatMap { (type: String) -> [String] in
+            let wanted: [String] = CodexAppContract.members[type] ?? []
+            let present: [String: String] = types[type] ?? [:]
+            let missing: [String] = wanted.filter { (member: String) -> Bool in present[member] == nil }
+            return missing.map { (member: String) -> String in "\(type).\(member)" }
+        }
+        let parts: [[String]] = [requests, sent, members]
+        return parts.flatMap { $0 }
     }
 
     /// Members of the answer types that the app does not read (new vendor fields land here).
     public var unreadByApp: [String] {
-        CodexAppContract.members.keys.sorted()
-            .filter { !CodexAppContract.sentTypes.contains($0) }
-            .flatMap { type in
-                Set((types[type] ?? [:]).keys).subtracting(CodexAppContract.members[type] ?? [])
-                    .sorted().map { "\(type).\($0)" }
-            }
+        let answerTypes: [String] = CodexAppContract.members.keys.sorted()
+            .filter { (type: String) -> Bool in !CodexAppContract.sentTypes.contains(type) }
+        return answerTypes.flatMap { (type: String) -> [String] in
+            let present: [String: String] = types[type] ?? [:]
+            let read: Set<String> = Set(CodexAppContract.members[type] ?? [])
+            let unread: [String] = present.keys.filter { (member: String) -> Bool in !read.contains(member) }
+            return unread.sorted().map { (member: String) -> String in "\(type).\(member)" }
+        }
     }
 }
 
@@ -100,43 +110,64 @@ public struct ProtocolChange: Equatable, Sendable {
 extension CodexProtocolSnapshot {
     /// Everything that differs between this (frozen) snapshot and the installed CLI's, by path.
     public func changes(to installed: CodexProtocolSnapshot) -> [ProtocolChange] {
-        let methods = Self.changes(from: requests, to: installed.requests, prefix: "request ") { kind, method, _ in
+        let requestChanges: [ProtocolChange] = Self.changes(
+            from: requests, to: installed.requests, prefix: "request "
+        ) { (kind: ProtocolChange.Kind, method: String, _: String) -> Bool in
             kind != .added && CodexAppContract.requests.contains(method)
-        } + Self.changes(from: clientNotifications, to: installed.clientNotifications,
-                         prefix: "client notification ") { kind, method, _ in
-            kind != .added && CodexAppContract.clientNotifications.contains(method)
-        } + Self.changes(from: notifications, to: installed.notifications, prefix: "notification ") { _, _, _ in false }
-
-        let names = Set(types.keys).union(installed.types.keys).sorted()
-        let members = names.flatMap { name -> [ProtocolChange] in
-            let read = CodexAppContract.members[name]
-            guard let before = types[name] else {
-                return [ProtocolChange(kind: .added, path: name, before: nil,
-                                       after: "\(installed.types[name]?.count ?? 0) members", affectsApp: false)]
-            }
-            guard let after = installed.types[name] else {
-                return [ProtocolChange(kind: .removed, path: name, before: "\(before.count) members",
-                                       after: nil, affectsApp: read != nil)]
-            }
-            return Self.changes(from: before, to: after, prefix: "\(name).") { kind, member, signature in
-                // Something the app reads went away or changed; or something it sends now has
-                // a member it must carry (new, or turned from optional to required).
-                let mustBeSent = kind != .removed && CodexAppContract.sentTypes.contains(name)
-                    && signature.hasSuffix(SchemaShape.requiredSuffix)
-                return mustBeSent || (kind != .added && read?.contains(member) ?? false)
-            }
         }
-        return methods + members
+        let sentChanges: [ProtocolChange] = Self.changes(
+            from: clientNotifications, to: installed.clientNotifications, prefix: "client notification "
+        ) { (kind: ProtocolChange.Kind, method: String, _: String) -> Bool in
+            kind != .added && CodexAppContract.clientNotifications.contains(method)
+        }
+        let serverChanges: [ProtocolChange] = Self.changes(
+            from: notifications, to: installed.notifications, prefix: "notification "
+        ) { (_: ProtocolChange.Kind, _: String, _: String) -> Bool in false }
+
+        let names: [String] = Set(types.keys).union(installed.types.keys).sorted()
+        let memberChanges: [ProtocolChange] = names.flatMap { (name: String) -> [ProtocolChange] in
+            typeChanges(of: name, to: installed)
+        }
+        let parts: [[ProtocolChange]] = [requestChanges, sentChanges, serverChanges, memberChanges]
+        return parts.flatMap { $0 }
+    }
+
+    /// The changes to one type: the whole type appearing or going away, else member by member.
+    private func typeChanges(of name: String, to installed: CodexProtocolSnapshot) -> [ProtocolChange] {
+        let read: [String]? = CodexAppContract.members[name]
+        guard let before: [String: String] = types[name] else {
+            let count: Int = installed.types[name]?.count ?? 0
+            return [ProtocolChange(kind: .added, path: name, before: nil, after: "\(count) members",
+                                   affectsApp: false)]
+        }
+        guard let after: [String: String] = installed.types[name] else {
+            return [ProtocolChange(kind: .removed, path: name, before: "\(before.count) members",
+                                   after: nil, affectsApp: read != nil)]
+        }
+        let isSent: Bool = CodexAppContract.sentTypes.contains(name)
+        return Self.changes(from: before, to: after, prefix: "\(name).") {
+            (kind: ProtocolChange.Kind, member: String, signature: String) -> Bool in
+            // Something it sends now has a member it must carry: new, or turned required.
+            let isRequired: Bool = signature.hasSuffix(SchemaShape.requiredSuffix)
+            if kind != .removed, isSent, isRequired { return true }
+            // Something the app reads went away or changed.
+            let isRead: Bool = read?.contains(member) ?? false
+            return kind != .added && isRead
+        }
     }
 
     private static func changes(from before: [String: String], to after: [String: String], prefix: String,
                                 affectsApp: (ProtocolChange.Kind, String, String) -> Bool) -> [ProtocolChange] {
-        Set(before.keys).union(after.keys).sorted().compactMap { key in
-            let (old, new) = (before[key], after[key])
+        let keys: [String] = Set(before.keys).union(after.keys).sorted()
+        return keys.compactMap { (key: String) -> ProtocolChange? in
+            let old: String? = before[key]
+            let new: String? = after[key]
             guard old != new else { return nil }
-            let kind: ProtocolChange.Kind = old == nil ? .added : new == nil ? .removed : .changed
-            return ProtocolChange(kind: kind, path: prefix + key, before: old, after: new,
-                                  affectsApp: affectsApp(kind, key, new ?? old ?? ""))
+            let kind: ProtocolChange.Kind
+            if old == nil { kind = .added } else if new == nil { kind = .removed } else { kind = .changed }
+            let signature: String = new ?? old ?? ""
+            return ProtocolChange(kind: kind, path: "\(prefix)\(key)", before: old, after: new,
+                                  affectsApp: affectsApp(kind, key, signature))
         }
     }
 }
@@ -166,12 +197,14 @@ extension CodexProtocolSnapshot {
             types[name] = SchemaShape.members(of: definition)
             pending += SchemaShape.references(in: definition).sorted()
         }
+        let accountRequests: [String: String] = requests.filter { (entry: (key: String, value: String)) -> Bool in
+            entry.key == "initialize" || entry.key.hasPrefix("account/")
+        }
+        let accountNotifications: [String: String] = notifications
+            .filter { (entry: (key: String, value: String)) -> Bool in entry.key.hasPrefix("account/") }
         return .success(CodexProtocolSnapshot(
-            cliVersion: cliVersion,
-            requests: requests.filter { $0.key == "initialize" || $0.key.hasPrefix("account/") },
-            clientNotifications: clientNotifications,
-            notifications: notifications.filter { $0.key.hasPrefix("account/") },
-            types: types))
+            cliVersion: cliVersion, requests: accountRequests, clientNotifications: clientNotifications,
+            notifications: accountNotifications, types: types))
     }
 }
 
@@ -186,22 +219,27 @@ private struct SchemaBundle {
     mutating func methods(in file: String) -> [String: String]? {
         guard let root = object(file), let variants = root["oneOf"] as? [[String: Any]] else { return nil }
         absorb(root)
-        let pairs = variants.compactMap { variant -> (String, String)? in
-            let properties = variant["properties"] as? [String: Any] ?? [:]
-            guard let method = ((properties["method"] as? [String: Any])?["enum"] as? [String])?.first
-            else { return nil }
-            return (method, properties["params"].map(SchemaShape.signature) ?? "none")
+        var methods: [String: String] = [:]
+        for variant in variants {
+            let properties: [String: Any] = variant["properties"] as? [String: Any] ?? [:]
+            guard let tag = properties["method"] as? [String: Any],
+                  let names = tag["enum"] as? [String], let method = names.first, methods[method] == nil
+            else { continue }
+            var params = "none"
+            if let schema = properties["params"] { params = SchemaShape.signature(schema) }
+            methods[method] = params
         }
-        return pairs.isEmpty ? nil : Dictionary(pairs, uniquingKeysWith: { first, _ in first })
+        return methods.isEmpty ? nil : methods
     }
 
     /// A definition by name: one already seen, else the bundle's own file for it.
     mutating func definition(named name: String) -> Any? {
         if let known = definitions[name] { return known }
         for folder in ["v2/", "v1/", ""] {
-            guard let root = object("\(folder)\(name).json") else { continue }
-            absorb(root)
-            let own = root.filter { $0.key != "definitions" && $0.key != "$schema" }
+            guard var own = object("\(folder)\(name).json") else { continue }
+            absorb(own)
+            own["definitions"] = nil
+            own["$schema"] = nil
             definitions[name] = own
             return own
         }

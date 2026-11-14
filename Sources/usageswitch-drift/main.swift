@@ -25,27 +25,35 @@ guard FileManager.default.fileExists(atPath: arguments.work, isDirectory: &isDir
 else { fail("--work must be an existing folder") }
 
 let environment = SwitcherEnvironment.live()
-let frozen = arguments.snapshot.flatMap { FileManager.default.contents(atPath: $0) }
-    .flatMap(CodexProtocolSnapshot.init(json:))
+var frozen: CodexProtocolSnapshot?
+if let path = arguments.snapshot, let json = FileManager.default.contents(atPath: path) {
+    frozen = CodexProtocolSnapshot(json: json)
+}
 if let path = arguments.snapshot, frozen == nil, !arguments.updateSnapshot {
     fail("the snapshot at \(path) is missing or unreadable")
 }
-let run = DriftRun(home: environment.home, path: ProcessInfo.processInfo.environment["PATH"] ?? "",
-                   bundledCodexCLI: environment.codexCLI, frozen: frozen,
-                   workDirectory: URL(fileURLWithPath: arguments.work, isDirectory: true),
+let searchPath: String = ProcessInfo.processInfo.environment["PATH"] ?? ""
+let run = DriftRun(home: environment.home, path: searchPath, bundledCodexCLI: environment.codexCLI,
+                   frozen: frozen, workDirectory: URL(fileURLWithPath: arguments.work, isDirectory: true),
                    runner: SystemUsageProcessRunner())
 
 if arguments.updateSnapshot {
-    guard let snapshot = run.installedSnapshot(cli: arguments.codex.map { URL(fileURLWithPath: $0) }) else {
+    var codex: URL?
+    if let path = arguments.codex { codex = URL(fileURLWithPath: path) }
+    guard let snapshot = run.installedSnapshot(cli: codex) else {
         fail("no Codex CLI found, or it could not generate its schema")
     }
-    guard snapshot.missingFromContract.isEmpty else {
-        fail("not freezing: the schema lacks \(snapshot.missingFromContract.joined(separator: ", "))")
+    let missing: [String] = snapshot.missingFromContract
+    guard missing.isEmpty else {
+        fail("not freezing: the schema lacks \(missing.joined(separator: ", "))")
     }
-    FileHandle.standardOutput.write(snapshot.json() + Data("\n".utf8))
+    var output: Data = snapshot.json()
+    output.append(Data("\n".utf8))
+    FileHandle.standardOutput.write(output)
     exit(0)
 }
 
-let report = run.report()
-FileHandle.standardOutput.write(Data(Redaction.scrub(report.markdown(), home: environment.home).utf8))
+let report: DriftReport = run.report()
+let text: String = Redaction.scrub(report.markdown(), home: environment.home)
+FileHandle.standardOutput.write(Data(text.utf8))
 exit(report.hasDrift ? 1 : 0)

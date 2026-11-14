@@ -24,11 +24,17 @@ public enum PanelSkeleton {
     private static let zone = #"^([A-Za-z_]+(/[A-Za-z0-9_+-]+)+|UTC|GMT)$"#
 
     public static func shape(of text: String) -> Shape {
-        let lines = text.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let others = lines.filter { !$0.hasPrefix("Current ") }
-        return Shape(windowLines: lines.filter { $0.hasPrefix("Current ") }.map(redacted),
-                     mentionsUsedOutsideWindows: others.contains { $0.contains("% used") })
+        var windows: [String] = []
+        var mentionsUsedElsewhere = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line: String = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("Current ") {
+                windows.append(redacted(line))
+            } else if line.contains("% used") {
+                mentionsUsedElsewhere = true
+            }
+        }
+        return Shape(windowLines: windows, mentionsUsedOutsideWindows: mentionsUsedElsewhere)
     }
 
     /// `Current week (Fable): 12% used · resets Nov 6 at 12:59pm (Asia/Seoul)` becomes
@@ -36,11 +42,12 @@ public enum PanelSkeleton {
     /// every word outside the panel's fixed vocabulary are replaced, so an unknown future line
     /// shows its shape and nothing else.
     static func redacted(_ line: String) -> String {
-        let scoped = replacing(parenthesized, in: line) { inside in
+        let scoped: String = replacing(parenthesized, in: line) { (inside: String) -> String in
             if knownScopes.contains(inside) { return "(\(inside))" }
-            return inside.range(of: zone, options: .regularExpression) != nil ? "(Zone)" : "(…)"
+            let isZone: Bool = inside.range(of: zone, options: .regularExpression) != nil
+            return isZone ? "(Zone)" : "(…)"
         }
-        return replacing(word, in: scoped) { token in
+        return replacing(word, in: scoped) { (token: String) -> String in
             if token.first?.isNumber == true { return "N" }
             if months.contains(token) { return "Mon" }
             return vocabulary.contains(token) ? token : "…"
@@ -51,11 +58,15 @@ public enum PanelSkeleton {
     /// the offsets of the ones still to do stay valid.
     private static func replacing(_ expression: NSRegularExpression, in text: String,
                                   _ transform: (String) -> String) -> String {
-        expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed()
-            .reduce(text) { out, match in
-                guard let whole = Range(match.range, in: out), let group = Range(match.range(at: 1), in: text)
-                else { return out }
-                return out.replacingCharacters(in: whole, with: transform(String(text[group])))
-            }
+        let all = NSRange(text.startIndex..., in: text)
+        let matches: [NSTextCheckingResult] = expression.matches(in: text, range: all)
+        var out: String = text
+        for match in matches.reversed() {
+            guard let whole = Range(match.range, in: out), let group = Range(match.range(at: 1), in: text)
+            else { continue }
+            let replacement: String = transform(String(text[group]))
+            out.replaceSubrange(whole, with: replacement)
+        }
+        return out
     }
 }

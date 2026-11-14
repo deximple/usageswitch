@@ -16,23 +16,29 @@ struct DriftRunTests {
     /// Codex CLI writes; `generates` false makes that command fail.
     private func runner(version: String = "codex-cli 1.2.3", generates: Bool = true, writesSchema: Bool = true,
                         schema: @escaping @Sendable (inout [String: [String: Any]]) -> Void = { _ in }) -> FakeRunner {
-        FakeRunner { request in
-            switch request.arguments {
-            case ["--version"]:
+        let versionArguments: [String] = ["--version"]
+        let serverArguments: [String] = ["--disable", "plugins", "app-server"]
+        let schemaArguments: [String] = ["app-server", "generate-json-schema", "--out"]
+        return FakeRunner { (request: UsageProcessRequest) -> UsageProcessResult in
+            let arguments: [String] = request.arguments
+            if arguments == versionArguments {
                 return UsageProcessResult(lines: [version], outcome: .exited(0))
-            case ClaudeUsageCollector.arguments:
+            }
+            if arguments == ClaudeUsageCollector.arguments {
                 return UsageProcessResult(lines: Sample.claudeStream(Sample.claudePanel), outcome: .stopped)
-            case ClaudeProfileUsageCollector.authStatusArguments:
+            }
+            if arguments == ClaudeProfileUsageCollector.authStatusArguments {
                 return UsageProcessResult(lines: [Sample.authStatus()], outcome: .exited(0))
-            case ["--disable", "plugins", "app-server"]:
+            }
+            if arguments == serverArguments {
                 return UsageProcessResult(lines: Sample.codexAnswer(), outcome: .stopped)
-            case let arguments where arguments.prefix(3) == ["app-server", "generate-json-schema", "--out"]:
+            }
+            if arguments.count == 4, Array(arguments.prefix(3)) == schemaArguments {
                 guard generates else { return UsageProcessResult(lines: [], outcome: .exited(2)) }
                 if writesSchema { Sample.writeSchema(to: URL(fileURLWithPath: arguments[3]), edit: schema) }
                 return UsageProcessResult(lines: [], outcome: .exited(0))
-            default:
-                return UsageProcessResult(lines: [], outcome: .failedToStart)
             }
+            return UsageProcessResult(lines: [], outcome: .failedToStart)
         }
     }
 
@@ -111,8 +117,9 @@ struct DriftRunTests {
         installClaudeAndCodex()
         let runner = runner { files in
             var requests = files["ClientRequest.json"]?["oneOf"] as? [[String: Any]] ?? []
-            requests.append(["properties": ["method": ["enum": ["account/securitySetup/read"]],
-                                            "params": ["type": "null"]]])
+            let added: [String: Any] = ["enum": ["account/securitySetup/read"] as [String]]
+            let noParams: [String: Any] = ["type": "null"]
+            requests.append(["properties": ["method": added, "params": noParams] as [String: Any]])
             files["ClientRequest.json"]?["oneOf"] = requests
         }
         let report = rig.run(runner, frozen: frozen()).report()
@@ -162,11 +169,12 @@ struct DriftRunTests {
     func twoCodexCLIs() throws {
         installClaudeAndCodex()
         let bundled = rig.folder.write("#!/bin/sh\nexec real \"$@\"\n", to: "Codex.app/bin/codex", executable: true)
-        let runner = FakeRunner { [fake = runner()] request in
-            request.arguments == ["--version"]
-                ? UsageProcessResult(lines: [request.executable == bundled ? "codex-cli 2.0.0-alpha.1" : "codex-cli 1.2.3"],
-                                     outcome: .exited(0))
-                : fake.run(request)
+        let fake: FakeRunner = runner()
+        let versionArguments: [String] = ["--version"]
+        let runner = FakeRunner { (request: UsageProcessRequest) -> UsageProcessResult in
+            guard request.arguments == versionArguments else { return fake.run(request) }
+            let version: String = request.executable == bundled ? "codex-cli 2.0.0-alpha.1" : "codex-cli 1.2.3"
+            return UsageProcessResult(lines: [version], outcome: .exited(0))
         }
         let report = rig.run(runner, frozen: frozen(), bundledCodexCLI: bundled).report()
         #expect(report.findings.map(\.check).filter { $0.hasPrefix("Codex") } == [
@@ -178,7 +186,10 @@ struct DriftRunTests {
         #expect(status(report, "Codex CLI text — the CLI the app runs") == .skipped)
         #expect(status(report, "Codex CLI text — codex on PATH") == .ok)
         // The live read goes through the CLI the app runs.
-        let live = try #require(runner.requests.first { $0.arguments == ["--disable", "plugins", "app-server"] })
+        let serverArguments: [String] = ["--disable", "plugins", "app-server"]
+        let live = try #require(runner.requests.first { (request: UsageProcessRequest) -> Bool in
+            request.arguments == serverArguments
+        })
         #expect(live.executable == bundled)
         #expect(report.tools.last == DriftReport.Tool(name: "Codex", path: Redaction.display(bundled, home: rig.home),
                                                       version: "2.0.0-alpha.1"))
@@ -209,7 +220,7 @@ struct DriftRunTests {
 
     @Test("the Gemini CLI is asked for its sign-in client through the app's finder")
     func geminiClient() {
-        rig.folder.write(Data([0xCF, 0xFA]), to: "pkg/node_modules/@google/gemini-cli/bundle/gemini", executable: true)
+        rig.folder.write(bytes(machOMagic), to: "pkg/node_modules/@google/gemini-cli/bundle/gemini", executable: true)
         let roots = UsageSearchRoots(
             executableDirectories: [rig.folder.url.appendingPathComponent("pkg/node_modules/@google/gemini-cli/bundle")],
             applicationDirectories: [])
@@ -237,7 +248,7 @@ struct DriftRunTests {
         let fresh = rig.run(runner()).installedSnapshot()
         #expect(fresh?.cliVersion == "1.2.3")
         #expect(fresh?.requests["account/rateLimits/read"] != nil)
-        let other = rig.folder.write(Data([0xCF]), to: "other/codex", executable: true)
+        let other = rig.folder.write(bytes(machOMagic), to: "other/codex", executable: true)
         let runner = runner(version: "codex-cli 3.0.0")
         #expect(rig.run(runner).installedSnapshot(cli: other)?.cliVersion == "3.0.0")
         #expect(runner.requests.allSatisfy { $0.executable == other })

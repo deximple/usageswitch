@@ -162,13 +162,19 @@ struct CodexProtocolSnapshotTests {
     func methodChanges() {
         let installed = snapshot { files in
             var requests = files["ClientRequest.json"]?["oneOf"] as? [[String: Any]] ?? []
-            requests.removeAll { ($0["properties"] as? [String: Any]).map { "\($0)".contains("account/rateLimits/read") } ?? false }
-            requests.append(["properties": ["method": ["enum": ["account/securitySetup/read"]]]])
+            requests.removeAll { (request: [String: Any]) -> Bool in
+                "\(request)".contains("account/rateLimits/read")
+            }
+            let added: [String: Any] = ["enum": ["account/securitySetup/read"] as [String]]
+            requests.append(["properties": ["method": added] as [String: Any]])
             files["ClientRequest.json"]?["oneOf"] = requests
-            files["ServerNotification.json"]?["oneOf"] = [
-                ["properties": ["method": ["enum": ["account/updated"]], "params": ["type": "null"]]],
-            ]
-            files["ClientNotification.json"]?["oneOf"] = [["properties": ["method": ["enum": ["ready"]]]]]
+            let updated: [String: Any] = ["enum": ["account/updated"] as [String]]
+            let noParams: [String: Any] = ["type": "null"]
+            let server: [String: Any] = ["properties": ["method": updated, "params": noParams] as [String: Any]]
+            files["ServerNotification.json"]?["oneOf"] = [server]
+            let ready: [String: Any] = ["enum": ["ready"] as [String]]
+            let client: [String: Any] = ["properties": ["method": ready] as [String: Any]]
+            files["ClientNotification.json"]?["oneOf"] = [client]
         }
         #expect(snapshot().changes(to: installed) == [
             ProtocolChange(kind: .removed, path: "request account/rateLimits/read",

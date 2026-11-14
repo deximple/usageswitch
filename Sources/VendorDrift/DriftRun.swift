@@ -44,42 +44,48 @@ public struct DriftRun: Sendable {
     }
 
     public func report() -> DriftReport {
-        let installations = installations(bundled: bundledCodexCLI)
-        func cli(_ provider: UsageProvider) -> URL? { installations.first { $0.provider == provider }?.cli }
-        let codex = codexCLIs(appChoice: cli(.codex))
-        let claude = cli(.claude).map(claudeUsage)
+        let installations: [UsageInstallation] = installations(bundled: bundledCodexCLI)
+        let claudeCLI: URL? = Self.cli(.claude, in: installations)
+        let codex: [CodexCLI] = codexCLIs(appChoice: Self.cli(.codex, in: installations))
+        let schemas: [SchemaResult?] = codex.map { (cli: CodexCLI) -> SchemaResult? in schemaResult(of: cli) }
+        var claude: ClaudeRead?
+        if let claudeCLI { claude = claudeUsage(claudeCLI) }
 
-        let schemas = codex.map(schemaResult)
-        var findings = zip(codex, schemas).map(protocolFinding)
-        if let snapshot = try? schemas.first??.get() {
-            findings.append(DriftFinding(.codexProtocol, "Codex answer fields the app does not read", .info,
-                "The rate-limits answer has \(Self.count(snapshot.unreadByApp.count, "field")) the app does not read.",
-                details: snapshot.unreadByApp))
+        var findings: [DriftFinding] = []
+        for (index, cli) in codex.enumerated() {
+            findings.append(protocolFinding(cli, schemas[index]))
         }
-        findings += [cli(.claude).map { stringFinding("Claude CLI text", StringContracts.claude, in: $0) }]
-            .compactMap { $0 }
-        findings += codex.map { stringFinding("Codex CLI text — \($0.label)", StringContracts.codex, in: $0.url) }
-        findings += [cli(.antigravity).map { stringFinding("Antigravity CLI text", StringContracts.antigravity, in: $0) },
-                     cli(.gemini).map(geminiClientFinding)].compactMap { $0 }
+        if let first = schemas.first, case .success(let snapshot)? = first {
+            findings.append(unreadFinding(snapshot))
+        }
+        if let claudeCLI {
+            findings.append(stringFinding("Claude CLI text", StringContracts.claude, in: claudeCLI))
+        }
+        for cli in codex {
+            findings.append(stringFinding("Codex CLI text — \(cli.label)", StringContracts.codex, in: cli.url))
+        }
+        if let antigravity = Self.cli(.antigravity, in: installations) {
+            findings.append(stringFinding("Antigravity CLI text", StringContracts.antigravity, in: antigravity))
+        }
+        if let gemini = Self.cli(.gemini, in: installations) {
+            findings.append(geminiClientFinding(gemini))
+        }
         if let claude {
-            findings += [claude.finding, claude.request.map(claudeAuthStatus)].compactMap { $0 }
+            findings.append(claude.finding)
+            if let request = claude.request { findings.append(claudeAuthStatus(request)) }
         }
-        if let app = codex.first { findings.append(codexRateLimits(app)) }
-        let consented = installations.filter(\.provider.requiresConsent).map { UsageText.providerName($0.provider) }
-        if !consented.isEmpty {
-            findings.append(DriftFinding(.notChecked, "Usage reads that need a stored sign-in", .notChecked,
-                "These read a stored sign-in token and call the vendor's API. This tool never opens "
-                    + "a credential, so their answers are not checked here.",
-                details: consented))
+        if let app = codex.first {
+            findings.append(codexRateLimits(app))
+        }
+        if let notChecked = Self.notCheckedFinding(installations) {
+            findings.append(notChecked)
         }
 
-        let tools = installations.compactMap { installation -> DriftReport.Tool? in
+        let tools: [DriftReport.Tool] = installations.compactMap { (installation: UsageInstallation) -> DriftReport.Tool? in
             guard let url = installation.cli else { return nil }
-            let version: String? = switch installation.provider {
-            case .claude: claude?.version
-            case .codex: codex.first?.version
-            default: nil
-            }
+            var version: String?
+            if installation.provider == .claude { version = claude?.version }
+            if installation.provider == .codex { version = codex.first?.version }
             return DriftReport.Tool(name: UsageText.providerName(installation.provider),
                                     path: Redaction.display(url, home: home), version: version)
         }
@@ -89,121 +95,173 @@ public struct DriftRun: Sendable {
     /// The snapshot of the Codex CLI at `cli`, or of the one the app runs; nil when there is
     /// none or its schema can't be generated. For refreshing the frozen snapshot.
     public func installedSnapshot(cli: URL? = nil) -> CodexProtocolSnapshot? {
-        guard let url = cli ?? installations(bundled: bundledCodexCLI).first(where: { $0.provider == .codex })?.cli
-        else { return nil }
-        return try? schemaResult(of: CodexCLI(label: "", url: url, version: version(of: url)))?.get()
+        let appChoice: URL? = Self.cli(.codex, in: installations(bundled: bundledCodexCLI))
+        guard let url = cli ?? appChoice else { return nil }
+        let chosen = CodexCLI(label: "", url: url, version: version(of: url))
+        guard let schema = schemaResult(of: chosen), case .success(let snapshot) = schema else { return nil }
+        return snapshot
+    }
+
+    private static func cli(_ provider: UsageProvider, in installations: [UsageInstallation]) -> URL? {
+        let installation: UsageInstallation? = installations.first { (candidate: UsageInstallation) -> Bool in
+            candidate.provider == provider
+        }
+        return installation?.cli
+    }
+
+    private static func notCheckedFinding(_ installations: [UsageInstallation]) -> DriftFinding? {
+        let consented: [UsageInstallation] = installations.filter { (installation: UsageInstallation) -> Bool in
+            installation.provider.requiresConsent
+        }
+        guard !consented.isEmpty else { return nil }
+        let names: [String] = consented.map { (installation: UsageInstallation) -> String in
+            UsageText.providerName(installation.provider)
+        }
+        let summary = "These read a stored sign-in token and call the vendor's API. "
+            + "This tool never opens a credential, so their answers are not checked here."
+        return DriftFinding(.notChecked, "Usage reads that need a stored sign-in", .notChecked, summary,
+                            details: names)
     }
 
     // MARK: - Codex protocol
 
     /// The CLI the app runs first, then the one on PATH when it is a different file.
     func codexCLIs(appChoice: URL?) -> [CodexCLI] {
-        let onPath = installations(bundled: nil).first { $0.provider == .codex }?.cli
-        let other = onPath.flatMap { $0.resolvingSymlinksInPath() == appChoice?.resolvingSymlinksInPath() ? nil : $0 }
-        return [appChoice.map { CodexCLI(label: "the CLI the app runs", url: $0, version: version(of: $0)) },
-                other.map { CodexCLI(label: "codex on PATH", url: $0, version: version(of: $0)) }].compactMap { $0 }
+        var found: [CodexCLI] = []
+        if let appChoice {
+            found.append(CodexCLI(label: "the CLI the app runs", url: appChoice, version: version(of: appChoice)))
+        }
+        let onPath: URL? = Self.cli(.codex, in: installations(bundled: nil))
+        if let onPath, onPath.resolvingSymlinksInPath() != appChoice?.resolvingSymlinksInPath() {
+            found.append(CodexCLI(label: "codex on PATH", url: onPath, version: version(of: onPath)))
+        }
+        return found
     }
 
     private func version(of cli: URL) -> String? {
-        let result = runner.run(UsageProcessRequest(executable: cli, arguments: ["--version"],
-            environment: UsageChildEnvironment.make(for: cli, home: home),
-            workingDirectory: workDirectory, timeout: 10))
-        guard case .exited(0) = result.outcome, let line = result.lines.first,
-              let range = line.range(of: #"[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*"#, options: .regularExpression)
-        else { return nil }
+        let request = UsageProcessRequest(executable: cli, arguments: ["--version"],
+                                          environment: UsageChildEnvironment.make(for: cli, home: home),
+                                          workingDirectory: workDirectory, timeout: 10)
+        let result: UsageProcessResult = runner.run(request)
+        guard case .exited(0) = result.outcome, let line = result.lines.first else { return nil }
+        let pattern = #"[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*"#
+        guard let range = line.range(of: pattern, options: .regularExpression) else { return nil }
         return String(line[range])
     }
 
     private func schemaDirectory(of cli: CodexCLI) -> URL {
-        workDirectory.appendingPathComponent("codex-schema-\(cli.version ?? "unknown")", isDirectory: true)
-    }
-
-    /// nil when the CLI could not generate its schema.
-    private func schemaResult(of cli: CodexCLI) -> SchemaResult? {
-        let directory = schemaDirectory(of: cli)
-        let result = runner.run(UsageProcessRequest(executable: cli.url,
-            arguments: ["app-server", "generate-json-schema", "--out", directory.path],
-            environment: UsageChildEnvironment.make(for: cli.url, home: home),
-            workingDirectory: workDirectory, timeout: 60))
-        guard case .exited(0) = result.outcome else { return nil }
-        return CodexProtocolSnapshot.read(schemaDirectory: directory, cliVersion: cli.version)
+        let version: String = cli.version ?? "unknown"
+        return workDirectory.appendingPathComponent("codex-schema-\(version)", isDirectory: true)
     }
 
     private typealias SchemaResult = Result<CodexProtocolSnapshot, CodexProtocolSnapshot.ReadFailure>
 
+    /// nil when the CLI could not generate its schema.
+    private func schemaResult(of cli: CodexCLI) -> SchemaResult? {
+        let directory: URL = schemaDirectory(of: cli)
+        let request = UsageProcessRequest(executable: cli.url,
+                                          arguments: ["app-server", "generate-json-schema", "--out", directory.path],
+                                          environment: UsageChildEnvironment.make(for: cli.url, home: home),
+                                          workingDirectory: workDirectory, timeout: 60)
+        let result: UsageProcessResult = runner.run(request)
+        guard case .exited(0) = result.outcome else { return nil }
+        return CodexProtocolSnapshot.read(schemaDirectory: directory, cliVersion: cli.version)
+    }
+
+    private func unreadFinding(_ snapshot: CodexProtocolSnapshot) -> DriftFinding {
+        let unread: [String] = snapshot.unreadByApp
+        let summary = "The rate-limits answer has \(Self.count(unread.count, "field")) the app does not read."
+        return DriftFinding(.codexProtocol, "Codex answer fields the app does not read", .info, summary,
+                            details: unread)
+    }
+
     private func protocolFinding(_ cli: CodexCLI, _ schema: SchemaResult?) -> DriftFinding {
-        let check = "Codex protocol — \(cli.label)" + (cli.version.map { " (\($0))" } ?? "")
+        var check = "Codex protocol — \(cli.label)"
+        if let version = cli.version { check += " (\(version))" }
         guard let frozen else {
             return DriftFinding(.codexProtocol, check, .attention,
                                 "There is no frozen snapshot to compare with; run with --update-snapshot.")
         }
-        switch schema {
-        case nil:
+        guard let schema else {
             return DriftFinding(.codexProtocol, check, .attention,
                 "`codex app-server generate-json-schema` did not finish, so the protocol was not compared.")
+        }
+        let installed: CodexProtocolSnapshot
+        switch schema {
         case .failure(.unreadable(let file)):
             return DriftFinding(.codexProtocol, check, .drift,
-                "The schema bundle no longer has a readable `\(file)`; its layout changed.")
-        case .success(let installed):
-            let changes = frozen.changes(to: installed)
-            let since = "the snapshot frozen from \(frozen.cliVersion ?? "an unknown version")"
-            guard !changes.isEmpty else {
-                return DriftFinding(.codexProtocol, check, .ok, "Matches \(since).")
-            }
-            let breaking = changes.filter(\.affectsApp)
-            let details = (breaking + changes.filter { !$0.affectsApp }).map(Self.line)
-            return breaking.isEmpty
-                ? DriftFinding(.codexProtocol, check, .info,
-                    "\(Self.count(changes.count, "change")) since \(since); none touches what the app sends or reads.",
-                    details: details)
-                : DriftFinding(.codexProtocol, check, .drift,
-                    "\(breaking.count) of \(Self.count(changes.count, "change")) since \(since) "
-                        + "touch what the app sends or reads.",
-                    details: details)
+                                "The schema bundle no longer has a readable `\(file)`; its layout changed.")
+        case .success(let snapshot):
+            installed = snapshot
         }
+        let changes: [ProtocolChange] = frozen.changes(to: installed)
+        let frozenVersion: String = frozen.cliVersion ?? "an unknown version"
+        let since = "the snapshot frozen from \(frozenVersion)"
+        guard !changes.isEmpty else {
+            return DriftFinding(.codexProtocol, check, .ok, "Matches \(since).")
+        }
+        let breaking: [ProtocolChange] = changes.filter { (change: ProtocolChange) -> Bool in change.affectsApp }
+        let other: [ProtocolChange] = changes.filter { (change: ProtocolChange) -> Bool in !change.affectsApp }
+        let ordered: [[ProtocolChange]] = [breaking, other]
+        let details: [String] = ordered.flatMap { $0 }.map(Self.line)
+        let total: String = Self.count(changes.count, "change")
+        guard !breaking.isEmpty else {
+            let summary = "\(total) since \(since); none touches what the app sends or reads."
+            return DriftFinding(.codexProtocol, check, .info, summary, details: details)
+        }
+        let summary = "\(breaking.count) of \(total) since \(since) touch what the app sends or reads."
+        return DriftFinding(.codexProtocol, check, .drift, summary, details: details)
     }
 
     /// "1 change", "3 changes".
     static func count(_ number: Int, _ noun: String) -> String {
-        "\(number) \(noun)\(number == 1 ? "" : "s")"
+        let plural: String = number == 1 ? "" : "s"
+        return "\(number) \(noun)\(plural)"
     }
 
     static func line(_ change: ProtocolChange) -> String {
-        let mark = change.affectsApp ? "**read by the app** — " : ""
+        let mark: String = change.affectsApp ? "**read by the app** — " : ""
+        let before: String = change.before ?? ""
+        let after: String = change.after ?? ""
         switch change.kind {
-        case .added: return "\(mark)added `\(change.path)`: `\(change.after ?? "")`"
-        case .removed: return "\(mark)removed `\(change.path)` (was `\(change.before ?? "")`)"
-        case .changed:
-            return "\(mark)changed `\(change.path)`: `\(change.before ?? "")` → `\(change.after ?? "")`"
+        case .added: return "\(mark)added `\(change.path)`: `\(after)`"
+        case .removed: return "\(mark)removed `\(change.path)` (was `\(before)`)"
+        case .changed: return "\(mark)changed `\(change.path)`: `\(before)` → `\(after)`"
         }
     }
 
     // MARK: - Text inside the vendor binaries
 
     private func stringFinding(_ check: String, _ contracts: [StringContract], in cli: URL) -> DriftFinding {
-        let binary = cli.resolvingSymlinksInPath()
+        let binary: URL = cli.resolvingSymlinksInPath()
+        let total: String = Self.count(contracts.count, "piece")
         switch BinaryStrings.scan(contracts, in: binary) {
         case .unreadable:
             return DriftFinding(.strings, check, .attention, "The CLI file could not be read.")
         case .script:
             return DriftFinding(.strings, check, .skipped,
-                "The CLI is a launcher script; the program it starts is not searched.")
-        case .scanned(let missing) where missing.isEmpty:
-            return DriftFinding(.strings, check, .ok,
-                                "All present: \(Self.count(contracts.count, "piece")) of text the app's parsers depend on.")
+                                "The CLI is a launcher script; the program it starts is not searched.")
         case .scanned(let missing):
-            return DriftFinding(.strings, check, .drift,
-                "Gone: \(missing.count) of \(Self.count(contracts.count, "piece")) of text the app's parsers depend on.",
-                details: missing.map { "`\($0.label)` — \($0.reason)" })
+            guard !missing.isEmpty else {
+                let summary = "All present: \(total) of text the app's parsers depend on."
+                return DriftFinding(.strings, check, .ok, summary)
+            }
+            let summary = "Gone: \(missing.count) of \(total) of text the app's parsers depend on."
+            let details: [String] = missing.map { (contract: StringContract) -> String in
+                "`\(contract.label)` — \(contract.reason)"
+            }
+            return DriftFinding(.strings, check, .drift, summary, details: details)
         }
     }
 
     private func geminiClientFinding(_ cli: URL) -> DriftFinding {
         let check = "Gemini CLI sign-in client"
-        return geminiClient.client(for: cli) != nil
-            ? DriftFinding(.strings, check, .ok, "The CLI package still carries the sign-in client the app looks up.")
-            : DriftFinding(.strings, check, .drift,
-                "The app can no longer find the sign-in client inside the CLI package, so a consented "
-                    + "Gemini token refresh can't work.")
+        guard geminiClient.client(for: cli) == nil else {
+            return DriftFinding(.strings, check, .ok,
+                                "The CLI package still carries the sign-in client the app looks up.")
+        }
+        let summary = "The app can no longer find the sign-in client inside the CLI package, "
+            + "so a consented Gemini token refresh can't work."
+        return DriftFinding(.strings, check, .drift, summary)
     }
 }

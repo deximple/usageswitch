@@ -17,8 +17,11 @@ struct DriftRig {
     }
 
     func cli(_ name: String, containing contracts: [StringContract] = []) -> URL {
-        let text = contracts.map { String(decoding: $0.alternatives[0], as: UTF8.self) }.joined(separator: "\u{0}")
-        return folder.write(Data([0xCF, 0xFA, 0xED, 0xFE]) + Data(text.utf8), to: "home/bin/\(name)", executable: true)
+        let labels: [String] = contracts.map { (contract: StringContract) -> String in
+            String(decoding: contract.alternatives[0], as: UTF8.self)
+        }
+        let content: Data = bytes(machOMagic, then: labels.joined(separator: "\u{0}"))
+        return folder.write(content, to: "home/bin/\(name)", executable: true)
     }
 
     func signIntoCodex() { folder.write("", to: "home/.codex/auth.json") }
@@ -36,7 +39,9 @@ struct DriftRig {
 }
 
 func text(of finding: DriftFinding) -> String {
-    ([finding.check, finding.summary] + finding.details).joined(separator: "\n")
+    var parts: [String] = [finding.check, finding.summary]
+    parts.append(contentsOf: finding.details)
+    return parts.joined(separator: "\n")
 }
 
 @Suite("Live Claude checks")
