@@ -183,9 +183,26 @@ enum Fixtures {
             return demo(staleUsages(), segment: .all)
         case "usage-failed":
             return demo(staleUsages(), segment: .guide)
-        case "usage-guide":
+        case "usage-guide", "usage-guide-basis":
             let model = demo(guideUsages(), segment: .guide)
             model.guideExpanded = true
+            model.guideBasisExpanded = name == "usage-guide-basis"
+            return model
+        case "usage-guide-none":
+            // Every account at or past the warning level: no pick, only when one frees up.
+            let model = demo([
+                account(.claude, "cli", "CLI sign-in", .ok, windows: [
+                    window(300, 100, resetsIn: 40 * 60),
+                    window(10080, 85, resetsIn: 2 * 86400),
+                ]),
+                account(.codex, "standard", "alex.kim@example.com", .ok, plan: "prolite",
+                        auth: .subscription, identityKey: "fixture-personal", windows: [
+                    window(300, 95, resetsIn: 70 * 60),
+                    window(10080, 31, resetsIn: 4 * 86400),
+                ]),
+            ], segment: .guide)
+            model.guideExpanded = true
+            model.guideBasisExpanded = true
             return model
         case "usage-readme", "usage-readme-guide":
             let personalID = "a1a1a1a1-0000-4000-8000-000000000001__a1a1a1a1-0000-4000-8000-0000000000f1"

@@ -12,6 +12,10 @@ struct SuggestionWordingTests {
         .suggestionEffortNone, .suggestionEffortMinimal, .suggestionEffortLow,
         .suggestionEffortMedium, .suggestionEffortHigh, .suggestionEffortXHigh,
         .suggestionEffortMax, .suggestionEffortUnspecified,
+        .suggestionHeadlineNeutral, .suggestionBasisTitle, .suggestionBasisOption,
+        .suggestionBasisLeftOut, .suggestionBasisNote, .suggestionLeftOutWarn,
+        .suggestionLeftOutPace, .suggestionLeftOutStale, .suggestionNoneExcluded,
+        .suggestionFreesFirst, .suggestionNoneNoFit,
     ]
 
     @Test(arguments: AppLanguage.allCases)

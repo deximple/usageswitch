@@ -69,7 +69,15 @@ public enum SuggestionEngine {
         let effort: String?
         let situation: SituationCode
         let limitingWindowKey: String
+        let remaining: Double
         let score: Double
+    }
+
+    /// The limit that keeps one model's windows from carrying a candidate.
+    private struct Block {
+        let reason: SuggestionExclusion
+        let windowKey: String
+        let unblocksAt: Date?
     }
 
     public static func suggest(
@@ -82,14 +90,31 @@ public enum SuggestionEngine {
         now: Date,
         warnThreshold: Double = defaultWarnThreshold
     ) -> SuggestionResult {
-        guard task.isFinite, (0...1).contains(task) else { return .none(.invalidTask) }
+        report(mode: mode, task: task, catalog: catalog, harnessMap: harnessMap, usages: usages,
+               pace: pace, now: now, warnThreshold: warnThreshold).result
+    }
+
+    /// The pick plus every account it was weighed against and every account left out.
+    public static func report(
+        mode: SuggestionMode,
+        task: Double,
+        catalog: SuggestionCatalog,
+        harnessMap: SuggestionHarnessMap = .standard,
+        usages: [AccountUsage],
+        pace: [String: UsagePace.Reading],
+        now: Date,
+        warnThreshold: Double = defaultWarnThreshold
+    ) -> SuggestionReport {
+        guard task.isFinite, (0...1).contains(task) else {
+            return SuggestionReport(result: .none(.invalidTask))
+        }
         guard warnThreshold.isFinite, (50...99).contains(warnThreshold) else {
-            return .none(.invalidWarnThreshold)
+            return SuggestionReport(result: .none(.invalidWarnThreshold))
         }
 
         var candidates: [Candidate] = []
+        var blocks: [String: [Block]] = [:]
         var freshAccountMapsToCatalog = false
-        var candidateWasExcluded = false
         for usage in usages {
             guard usage.state == .ok,
                   (0...maximumReadingAge).contains(now.timeIntervalSince(usage.readAt))
@@ -105,22 +130,12 @@ public enum SuggestionEngine {
                 guard !entries.isEmpty else { continue }
                 let windows = harnessMap.spentWindows(in: usage, for: mapped)
                 guard !windows.isEmpty else { continue }
-                guard windows.allSatisfy({
-                    $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
-                        && ($0.resetsAt.map { $0 > now } ?? true)
-                        && $0.usedPercent < warnThreshold
-                }) else {
-                    candidateWasExcluded = true
-                    continue
-                }
-
                 let paceReadings = windows.map { window -> UsagePace.Reading in
                     pace[UsagePriority.key(usage, window)] ?? .unknown
                 }
-                guard !zip(windows, paceReadings).contains(where: {
-                    UsagePace.runsOutEarly($0.1, window: $0.0) != nil
-                }) else {
-                    candidateWasExcluded = true
+                if let block = block(windows, paceReadings: paceReadings, usage: usage,
+                                     now: now, warnThreshold: warnThreshold) {
+                    blocks[usage.id, default: []].append(block)
                     continue
                 }
                 guard let remaining = windows.map({ (100 - $0.usedPercent) / 100 }).min(),
@@ -142,17 +157,36 @@ public enum SuggestionEngine {
                         effort: mapped.model.efforts.isEmpty ? nil : entry.effort,
                         situation: situation,
                         limitingWindowKey: UsagePriority.key(usage, limiting.element),
+                        remaining: remaining,
                         score: quality * remaining))
                 }
             }
         }
 
-        guard let best = candidates.sorted(by: isBetter).first else {
-            if !freshAccountMapsToCatalog { return .none(.noCatalogMatch) }
-            return .none(candidateWasExcluded ? .excluded : .noCandidates)
+        // Best candidate per account, in rank order.
+        var seenAccounts = Set<String>()
+        let ranked = candidates.sorted(by: isBetter).filter { seenAccounts.insert($0.usage.id).inserted }
+        let options = ranked.map {
+            SuggestionReport.Option(
+                accountID: $0.usage.id, provider: $0.usage.provider, modelKey: $0.modelKey,
+                effort: $0.effort, situation: $0.situation,
+                limitingWindowKey: $0.limitingWindowKey, remainingShare: $0.remaining)
         }
-        let hasOneAccount = Set(candidates.map { $0.usage.id }).count == 1
-        let result: SuggestionResult = hasOneAccount ? .neutral(
+        // An account is left out only when none of its models carries a candidate.
+        let excluded = usages.compactMap { usage -> SuggestionReport.Excluded? in
+            guard !seenAccounts.contains(usage.id),
+                  let block = blocks[usage.id]?.min(by: unblocksSooner) else { return nil }
+            return SuggestionReport.Excluded(
+                accountID: usage.id, provider: usage.provider, reason: block.reason,
+                windowKey: block.windowKey, unblocksAt: block.unblocksAt)
+        }
+
+        guard let best = ranked.first else {
+            let reason: SuggestionNoneReason = !freshAccountMapsToCatalog ? .noCatalogMatch
+                : blocks.isEmpty ? .noCandidates : .excluded
+            return SuggestionReport(result: .none(reason), excluded: excluded)
+        }
+        let result: SuggestionResult = ranked.count == 1 ? .neutral(
             accountID: best.usage.id, provider: best.usage.provider, modelKey: best.modelKey,
             effort: best.effort, situation: best.situation,
             limitingWindowKey: best.limitingWindowKey
@@ -161,7 +195,52 @@ public enum SuggestionEngine {
             effort: best.effort, situation: best.situation,
             limitingWindowKey: best.limitingWindowKey
         )
-        return result
+        return SuggestionReport(result: result, options: options, excluded: excluded)
+    }
+
+    /// Why these windows can't carry a candidate, or nil when they can. An untrustworthy
+    /// number says nothing more; otherwise the blocker named is the one that clears last.
+    private static func block(_ windows: [UsageWindow], paceReadings: [UsagePace.Reading],
+                              usage: AccountUsage, now: Date, warnThreshold: Double) -> Block? {
+        if let invalid = windows.first(where: {
+            !($0.usedPercent.isFinite && (0...100).contains($0.usedPercent))
+                || ($0.resetsAt.map { $0 <= now } ?? false)
+        }) {
+            return Block(reason: .invalidWindow, windowKey: UsagePriority.key(usage, invalid),
+                         unblocksAt: nil)
+        }
+        // Every limit in the way: at the warning level, or draining before its own reset.
+        let blockers = zip(windows, paceReadings).compactMap {
+            window, reading -> (window: UsageWindow, reason: SuggestionExclusion)? in
+            if window.usedPercent >= warnThreshold { return (window, .overWarnThreshold) }
+            if let runsOutAt = UsagePace.runsOutEarly(reading, window: window) {
+                return (window, .runsOutEarly(at: runsOutAt))
+            }
+            return nil
+        }
+        // The account frees up when its last blocker resets; a blocker without a reset
+        // time never says when.
+        guard let last = blockers.min(by: { lhs, rhs in
+            switch (lhs.window.resetsAt, rhs.window.resetsAt) {
+            case (nil, .some): return true
+            case (.some, nil): return false
+            case (let left?, let right?) where left != right: return left > right
+            default:
+                return UsagePriority.key(usage, lhs.window) < UsagePriority.key(usage, rhs.window)
+            }
+        }) else { return nil }
+        return Block(reason: last.reason, windowKey: UsagePriority.key(usage, last.window),
+                     unblocksAt: last.window.resetsAt)
+    }
+
+    /// Orders an account's blocked models by when they free up; unknown times go last.
+    private static func unblocksSooner(_ left: Block, _ right: Block) -> Bool {
+        switch (left.unblocksAt, right.unblocksAt) {
+        case (.some, nil): return true
+        case (nil, .some): return false
+        case (let lhs?, let rhs?) where lhs != rhs: return lhs < rhs
+        default: return left.windowKey < right.windowKey
+        }
     }
 
     private static func isBetter(_ left: Candidate, _ right: Candidate) -> Bool {
