@@ -350,7 +350,7 @@ extension Strings {
         .suggestionFreesFirst: "가장 먼저 풀리는 한도: %1$@ — %2$@ %3$@ 후 리셋",
         .suggestionNoneNoFit: "지금 모드와 작업에 맞는 후보가 없습니다.",
         .suggestionSituationExpiring: "%1$@ %2$d%% 남음 · %3$@ 후 리셋 — 남은 한도는 리셋 때 사라집니다",
-        .suggestionBudget: "하루 약 %d%%씩 쓰면 리셋까지 갑니다",
+        .suggestionBudget: "고르게 쓰면 하루 약 %d%%씩 리셋까지 갑니다",
         .suggestionOutlookRecent: "%1$@ — %2$@ 이 속도면 %3$@ 후 소진될 수 있음",
         .suggestionOutlookAverage: "%1$@ — %2$@ 지금까지의 평균 속도면 %3$@ 후 소진될 수 있음",
         .apiTitle: "API 예산 및 예상 지출",

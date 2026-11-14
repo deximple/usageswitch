@@ -59,6 +59,15 @@ struct SuggestionOutlookTests {
         #expect(SuggestionOutlook.runOuts(usages: [failed, aged], pace: [:], now: now).isEmpty)
     }
 
+    @Test("a warning level outside 50…99 forecasts nothing")
+    func invalidWarnThreshold() {
+        let account = Support.usage("a", windows: [overPace])
+        for threshold in [Double.nan, -1, 0, 20, 100, .infinity] {
+            #expect(SuggestionOutlook.runOuts(usages: [account], pace: [:], now: now,
+                                              warnThreshold: threshold).isEmpty)
+        }
+    }
+
     @Test("each account shows its soonest run-out, soonest first, three at most")
     func soonestPerAccountCapped() {
         // Session 60% used with 2.5 of 5 hours gone: empty in 100 minutes; the weekly later.

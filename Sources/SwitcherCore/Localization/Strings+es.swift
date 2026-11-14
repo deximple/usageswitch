@@ -350,7 +350,7 @@ extension Strings {
         .suggestionFreesFirst: "Se libera primero: %1$@ — %2$@ se restablece en %3$@",
         .suggestionNoneNoFit: "Nada encaja con este modo y tarea ahora mismo.",
         .suggestionSituationExpiring: "%1$@ %2$d%% restante · se restablece en %3$@ — lo que quede se pierde al reiniciar",
-        .suggestionBudget: "Aproximadamente %d%% al día alcanza hasta el reinicio",
+        .suggestionBudget: "Repartido por igual, alrededor de %d%% al día alcanza hasta el reinicio",
         .suggestionOutlookRecent: "%1$@ — %2$@ podría agotarse en %3$@ a este ritmo",
         .suggestionOutlookAverage: "%1$@ — %2$@ podría agotarse en %3$@ a su ritmo medio hasta ahora",
         .apiTitle: "Presupuestos y estimaciones de API",

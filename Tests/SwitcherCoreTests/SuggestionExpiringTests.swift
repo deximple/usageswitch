@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import SwitcherCore
 
-/// A long limit about to reset loses whatever is left on it, so it stops binding the ranking.
+/// A long limit about to reset loses whatever is left on it, so the part that would lapse
+/// counts on top of its remaining share.
 @Suite("Suggestion expiring headroom")
 struct SuggestionExpiringTests {
     private typealias Support = SuggestionTestSupport
@@ -38,6 +39,23 @@ struct SuggestionExpiringTests {
                                           modelKey: "openai/solo", effort: "medium",
                                           situation: .expiringHeadroom,
                                           limitingWindowKey: "codex:expiring/weekly/"))
+    }
+
+    @Test("a nearly spent limit about to reset does not outrank a fresh account")
+    func nearlySpentLimitStaysBehind() throws {
+        // 21% left, 10 hours to go: about 16 points would lapse, so it counts as 37%.
+        let nearlySpent = Support.usage("a-nearly-spent", windows: [
+            Support.window(10080, used: 79, resetsIn: 10 * hour),
+        ])
+        let fresh = Support.usage("fresh", windows: [
+            Support.window(10080, used: 0, resetsIn: 6 * day),
+        ])
+        let result = try report([nearlySpent, fresh])
+
+        #expect(result.options.map(\.accountID) == ["codex:fresh", "codex:a-nearly-spent"])
+        let behind = try #require(result.options.last)
+        #expect(behind.situation == .expiringHeadroom)
+        #expect(abs(behind.remainingShare - 0.37) < 0.005)
     }
 
     @Test("a shorter limit still binds beside an expiring long one")

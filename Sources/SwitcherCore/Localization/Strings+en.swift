@@ -350,7 +350,7 @@ extension Strings {
         .suggestionFreesFirst: "Frees up first: %1$@ — %2$@ resets in %3$@",
         .suggestionNoneNoFit: "Nothing fits this mode and task right now.",
         .suggestionSituationExpiring: "%1$@ %2$d%% left · resets in %3$@ — unused share lapses at the reset",
-        .suggestionBudget: "About %d%% a day lasts to the reset",
+        .suggestionBudget: "Spread evenly, about %d%% a day lasts to the reset",
         .suggestionOutlookRecent: "%1$@ — %2$@ may run out in %3$@ at this pace",
         .suggestionOutlookAverage: "%1$@ — %2$@ may run out in %3$@ at its average pace so far",
         .apiTitle: "API budgets & estimates",

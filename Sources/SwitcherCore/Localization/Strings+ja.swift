@@ -350,7 +350,7 @@ extension Strings {
         .suggestionFreesFirst: "最初に回復するリミット: %1$@ — %2$@ %3$@ 後にリセット",
         .suggestionNoneNoFit: "現在のモードとタスクに合う候補はありません。",
         .suggestionSituationExpiring: "%1$@ 残り%2$d%% · %3$@ 後にリセット — 残りはリセットで消えます",
-        .suggestionBudget: "1日あたり約%d%%ならリセットまで持ちます",
+        .suggestionBudget: "均等に使えば1日あたり約%d%%でリセットまで持ちます",
         .suggestionOutlookRecent: "%1$@ — %2$@ このペースなら%3$@で枯渇する可能性",
         .suggestionOutlookAverage: "%1$@ — %2$@ これまでの平均ペースなら%3$@で枯渇する可能性",
         .apiTitle: "API 予算と推定",

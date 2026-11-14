@@ -48,6 +48,8 @@ public enum SuggestionOutlook {
                                now: Date,
                                warnThreshold: Double = SuggestionEngine.defaultWarnThreshold
     ) -> [RunOut] {
+        // The same bounds the engine holds the warning level to; anything else forecasts nothing.
+        guard warnThreshold.isFinite, (50...99).contains(warnThreshold) else { return [] }
         let perAccount = usages.compactMap { usage -> RunOut? in
             guard usage.state == .ok,
                   (0...SuggestionEngine.maximumReadingAge).contains(now.timeIntervalSince(usage.readAt))

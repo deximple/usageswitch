@@ -32,7 +32,7 @@ public enum SuggestionMode: String, Codable, CaseIterable, Equatable, Sendable {
 public enum SituationCode: String, Codable, Equatable, Sendable {
     case windowHeadroom
     case remainingShare
-    /// The longest limit resets soon with room to spare, so it no longer binds the ranking.
+    /// The longest limit resets soon with room to spare; what would lapse counts in its favour.
     case expiringHeadroom
 }
 
@@ -146,20 +146,19 @@ public enum SuggestionEngine {
                     blocks[usage.id, default: []].append(block)
                     continue
                 }
-                // What is left on a limit about to reset lapses unused, so it doesn't bind.
-                let expiring = expiringIndexes(in: windows, now: now)
-                let binding = windows.enumerated().filter { !expiring.contains($0.offset) }
-                guard let limiting = (binding.isEmpty ? Array(windows.enumerated()) : binding)
-                    .min(by: {
-                        let left = (100 - $0.element.usedPercent)
-                        let right = (100 - $1.element.usedPercent)
-                        return left != right ? left < right
-                            : UsagePriority.key(usage, $0.element) < UsagePriority.key(usage, $1.element)
-                    })
-                else { continue }
-                let remaining = binding.isEmpty ? 1 : (100 - limiting.element.usedPercent) / 100
+                // What would lapse unused on a limit about to reset counts on top of its
+                // remaining share, so that limit binds less — or not at all.
+                let lapsing = lapsingShares(in: windows, now: now)
+                let shares = windows.enumerated().map { index, window in
+                    min(1, (100 - window.usedPercent) / 100 + (lapsing[index] ?? 0))
+                }
+                guard let limiting = windows.indices.min(by: {
+                    shares[$0] != shares[$1] ? shares[$0] < shares[$1]
+                        : UsagePriority.key(usage, windows[$0]) < UsagePriority.key(usage, windows[$1])
+                }) else { continue }
+                let remaining = shares[limiting]
 
-                let situation: SituationCode = !expiring.isEmpty ? .expiringHeadroom
+                let situation: SituationCode = !lapsing.isEmpty ? .expiringHeadroom
                     : paceReadings.contains(.unknown) ? .remainingShare : .windowHeadroom
                 for entry in entries {
                     guard let quality = quality(entry.rank, task: task) else { continue }
@@ -168,8 +167,8 @@ public enum SuggestionEngine {
                         modelKey: mapped.model.key,
                         effort: mapped.model.efforts.isEmpty ? nil : entry.effort,
                         situation: situation,
-                        limitingWindowKey: UsagePriority.key(usage, limiting.element),
-                        expiringWindowKey: expiring.min().map { UsagePriority.key(usage, windows[$0]) },
+                        limitingWindowKey: UsagePriority.key(usage, windows[limiting]),
+                        expiringWindowKey: lapsing.keys.min().map { UsagePriority.key(usage, windows[$0]) },
                         remaining: remaining,
                         score: quality * remaining))
                 }
@@ -212,17 +211,21 @@ public enum SuggestionEngine {
         return SuggestionReport(result: result, options: options, excluded: excluded)
     }
 
-    /// The longest limits (every one of that length) that reset soon and, at their own
-    /// average pace, would still hold `expiringLeftoverFloor` points at the reset.
-    private static func expiringIndexes(in windows: [UsageWindow], now: Date) -> Set<Int> {
-        guard let longest = windows.compactMap(\.durationMinutes).max(), longest > 0 else { return [] }
+    /// For the longest limits (every one of that length) that reset soon: the share each
+    /// would still hold at the reset at its own average pace, keyed by window index. A limit
+    /// that would hold less than `expiringLeftoverFloor` points is left alone.
+    private static func lapsingShares(in windows: [UsageWindow], now: Date) -> [Int: Double] {
+        guard let longest = windows.compactMap(\.durationMinutes).max(), longest > 0 else { return [:] }
         let soon = min(TimeInterval(longest) * 60 * expiringShare, expiringHorizon)
-        return Set(windows.enumerated().filter { _, window in
+        var shares: [Int: Double] = [:]
+        for (index, window) in windows.enumerated() {
             guard window.durationMinutes == longest, let resetsAt = window.resetsAt,
                   resetsAt.timeIntervalSince(now) <= soon,
-                  let projection = UsageForecast.projection(window, now: now) else { return false }
-            return 100 - projection.projectedUsedAtReset >= expiringLeftoverFloor
-        }.map(\.offset))
+                  let projection = UsageForecast.projection(window, now: now) else { continue }
+            let leftover = 100 - projection.projectedUsedAtReset
+            if leftover >= expiringLeftoverFloor { shares[index] = leftover / 100 }
+        }
+        return shares
     }
 
     /// Why these windows can't carry a candidate, or nil when they can. An untrustworthy

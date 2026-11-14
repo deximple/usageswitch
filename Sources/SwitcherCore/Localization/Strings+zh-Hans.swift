@@ -350,7 +350,7 @@ extension Strings {
         .suggestionFreesFirst: "最先恢复的限额：%1$@ — %2$@ %3$@ 后重置",
         .suggestionNoneNoFit: "当前模式和任务下没有合适的候选。",
         .suggestionSituationExpiring: "%1$@ 剩余%2$d%% · %3$@ 后重置 — 剩余额度会在重置时清零",
-        .suggestionBudget: "每天约用 %d%% 可撑到重置",
+        .suggestionBudget: "平均使用的话，每天约 %d%% 可撑到重置",
         .suggestionOutlookRecent: "%1$@ — %2$@ 按此速度可能在 %3$@ 后耗尽",
         .suggestionOutlookAverage: "%1$@ — %2$@ 按目前的平均速度可能在 %3$@ 后耗尽",
         .apiTitle: "API 预算与估算",
