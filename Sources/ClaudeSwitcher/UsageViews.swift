@@ -230,6 +230,7 @@ struct UsageContent: View {
     @ViewBuilder
     private func guide(now: Date) -> some View {
         let suggestion = model.suggestionResult(now: now)
+        let explanation = model.suggestionExplanation(now: now, label: currentLabel)
         let proposals = UsageGuidance.proposals(model.suggestionUsages(now: now), now: now,
                                                 warnAt: Double(settings.usageWarnPercent))
         let items = attention(now: now)
@@ -245,11 +246,13 @@ struct UsageContent: View {
                     Text(item.text).font(.system(size: 12))
                         .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
                 }
-                if let text = suggestionText(suggestion) {
-                    Text(text.headline).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                if let headline = explanation?.headline {
+                    Text(headline).font(.system(size: 13)).foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(text.secondary).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let situation = explanation?.situation {
+                        Text(situation).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let target = model.suggestionSwitchTarget(now: now) {
                         Button(L10n.t(.uiActionSwitchTo, SwitcherModel.displayLabel(target))) {
                             settings.requestConfirmedSwitch(target)
@@ -261,8 +264,12 @@ struct UsageContent: View {
                           let usage = model.usages.first(where: { $0.id == proposal.usageID }) {
                     proposalBlock(proposal, usage: usage, now: now)
                 }
+                if let explanation {
+                    GuideBasisView(explanation: explanation, expanded: $model.guideBasisExpanded)
+                }
                 claudeRow(now: now)
-                if proposals.isEmpty && items.isEmpty && claudeUsage == nil {
+                if explanation?.headline == nil && explanation?.empty.isEmpty != false
+                    && proposals.isEmpty && items.isEmpty && claudeUsage == nil {
                     Text(L10n.t(.usageGuideNone)).font(Theme.body).foregroundStyle(Theme.inkMuted)
                 }
             }
@@ -311,63 +318,6 @@ struct UsageContent: View {
         case .balanced: L10n.t(.suggestionModeBalanced)
         case .focus: L10n.t(.suggestionModeFocus)
         case .urgent: L10n.t(.suggestionModeUrgent)
-        }
-    }
-
-    /// "Suggested: account · model · effort" plus one situation line underneath. The
-    /// headline names the concrete pick; the secondary line says why it wins right now.
-    private func suggestionText(_ result: SuggestionResult) -> (headline: String, secondary: String)? {
-        let accountID: String
-        let modelKey: String
-        let effort: String?
-        let situation: SituationCode
-        let limitingWindowKey: String
-        switch result {
-        case .suggest(let id, _, let key, let value, let code, let window):
-            accountID = id; modelKey = key; effort = value; situation = code
-            limitingWindowKey = window
-        case .neutral(let id, _, let key, let value, let code, let window):
-            accountID = id; modelKey = key; effort = value; situation = code
-            limitingWindowKey = window
-        case .none:
-            return nil
-        }
-        guard let usage = model.usages.first(where: { $0.id == accountID }),
-              let modelName = model.suggestionModelName(for: modelKey),
-              let window = usage.windows.first(where: {
-                  UsagePriority.key(usage, $0) == limitingWindowKey
-              }) else { return nil }
-        let situationText: String
-        switch situation {
-        case .windowHeadroom:
-            situationText = L10n.t(.suggestionSituationHeadroom,
-                                   UsageText.name(of: window),
-                                   UsageText.percentLeft(window.usedPercent) ?? 0)
-        case .remainingShare:
-            situationText = L10n.t(.suggestionSituationRemaining,
-                                   UsageText.name(of: window),
-                                   UsageText.percentLeft(window.usedPercent) ?? 0)
-        }
-        var parts = [currentLabel(usage), modelName]
-        if effort != nil { parts.append(effortName(effort)) }
-        var secondary = situationText
-        if let recentEffort = model.suggestionLogEffort(for: usage) {
-            secondary += L10n.t(.suggestionRecentEffort, effortName(recentEffort))
-        }
-        return (L10n.t(.suggestionHeadline, parts.joined(separator: " · ")), secondary)
-    }
-
-    private func effortName(_ effort: String?) -> String {
-        guard let effort else { return L10n.t(.suggestionEffortUnspecified) }
-        return switch effort {
-        case "none": L10n.t(.suggestionEffortNone)
-        case "minimal": L10n.t(.suggestionEffortMinimal)
-        case "low": L10n.t(.suggestionEffortLow)
-        case "medium": L10n.t(.suggestionEffortMedium)
-        case "high": L10n.t(.suggestionEffortHigh)
-        case "xhigh": L10n.t(.suggestionEffortXHigh)
-        case "max": L10n.t(.suggestionEffortMax)
-        default: L10n.t(.suggestionEffortUnspecified)
         }
     }
 

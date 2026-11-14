@@ -26,6 +26,8 @@ final class UsageModel: ObservableObject {
     @Published var segment: Segment
     /// Whether the collapsed Guide auxiliary is open; memory only, starts closed.
     @Published var guideExpanded = false
+    /// Whether the Guide's "why this suggestion" comparison is unfolded; memory only.
+    @Published var guideBasisExpanded = false
     let isDemo: Bool
 
     private let settings: SwitcherModel
@@ -116,8 +118,15 @@ final class UsageModel: ObservableObject {
     }
 
     func suggestionResult(now: Date = Date()) -> SuggestionResult {
-        guard let catalog = Self.suggestionCatalog else { return .none(.noCatalogMatch) }
-        return SuggestionEngine.suggest(
+        suggestionReport(now: now).result
+    }
+
+    /// The pick together with every account it was weighed against or left out.
+    func suggestionReport(now: Date = Date()) -> SuggestionReport {
+        guard let catalog = Self.suggestionCatalog else {
+            return SuggestionReport(result: .none(.noCatalogMatch))
+        }
+        return SuggestionEngine.report(
             mode: settings.effectiveSuggestionMode(now: now),
             task: settings.suggestionTask,
             catalog: catalog,
@@ -126,6 +135,15 @@ final class UsageModel: ObservableObject {
             pace: pace,
             now: now,
             warnThreshold: Double(settings.usageWarnPercent))
+    }
+
+    /// The Guide's wording for the current report; `label` is the name each row shows.
+    func suggestionExplanation(now: Date = Date(),
+                               label: (AccountUsage) -> String) -> SuggestionText.Explanation? {
+        guard let catalog = Self.suggestionCatalog else { return nil }
+        return SuggestionText.explanation(
+            for: suggestionReport(now: now), usages: usages, catalog: catalog, now: now,
+            label: label, recentEffort: { self.suggestionLogEffort(for: $0) })
     }
 
     func hasSuggestion(now: Date = Date()) -> Bool {
@@ -140,10 +158,6 @@ final class UsageModel: ObservableObject {
         case .none:
             return false
         }
-    }
-
-    func suggestionModelName(for key: String) -> String? {
-        Self.suggestionCatalog?.models.first { $0.key == key }?.name
     }
 
     func suggestionCandidateIdentity(now: Date = Date()) -> String? {
