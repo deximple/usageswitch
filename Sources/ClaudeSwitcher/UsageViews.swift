@@ -232,6 +232,7 @@ struct UsageContent: View {
         let suggestion = model.suggestionResult(now: now)
         let explanation = model.suggestionExplanation(now: now, label: currentLabel)
         let otherTools = model.suggestionOtherToolLines(now: now, label: currentLabel)
+        let resetTickets = model.suggestionResetTicketLines(now: now, label: currentLabel)
         let proposals = UsageGuidance.proposals(model.suggestionUsages(now: now), now: now,
                                                 warnAt: Double(settings.usageWarnPercent))
         let items = attention(now: now)
@@ -274,10 +275,11 @@ struct UsageContent: View {
                 if let explanation {
                     GuideBasisView(explanation: explanation, expanded: $model.guideBasisExpanded)
                 }
+                GuideNoteLines(lines: resetTickets)
                 GuideNoteLines(lines: otherTools)
                 claudeRow(now: now)
                 if explanation?.headline == nil && explanation?.empty.isEmpty != false
-                    && otherTools.isEmpty
+                    && otherTools.isEmpty && resetTickets.isEmpty
                     && proposals.isEmpty && items.isEmpty && claudeUsage == nil {
                     Text(L10n.t(.usageGuideNone)).font(Theme.body).foregroundStyle(Theme.inkMuted)
                 }

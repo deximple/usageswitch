@@ -18,6 +18,7 @@ struct SuggestionWordingTests {
         .suggestionFreesFirst, .suggestionNoneNoFit,
         .suggestionSituationExpiring, .suggestionBudget, .suggestionOutlookRecent,
         .suggestionOutlookAverage, .suggestionLighter, .suggestionOtherTool,
+        .suggestionTicketBlocked, .suggestionTicketExpiring,
     ]
 
     @Test(arguments: AppLanguage.allCases)

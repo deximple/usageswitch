@@ -78,9 +78,10 @@ enum SuggestionTestSupport {
 
     static func usage(_ ref: String, provider: UsageProvider = .codex, state: UsageState = .ok,
                       readAgo: TimeInterval = 0, label: String? = nil,
-                      windows: [UsageWindow]) -> AccountUsage {
+                      windows: [UsageWindow], resetCredits: UsageResetCredits? = nil) -> AccountUsage {
         AccountUsage(id: "\(provider.rawValue):\(ref)", provider: provider, accountRef: ref,
                      label: label ?? ref, plan: nil, windows: windows, state: state,
-                     readAt: now.addingTimeInterval(-readAgo), toolVersion: nil)
+                     readAt: now.addingTimeInterval(-readAgo), toolVersion: nil,
+                     resetCredits: resetCredits)
     }
 }
