@@ -143,9 +143,11 @@ extension DriftRun {
                                    identity: CodexIdentity(mode: .chatgpt), state: .signedIn, pids: [])
         let status = CodexStatus(installed: true, version: cli.version, accounts: [account], hiddenCount: 0)
         let recorder = RecordingRunner(runner)
+        // A cache of its own: every run is an account's first read, which is the one that also
+        // asks for the reset-credit details. Both forms of the request only read.
         let collector = CodexUsageCollector(status: { status }, runner: recorder, codexCLI: cli.url,
                                             workingDirectory: workDirectory, bundledCLI: bundledCodexCLI,
-                                            userHome: home, now: now)
+                                            userHome: home, resetCredits: CodexResetCreditCache(), now: now)
         _ = collector.collect()
         guard let run = recorder.runs.last else {
             return DriftFinding(.live, check, .attention, "The app's collector did not start the server.")
@@ -157,10 +159,23 @@ extension DriftRun {
         }
         switch CodexRateLimitsParser.read(run.result.lines) {
         case .success(let parsed):
+            // The parser drops reset credits it can't read instead of failing the windows, so a
+            // changed shape would otherwise pass unnoticed.
+            let sentCredits: Bool = Self.answerResult(run.result.lines)?["rateLimitResetCredits"] is [String: Any]
+            if sentCredits, parsed.resetCredits == nil {
+                let keys: [String] = answerKeys(run.result.lines)
+                let details: [String] = keys.map { (key: String) -> String in "`\(key)`" }
+                return DriftFinding(.live, check, .drift,
+                    "The answer carries reset credits the app's parser no longer reads. Keys seen:",
+                    details: details)
+            }
             let count: String = Self.count(parsed.windows.count, "usage window")
             let plan: String = parsed.plan == nil ? "absent" : "present"
             let attribution: String = parsed.accountId == nil ? "absent" : "present"
-            let details: [String] = ["plan name: \(plan)", "account attribution: \(attribution)"]
+            var credits = "absent"
+            if parsed.resetCredits != nil { credits = parsed.resetCreditDetails ? "present, with details" : "count only" }
+            let details: [String] = ["plan name: \(plan)", "account attribution: \(attribution)",
+                                     "reset credits: \(credits)"]
             return DriftFinding(.live, check, .ok, "The app's parser read \(count).", details: details)
         case .failure(.schemaChanged):
             let keys: [String] = answerKeys(run.result.lines)
@@ -183,19 +198,22 @@ extension DriftRun {
         }
     }
 
-    /// The key names of the rate-limits answer. Only names the protocol snapshot or the app's
-    /// contract knows are shown; limit ids and anything new are folded into `*`.
-    func answerKeys(_ lines: [String]) -> [String] {
-        var result: Any?
+    /// The `result` of the rate-limits answer among the server's output lines.
+    static func answerResult(_ lines: [String]) -> [String: Any]? {
         for line in lines {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                   let id = object["id"] as? NSNumber, id.intValue == CodexRateLimitsParser.answerID,
-                  let found = object["result"]
+                  let result = object["result"] as? [String: Any]
             else { continue }
-            result = found
-            break
+            return result
         }
-        guard let result else { return [] }
+        return nil
+    }
+
+    /// The key names of the rate-limits answer. Only names the protocol snapshot or the app's
+    /// contract knows are shown; limit ids and anything new are folded into `*`.
+    func answerKeys(_ lines: [String]) -> [String] {
+        guard let result = Self.answerResult(lines) else { return [] }
         var known = Set<String>()
         for members in CodexAppContract.members.values { known.formUnion(members) }
         let frozenTypes: [String: [String: String]] = frozen?.types ?? [:]

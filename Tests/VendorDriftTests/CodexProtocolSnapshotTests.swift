@@ -221,7 +221,11 @@ struct CodexProtocolSnapshotTests {
 
     @Test("lists the answer fields the app does not read, never what it sends")
     func unreadByApp() {
-        #expect(snapshot().unreadByApp == ["JSONRPCErrorError.data", "RateLimitSnapshot.limitId"])
+        // The enum's other statuses are not fields, so they aren't listed.
+        #expect(snapshot().unreadByApp == [
+            "JSONRPCErrorError.data", "RateLimitResetCredit.grantedAt", "RateLimitResetCredit.id",
+            "RateLimitSnapshot.limitId",
+        ])
     }
 
     @Test("the JSON form round-trips and is stable")
@@ -236,10 +240,14 @@ struct CodexProtocolSnapshotTests {
 
     /// An answer holding one view of the limits, optionally with one contract member turned
     /// into something the parser can't accept.
-    private func answer(view: String, corrupting: (type: String, member: String)? = nil) -> [String] {
+    private func answer(view: String, corrupting: (type: String, member: String)? = nil,
+                        creditStatus: String = "available") -> [String] {
         func corrupt(_ type: String, _ object: [String: Any]) -> [String: Any] {
             guard let corrupting, corrupting.type == type else { return object }
-            return object.merging([corrupting.member: ["unexpected": true]]) { _, new in new }
+            let unexpected: [String: Any] = ["unexpected": true]
+            var changed: [String: Any] = object
+            changed[corrupting.member] = unexpected
+            return changed
         }
         let plainWindow: [String: Any] = ["usedPercent": 31, "windowDurationMins": 10080,
                                           "resetsAt": 1_794_301_834]
@@ -247,9 +255,19 @@ struct CodexProtocolSnapshotTests {
         let plainLimits: [String: Any] = ["primary": window, "secondary": window, "planType": "plus"]
         let limits = corrupt("RateLimitSnapshot", plainLimits)
         let byLimit: [String: Any] = ["codex": limits]
-        let plainResult: [String: Any] = [
-            view: view == "rateLimits" ? limits : byLimit, "accountId": Sample.accountId,
-        ]
+
+        var plainCredit: [String: Any] = [:]
+        plainCredit["id"] = "credit"
+        plainCredit["status"] = creditStatus
+        plainCredit["grantedAt"] = 1_793_000_000
+        plainCredit["expiresAt"] = 1_795_000_000
+        let credits: [[String: Any]] = [corrupt("RateLimitResetCredit", plainCredit)]
+        let plainSummary: [String: Any] = ["availableCount": 1, "credits": credits]
+
+        var plainResult: [String: Any] = [:]
+        plainResult[view] = view == "rateLimits" ? limits : byLimit
+        plainResult["accountId"] = Sample.accountId
+        plainResult["rateLimitResetCredits"] = corrupt("RateLimitResetCreditsSummary", plainSummary)
         let result = corrupt("GetAccountRateLimitsResponse", plainResult)
         let message: [String: Any] = ["id": CodexRateLimitsParser.answerID, "result": result]
         return [String(decoding: try! JSONSerialization.data(withJSONObject: message), as: UTF8.self)]
@@ -259,33 +277,55 @@ struct CodexProtocolSnapshotTests {
           arguments: ["rateLimits", "rateLimitsByLimitId"])
     func contractMatchesParser(view: String) throws {
         let intact = CodexRateLimitsParser.read(answer(view: view))
-        #expect(try intact.get().windows.count == 2)
+        let parsed = try intact.get()
+        #expect(parsed.windows.count == 2)
+        #expect(parsed.resetCredits?.expiries.count == 1)
         let other = view == "rateLimits" ? "rateLimitsByLimitId" : "rateLimits"
-        for type in ["GetAccountRateLimitsResponse", "RateLimitSnapshot", "RateLimitWindow"] {
+        let objectTypes: [String] = ["GetAccountRateLimitsResponse", "RateLimitSnapshot", "RateLimitWindow",
+                                     "RateLimitResetCreditsSummary", "RateLimitResetCredit"]
+        for type in objectTypes {
             for member in try #require(CodexAppContract.members[type]) where member != other {
                 #expect(CodexRateLimitsParser.read(answer(view: view, corrupting: (type, member))) != intact,
                         "\(type).\(member) is listed but the parser ignores it")
             }
         }
+        // The one enum value in the contract is the status whose credits the parser reads.
+        #expect(CodexAppContract.members["RateLimitResetCreditStatus"] == ["available"])
+        #expect(CodexRateLimitsParser.read(answer(view: view, creditStatus: "redeemed")) != intact)
+        // Every type in the contract is covered above or is something the app sends.
+        let covered: Set<String> = Set(objectTypes).union(CodexAppContract.sentTypes)
+            .union(["RateLimitResetCreditStatus", "JSONRPCErrorError"])
+        #expect(Set(CodexAppContract.members.keys) == covered)
     }
 
-    @Test("the contract names what the app's collector sends")
-    func contractMatchesCollector() throws {
-        let sent = CodexUsageCollector.stdinLines(version: "1.0").compactMap {
-            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+    @Test("the contract names what the app's collector sends, with or without reset-credit details",
+          arguments: [false, true])
+    func contractMatchesCollector(details: Bool) throws {
+        let lines: [String] = CodexUsageCollector.stdinLines(version: "1.0", resetCreditDetails: details)
+        let sent: [[String: Any]] = lines.compactMap { (line: String) -> [String: Any]? in
+            try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
         }
-        let requests = sent.filter { $0["id"] != nil }
-        #expect(requests.compactMap { $0["method"] as? String } == CodexAppContract.requests)
-        #expect(sent.filter { $0["id"] == nil }.compactMap { $0["method"] as? String }
-            == CodexAppContract.clientNotifications)
+        #expect(sent.count == lines.count)
+        let requests: [[String: Any]] = sent.filter { (message: [String: Any]) -> Bool in message["id"] != nil }
+        let notifications: [[String: Any]] = sent.filter { (message: [String: Any]) -> Bool in message["id"] == nil }
+        let requestMethods: [String] = requests.compactMap { (message: [String: Any]) -> String? in
+            message["method"] as? String
+        }
+        let notificationMethods: [String] = notifications.compactMap { (message: [String: Any]) -> String? in
+            message["method"] as? String
+        }
+        #expect(requestMethods == CodexAppContract.requests)
+        #expect(notificationMethods == CodexAppContract.clientNotifications)
         let initialize = try #require(requests.first?["params"] as? [String: Any])
         #expect(Array(initialize.keys) == CodexAppContract.members["InitializeParams"])
-        #expect(Set(try #require(initialize["clientInfo"] as? [String: Any]).keys)
-            == Set(try #require(CodexAppContract.members["ClientInfo"])))
+        let clientInfo = try #require(initialize["clientInfo"] as? [String: Any])
+        #expect(Set(clientInfo.keys) == Set(try #require(CodexAppContract.members["ClientInfo"])))
         let read = try #require(requests.last?["params"] as? [String: Any])
         #expect(Array(read.keys) == CodexAppContract.members["GetAccountRateLimitsParams"])
+        #expect(read["excludeResetCreditDetails"] as? Bool == !details)
         // The reset-credit request spends a credit: it must never be among what is sent.
-        #expect(!sent.contains { $0["method"] as? String == CodexAppContract.neverCalled })
+        #expect(!requestMethods.contains(CodexAppContract.neverCalled))
+        #expect(!lines.joined().contains(CodexAppContract.neverCalled))
     }
 
     @Test("the snapshot kept in the repository covers everything in the contract")

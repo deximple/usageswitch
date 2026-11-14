@@ -21,7 +21,7 @@ the check itself could not run. `--out <folder>` writes the report somewhere els
 | Text the parsers depend on | The vendor binary is searched for the panel lines, stream fields, flags and error wording the app's parsers and collectors rely on. | One of them is gone from the binary. |
 | Claude `/usage` | The app's own `ClaudeUsageCollector` runs `claude -p /usage` with the app's arguments and environment. | A `Current …` line no longer matches, the panel reports usage without one, or the run did more than answer. |
 | Claude `auth status --json` | Run the way `ClaudeProfileUsageCollector` runs it; the app's parser says whether it still understands the shape. | The app's parser rejects the output. |
-| Codex `account/rateLimits/read` | The app's own `CodexUsageCollector` asks `codex app-server` in `~/.codex`; the app's parser reads the answer. | The app's parser rejects the answer, or the server no longer knows the method. |
+| Codex `account/rateLimits/read` | The app's own `CodexUsageCollector` asks `codex app-server` in `~/.codex`, the way it does on an account's first read (with reset-credit details); the app's parser reads the answer. | The app's parser rejects the answer, the server no longer knows the method, or the answer carries reset credits the parser can't read. |
 | Gemini CLI sign-in client | The app's own finder looks for the client inside the installed CLI package. | It can't be found any more. |
 
 A tool that isn't installed is left out. A read that settles nothing (signed out, timed out, offline)
@@ -35,11 +35,12 @@ only lists them as not checked.
 
 - It does not open a credential: no `auth.json`, no Keychain item, no token file. The vendor CLIs use
   their own sign-ins, as they do for the app. `~/.codex/auth.json` is checked for existence only.
-- It does not change anything at a vendor. The only Codex request sent is `account/rateLimits/read`.
+- It does not change anything at a vendor. The only Codex request sent is `account/rateLimits/read`,
+  in either of the two forms the app uses (with or without reset-credit details); both only read.
   `account/rateLimitResetCredit/consume` is tracked in the snapshot for its shape and is never called —
   it spends a reset credit.
-- It does not put account data in a report. Usage numbers, dates, the time zone, plan, emails and
-  account or organization ids are never written; what a vendor printed is shown as a shape
+- It does not put account data in a report. Usage numbers, dates, the time zone, plan, emails,
+  account or organization ids and reset-credit ids, titles or expiries are never written; what a vendor printed is shown as a shape
   (`Current week (…): N% used · resets Mon N at N:Npm (Zone)`) or as JSON key names and types.
 - It writes no file itself. The script creates a temporary folder for the CLIs to start in, removes it
   afterwards, and saves the report.

@@ -72,7 +72,7 @@ struct DriftRunTests {
         ])
         #expect(report.findings.map(\.status) == [.ok, .info, .ok, .ok, .ok, .ok, .ok])
         #expect(report.findings[0].summary == "Matches the snapshot frozen from 1.0.0.")
-        #expect(report.findings[1].summary == "The rate-limits answer has 2 fields the app does not read.")
+        #expect(report.findings[1].summary == "The rate-limits answer has 4 fields the app does not read.")
         #expect(report.tools == [
             DriftReport.Tool(name: "Claude", path: "~/bin/claude", version: nil),
             DriftReport.Tool(name: "Codex", path: "~/bin/codex", version: "1.2.3"),
@@ -80,7 +80,7 @@ struct DriftRunTests {
         let text = Redaction.scrub(report.markdown(), home: rig.home)
         #expect(text.contains("**No drift found.**"))
         for secret in [Sample.email, Sample.accountId, "Asia/Seoul", "private-server", "Someone's Org",
-                       rig.home.path, "other-limit"] {
+                       rig.home.path, "other-limit", "Private credit title", "RateLimitResetCredit_private_1"] {
             #expect(!text.contains(secret))
         }
     }

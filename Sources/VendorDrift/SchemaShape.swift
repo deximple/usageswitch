@@ -11,7 +11,8 @@ enum SchemaShape {
     /// The member key of an object's `additionalProperties` schema.
     static let additionalKey = "(any other key)"
     static let requiredSuffix = " (required)"
-    private static let enumValue = "enum value"
+    /// The signature of each value of an enum.
+    static let enumValue = "enum value"
 
     static func members(of definition: Any) -> [String: String] {
         guard let schema = definition as? [String: Any] else { return [wholeKey: signature(definition)] }

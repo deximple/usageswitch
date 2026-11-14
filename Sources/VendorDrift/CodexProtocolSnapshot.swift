@@ -13,9 +13,13 @@ public enum CodexAppContract {
         "InitializeParams": ["clientInfo"],
         "ClientInfo": ["name", "version"],
         "GetAccountRateLimitsParams": ["excludeResetCreditDetails"],
-        "GetAccountRateLimitsResponse": ["rateLimits", "rateLimitsByLimitId", "accountId"],
+        "GetAccountRateLimitsResponse": ["rateLimits", "rateLimitsByLimitId", "accountId", "rateLimitResetCredits"],
         "RateLimitSnapshot": ["primary", "secondary", "planType"],
         "RateLimitWindow": ["usedPercent", "windowDurationMins", "resetsAt"],
+        // Reset credits: the count, and the expiry of each credit whose status is `available`.
+        "RateLimitResetCreditsSummary": ["availableCount", "credits"],
+        "RateLimitResetCredit": ["status", "expiresAt"],
+        "RateLimitResetCreditStatus": ["available"],
         "JSONRPCErrorError": ["code", "message"],
     ]
     /// Tracked for its shape only. Nothing here ever calls it: it spends a reset credit.
@@ -89,7 +93,10 @@ public struct CodexProtocolSnapshot: Codable, Equatable, Sendable {
         return answerTypes.flatMap { (type: String) -> [String] in
             let present: [String: String] = types[type] ?? [:]
             let read: Set<String> = Set(CodexAppContract.members[type] ?? [])
-            let unread: [String] = present.keys.filter { (member: String) -> Bool in !read.contains(member) }
+            let unread: [String] = present.keys.filter { (member: String) -> Bool in
+                // An enum's other values aren't fields of the answer.
+                !read.contains(member) && present[member] != SchemaShape.enumValue
+            }
             return unread.sorted().map { (member: String) -> String in "\(type).\(member)" }
         }
     }

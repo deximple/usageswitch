@@ -113,8 +113,23 @@ enum Sample {
         ["usedPercent": 31, "windowDurationMins": 10080, "resetsAt": 1_794_301_834]
     }
 
+    /// One available reset credit with an expiry, the way a detailed read lists it.
+    static var defaultResetCredits: [String: Any] {
+        var credit: [String: Any] = [:]
+        credit["id"] = "RateLimitResetCredit_private_1"
+        credit["resetType"] = "codexRateLimits"
+        credit["status"] = "available"
+        credit["grantedAt"] = 1_793_000_000
+        credit["expiresAt"] = 1_795_000_000
+        credit["title"] = "Private credit title"
+        let credits: [[String: Any]] = [credit]
+        return ["availableCount": 1, "credits": credits]
+    }
+
     /// A `codex app-server` exchange whose answer is built from the names in `CodexAppContract`.
-    static func codexAnswer(window: [String: Any] = defaultWindow) -> [String] {
+    /// `resetCredits` nil leaves `rateLimitResetCredits` out, as an older server does.
+    static func codexAnswer(window: [String: Any] = defaultWindow,
+                            resetCredits: [String: Any]? = defaultResetCredits) -> [String] {
         var snapshot: [String: Any] = [:]
         snapshot["primary"] = window
         snapshot["secondary"] = NSNull()
@@ -125,6 +140,7 @@ enum Sample {
         result["rateLimits"] = snapshot
         result["rateLimitsByLimitId"] = byLimit
         result["accountId"] = accountId
+        if let resetCredits { result["rateLimitResetCredits"] = resetCredits }
         let answer: [String: Any] = ["id": 2, "result": result]
         return [#"{"id":1,"result":{"userAgent":"usageswitch"}}"#, line(answer)]
     }
@@ -172,6 +188,18 @@ enum Sample {
         snapshot["planType"] = orNull(reference("PlanType"))
         snapshot["limitId"] = nullable("string")
 
+        var credit: [String: Any] = [:]
+        credit["id"] = type("string")
+        credit["status"] = reference("RateLimitResetCreditStatus")
+        credit["grantedAt"] = ["type": "integer", "format": "int64"] as [String: Any]
+        credit["expiresAt"] = nullable("integer", format: "int64")
+        var creditList: [String: Any] = nullable("array")
+        creditList["items"] = reference("RateLimitResetCredit")
+        var summary: [String: Any] = [:]
+        summary["availableCount"] = ["type": "integer", "format": "int64"] as [String: Any]
+        summary["credits"] = creditList
+        let statuses: [String] = ["available", "redeeming", "redeemed", "unknown"]
+
         let plans: [String] = ["free", "plus", "pro"]
         let clientInfo: [String: Any] = ["name": type("string"), "version": type("string")]
         let initialize: [String: Any] = ["clientInfo": reference("ClientInfo")]
@@ -182,6 +210,9 @@ enum Sample {
         shared["RateLimitWindow"] = object(window, required: ["usedPercent"])
         shared["RateLimitSnapshot"] = object(snapshot)
         shared["PlanType"] = ["enum": plans, "type": "string"] as [String: Any]
+        shared["RateLimitResetCreditsSummary"] = object(summary, required: ["availableCount"])
+        shared["RateLimitResetCredit"] = object(credit, required: ["id", "status", "grantedAt"])
+        shared["RateLimitResetCreditStatus"] = ["enum": statuses, "type": "string"] as [String: Any]
         shared["ClientInfo"] = object(clientInfo, required: ["name", "version"])
         shared["InitializeParams"] = object(initialize, required: ["clientInfo"])
         shared["GetAccountRateLimitsParams"] = object(readParams)
@@ -214,6 +245,7 @@ enum Sample {
         answer["rateLimits"] = ["allOf": [reference("RateLimitSnapshot")] as [[String: Any]]] as [String: Any]
         answer["rateLimitsByLimitId"] = byLimit
         answer["accountId"] = nullable("string")
+        answer["rateLimitResetCredits"] = orNull(reference("RateLimitResetCreditsSummary"))
         var response: [String: Any] = object(answer, required: ["rateLimits"])
         response["definitions"] = shared
 

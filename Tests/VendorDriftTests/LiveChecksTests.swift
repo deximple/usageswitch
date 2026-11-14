@@ -231,16 +231,67 @@ struct LiveCodexCheckTests {
         let finding = rig.run(runner).codexRateLimits(DriftRun.CodexCLI(label: "test", url: cli, version: "1.2.3"))
         #expect(finding.status == .ok)
         #expect(finding.summary == "The app's parser read 1 usage window.")
-        #expect(finding.details == ["plan name: present", "account attribution: present"])
+        #expect(finding.details == ["plan name: present", "account attribution: present",
+                                    "reset credits: present, with details"])
         #expect(runner.requests.count == 1)
         let request = try #require(runner.requests.first)
         #expect(request.executable == cli)
         #expect(request.arguments == ["--disable", "plugins", "app-server"])
         #expect(request.environment["CODEX_HOME"] == rig.home.appendingPathComponent(".codex").path)
         let sent = try #require(request.stdinLines)
-        #expect(sent == CodexUsageCollector.stdinLines(version: ProductInfo.fallbackVersion))
+        // Each run is an account's first read, which is the one where the app also asks for the
+        // reset-credit details.
+        #expect(sent == CodexUsageCollector.stdinLines(version: ProductInfo.fallbackVersion, resetCreditDetails: true))
         #expect(!sent.joined().contains("rateLimitResetCredit"))
         #expect(!sent.joined().contains("login") && !sent.joined().contains("logout"))
+    }
+
+    @Test("with or without reset-credit details, what the app sends only reads", arguments: [false, true])
+    func requestOnlyReads(details: Bool) throws {
+        let lines: [String] = CodexUsageCollector.stdinLines(version: "1.0", resetCreditDetails: details)
+        let messages: [[String: Any]] = lines.compactMap { (line: String) -> [String: Any]? in
+            try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        }
+        let methods: [String] = messages.compactMap { (message: [String: Any]) -> String? in
+            message["method"] as? String
+        }
+        #expect(methods == ["initialize", "initialized", "account/rateLimits/read"])
+        // The two forms differ in one flag of the same read and nothing else.
+        let read = try #require(messages.last?["params"] as? [String: Any])
+        #expect(Array(read.keys) == ["excludeResetCreditDetails"])
+        #expect(read["excludeResetCreditDetails"] as? Bool == !details)
+        // Spending a reset credit is never among them.
+        for line in lines {
+            #expect(!line.contains(CodexAppContract.neverCalled))
+            #expect(!line.contains("rateLimitResetCredit"))
+            #expect(!line.lowercased().contains("consume"))
+        }
+    }
+
+    @Test("reset credits are reported by presence only")
+    func resetCredits() {
+        let countOnly: [String: Any] = ["availableCount": 2]
+        #expect(read(Sample.codexAnswer(resetCredits: countOnly)).details.last == "reset credits: count only")
+        #expect(read(Sample.codexAnswer(resetCredits: nil)).details.last == "reset credits: absent")
+        let detailed = read(Sample.codexAnswer())
+        #expect(detailed.status == .ok)
+        for secret in ["Private credit title", "RateLimitResetCredit_private_1", "1795000000", "codexRateLimits"] {
+            #expect(!text(of: detailed).contains(secret))
+        }
+    }
+
+    @Test("reset credits the app's parser silently drops are drift, not a clean read")
+    func unreadableResetCredits() {
+        var changed: [String: Any] = Sample.defaultResetCredits
+        changed["availableCount"] = "one"
+        let finding = read(Sample.codexAnswer(resetCredits: changed))
+        #expect(finding.status == .drift)
+        #expect(finding.summary.contains("reset credits the app's parser no longer reads"))
+        #expect(finding.details.contains("`rateLimitResetCredits.availableCount: string`"))
+        #expect(finding.details.contains("`rateLimitResetCredits.credits: array`"))
+        for secret in ["Private credit title", "RateLimitResetCredit_private_1", Sample.accountId] {
+            #expect(!text(of: finding).contains(secret))
+        }
     }
 
     @Test("an answer the app's parser rejects is drift, described by key names only")
@@ -285,6 +336,8 @@ struct LiveCodexCheckTests {
             "rateLimits.primary: object", "rateLimits.primary.resetsAt: number",
             "rateLimits.primary.usedPercent: number", "rateLimits.primary.windowDurationMins: number",
             "rateLimits.secondary: null",
+            "rateLimitResetCredits: object", "rateLimitResetCredits.availableCount: number",
+            "rateLimitResetCredits.credits: array",
             "rateLimitsByLimitId: object", "rateLimitsByLimitId.*: object", "rateLimitsByLimitId.*.*: string",
             "rateLimitsByLimitId.*.planType: string", "rateLimitsByLimitId.*.primary: object",
             "rateLimitsByLimitId.*.primary.resetsAt: number", "rateLimitsByLimitId.*.primary.usedPercent: number",
