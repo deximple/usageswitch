@@ -40,6 +40,7 @@ struct CodexUsageTests {
 
     func collector(_ status: CodexStatus, runner: FakeUsageRunner) -> CodexUsageCollector {
         CodexUsageCollector(status: { status }, runner: runner, codexCLI: cli, workingDirectory: workDir,
+                            resetCredits: CodexResetCreditCache(),
                             now: { Date(timeIntervalSince1970: 1_780_000_000) })
     }
 
@@ -224,7 +225,8 @@ struct CodexUsageTests {
         let path = (request.environment["PATH"] ?? "").split(separator: ":").map(String.init)
         #expect(path.contains(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path))
         #expect(!path.contains { $0.hasPrefix("/tmp/codex-home") })
-        #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: "2.0.0"))
+        // A fresh cache: the first read of an account asks for the reset-credit details once.
+        #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: "2.0.0", resetCreditDetails: true))
         #expect(request.stdinLines?.first?.contains(#""version":"2.0.0""#) == true)
         #expect(request.timeout == 15)
         #expect(request.workingDirectory == workDir)

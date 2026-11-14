@@ -213,7 +213,9 @@ enum Fixtures {
                         auth: .subscription, identityKey: "fixture-side", windows: [
                     window(300, 92, resetsIn: 1 * 3600),
                     window(10080, 41, resetsIn: 6 * 86400),
-                ]),
+                ], resetCredits: UsageResetCredits(available: 2, expiries: [
+                    Date().addingTimeInterval(18 * 86400 + 6 * 3600), Date().addingTimeInterval(29 * 86400),
+                ])),
                 account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
                     window(43200, 30, resetsIn: 12 * 86400),
                     window(43200, 28, scope: CursorUsageParser.cursorModelsScope, resetsIn: 12 * 86400),
@@ -320,11 +322,12 @@ enum Fixtures {
     private static func account(_ provider: UsageProvider, _ ref: String, _ label: String,
                                 _ state: UsageState, plan: String? = nil, toolVersion: String? = nil,
                                 auth: UsageAuthentication = .unknown, identityKey: String? = nil,
-                                readAgo: TimeInterval = 0, windows: [UsageWindow] = []) -> AccountUsage {
+                                readAgo: TimeInterval = 0, windows: [UsageWindow] = [],
+                                resetCredits: UsageResetCredits? = nil) -> AccountUsage {
         AccountUsage(id: "\(provider.rawValue):\(ref)", provider: provider, accountRef: ref,
                      label: label, plan: plan, windows: windows, state: state,
                      readAt: Date().addingTimeInterval(-readAgo), toolVersion: toolVersion,
-                     authentication: auth, identityKey: identityKey)
+                     authentication: auth, identityKey: identityKey, resetCredits: resetCredits)
     }
 
     /// Claude weekly 75% + Fable 3%; Codex Personal 31% (pinned), Work session 92% + weekly 64%,
@@ -351,7 +354,9 @@ enum Fixtures {
                     identityKey: "fixture-side", windows: [
                 window(300, 100, resetsIn: 1 * 3600 + 13 * 60),
                 window(10080, 41, resetsIn: 5 * 86400 + 7 * 3600),
-            ]),
+            ], resetCredits: UsageResetCredits(available: 2, expiries: [
+                Date().addingTimeInterval(18 * 86400 + 6 * 3600), Date().addingTimeInterval(29 * 86400),
+            ])),
             // An API-key profile: billed separately, no subscription window — stays listed.
             account(.codex, "found:.codex_second", "API profile", .notReporting, auth: .apiKey),
             // Synthetic total + dashboard pools — declared fixture values, never summed.

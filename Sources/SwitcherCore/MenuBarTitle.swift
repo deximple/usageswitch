@@ -13,16 +13,21 @@ public enum MenuBarTitle {
         UsageText.percentLeft(window.usedPercent) == 0
     }
 
-    /// Picks the window for the bar: a live pinned window first; an exhausted pin still
-    /// outranks unpinned windows but only once every pin is used up; then the most-used
-    /// live window; "used up" only when nothing live remains. An account whose common
-    /// (unscoped) window is exhausted is blocked — its other windows would claim headroom
-    /// the account doesn't have, so they can't be selected. A scoped window that's
-    /// exhausted doesn't block the account; other models keep working.
+    /// Picks the window for the bar. The window the user chose for the bar wins whenever it is
+    /// among `accounts` (fresh readings only), used up or not — they asked for that one. Otherwise:
+    /// a live pinned window first; an exhausted pin still outranks unpinned windows but only once
+    /// every pin is used up; then the most-used live window (the least left that isn't 0); "used up"
+    /// only when nothing live remains. An account whose common (unscoped) window is exhausted is
+    /// blocked — its other windows would claim headroom the account doesn't have, so they can't be
+    /// selected. A scoped window that's exhausted doesn't block the account; other models keep working.
     public static func selectWindow(
         accounts: [[(key: String, window: UsageWindow)]],
-        pins: Set<String>
+        pins: Set<String>,
+        chosen: String? = nil
     ) -> UsageWindow? {
+        if let chosen, let window = accounts.lazy.flatMap({ $0 }).first(where: { $0.key == chosen })?.window {
+            return window
+        }
         var livePinned: UsageWindow?
         var exhaustedPinned: UsageWindow?
         var live: UsageWindow?

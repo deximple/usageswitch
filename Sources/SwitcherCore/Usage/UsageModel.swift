@@ -155,14 +155,18 @@ public struct AccountUsage: Equatable, Identifiable, Sendable {
     /// Memory-only opaque hash tying a reading to a login — distinguishes two accounts that share a
     /// display name without persisting a personal identifier. Never written to the snapshot JSON.
     public let identityKey: String?
+    /// Limit resets the vendor granted this account (Codex today); nil when the vendor reports none.
+    public let resetCredits: UsageResetCredits?
 
     public init(id: String, provider: UsageProvider, accountRef: String, label: String, plan: String?,
                 windows: [UsageWindow], state: UsageState, readAt: Date, toolVersion: String?,
-                authentication: UsageAuthentication = .unknown, identityKey: String? = nil) {
+                authentication: UsageAuthentication = .unknown, identityKey: String? = nil,
+                resetCredits: UsageResetCredits? = nil) {
         self.id = id; self.provider = provider; self.accountRef = accountRef; self.label = label
         self.plan = plan; self.windows = windows; self.state = state; self.readAt = readAt
         self.toolVersion = toolVersion
         self.authentication = authentication; self.identityKey = identityKey
+        self.resetCredits = resetCredits
     }
 
     /// The id names one saved Claude account (`claude:app:<accountUuid>__<orgUuid>`), so a previous
@@ -209,6 +213,7 @@ public struct AccountUsage: Equatable, Identifiable, Sendable {
         return AccountUsage(id: id, provider: provider, accountRef: accountRef, label: label,
                             plan: plan ?? previous.plan, windows: kept, state: state,
                             readAt: previous.readAt, toolVersion: toolVersion,
-                            authentication: authentication, identityKey: identityKey)
+                            authentication: authentication, identityKey: identityKey,
+                            resetCredits: resetCredits ?? previous.resetCredits)
     }
 }

@@ -48,6 +48,8 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var usagePins: [String]?
     /// Show the most constrained usage window in the menu bar (default on).
     public var menuBarShowsUsage: Bool?
+    /// The usage window (`UsagePriority.key`) the menu bar shows; nil = automatic (least left).
+    public var menuBarUsageKey: String?
     /// Allow reading Cursor's sign-in for its usage (default off: no Keychain read, no request).
     public var cursorUsageEnabled: Bool?
     /// Saved appearance choice: nil or unknown values mean system.
@@ -89,7 +91,7 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
                 apiBudgetAnthropic: APIBudget? = nil, apiBudgetOpenAI: APIBudget? = nil,
                 apiBudgetGoogle: APIBudget? = nil, apiBudgetXAI: APIBudget? = nil,
                 apiKeyVaultAccessPolicy: APIKeyVaultAccessPolicy? = nil,
-                turnedOffUsageConnections: [String]? = nil) {
+                turnedOffUsageConnections: [String]? = nil, menuBarUsageKey: String? = nil) {
         self.language = language
         self.menuBarShowsName = menuBarShowsName
         self.showEmails = showEmails
@@ -111,6 +113,7 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         self.apiBudgetXAI = apiBudgetXAI
         self.apiKeyVaultAccessPolicy = apiKeyVaultAccessPolicy
         self.turnedOffUsageConnections = turnedOffUsageConnections
+        self.menuBarUsageKey = menuBarUsageKey
     }
 
     /// The saved settings; the defaults when there are none or the file can't be read.
@@ -165,6 +168,8 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
         }
     }
     public var effectiveMenuBarShowsUsage: Bool { menuBarShowsUsage ?? true }
+    /// The chosen menu bar window; an empty saved key means automatic, like nil.
+    public var effectiveMenuBarUsageKey: String? { menuBarUsageKey.flatMap { $0.isEmpty ? nil : $0 } }
     public var effectiveCursorUsageEnabled: Bool { cursorUsageEnabled ?? false }
     /// Appearance stored as a raw string so unknown values decode to system without a migration.
     public var effectiveAppearance: AppAppearance { AppAppearance(rawValue: appearance ?? "") ?? .system }

@@ -2,8 +2,9 @@ import CryptoKit
 import Foundation
 
 /// Reads the `account/rateLimits/read` answer out of `codex app-server` output. Only windows, the plan
-/// name, the attributed `accountId` and the failure reason are read; credits and upsell are never
-/// looked at, and the server's error text is mapped to a reason without being kept (it can carry identity).
+/// name, the attributed `accountId`, the reset-credit count and expiries, and the failure reason are
+/// read; the credit balance, credit ids/titles and upsell are never looked at, and the server's error
+/// text is mapped to a reason without being kept (it can carry identity).
 public enum CodexRateLimitsParser {
     /// The id of the rate-limits request (the third message written to the server).
     public static let answerID = 2
@@ -17,6 +18,10 @@ public enum CodexRateLimitsParser {
         public var plan: String?
         /// The account the server attributes this read to; nil when an older server omits it.
         public var accountId: String? = nil
+        /// Limit resets the account holds; nil when the server sent none or an unknown shape.
+        public var resetCredits: UsageResetCredits? = nil
+        /// Whether `resetCredits` came with per-credit details (expiries), not the count alone.
+        public var resetCreditDetails = false
     }
 
     public enum Failure: Error, Equatable, Sendable {
@@ -72,8 +77,28 @@ public enum CodexRateLimitsParser {
             windows.append(UsageWindow(durationMinutes: duration, usedPercent: Double(used),
                                        resetsAt: resets.map { Date(timeIntervalSince1970: TimeInterval($0)) }))
         }
+        let credits = resetCredits(result["rateLimitResetCredits"])
         return .success(Parsed(windows: windows, plan: snapshot["planType"] as? String,
-                               accountId: accountId as? String))
+                               accountId: accountId as? String,
+                               resetCredits: credits?.credits, resetCreditDetails: credits?.detailed ?? false))
+    }
+
+    /// `rateLimitResetCredits`: `availableCount` and, when details were asked for, `credits` (null
+    /// means count only). Optional and additive, so an unknown shape drops the credits rather than
+    /// failing the windows. Only the expiry of each `available` credit is read.
+    static func resetCredits(_ value: Any?) -> (credits: UsageResetCredits, detailed: Bool)? {
+        guard let summary = value as? [String: Any], let count = whole(summary["availableCount"]), count >= 0
+        else { return nil }
+        guard let list = summary["credits"] as? [Any] else {
+            return (UsageResetCredits(available: count), false)
+        }
+        let expiries = list.compactMap { item -> Date? in
+            guard let credit = item as? [String: Any], credit["status"] as? String == "available",
+                  let expires = whole(credit["expiresAt"]), (0...latestReset).contains(expires)
+            else { return nil }
+            return Date(timeIntervalSince1970: TimeInterval(expires))
+        }
+        return (UsageResetCredits(available: count, expiries: expiries), true)
     }
 
     /// Maps the error to a reason without keeping its text. The chatgpt-specific message must be
@@ -122,15 +147,18 @@ public struct CodexUsageCollector: Sendable {
     /// The user's home, for the interpreter PATH. An account's `home` is its Codex folder
     /// (`~/.codex`, or one in the store), not a home with `.local/bin` and the like.
     private let userHome: URL
+    /// Decides when a read asks for reset-credit details and keeps their expiries between polls.
+    private let resetCredits: CodexResetCreditCache
     private let now: @Sendable () -> Date
 
     public init(status: @escaping @Sendable () -> CodexStatus, runner: any UsageProcessRunner,
                 codexCLI: URL, clientVersion: String = ProductInfo.fallbackVersion, workingDirectory: URL,
                 bundledCLI: URL? = nil, userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                resetCredits: CodexResetCreditCache = .shared,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.status = status; self.runner = runner; self.codexCLI = codexCLI; self.bundledCLI = bundledCLI
         self.clientVersion = clientVersion; self.workingDirectory = workingDirectory
-        self.userHome = userHome; self.now = now
+        self.userHome = userHome; self.resetCredits = resetCredits; self.now = now
     }
 
     public func collect() -> [AccountUsage] {
@@ -154,11 +182,12 @@ public struct CodexUsageCollector: Sendable {
             return digest.map { String(format: "%02x", $0) }.joined()
         }()
         func finish(_ state: UsageState, _ windows: [UsageWindow] = [], plan: String? = nil,
-                    attributed: Bool = true) -> AccountUsage {
+                    credits: UsageResetCredits? = nil, attributed: Bool = true) -> AccountUsage {
             AccountUsage(id: "codex:\(account.id)", provider: .codex, accountRef: account.id,
                          label: account.label, plan: plan, windows: windows, state: state,
                          readAt: now(), toolVersion: toolVersion,
-                         authentication: authentication, identityKey: attributed ? identityKey : nil)
+                         authentication: authentication, identityKey: attributed ? identityKey : nil,
+                         resetCredits: credits)
         }
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
@@ -167,12 +196,13 @@ public struct CodexUsageCollector: Sendable {
             ? UsageChildEnvironment.make(for: codexCLI, home: userHome)
             : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
         env["CODEX_HOME"] = account.home
+        let details = resetCredits.wantsDetails(account: account.id, now: now())
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
             environment: env,
             workingDirectory: workingDirectory,
-            stdinLines: Self.stdinLines(version: clientVersion),
+            stdinLines: Self.stdinLines(version: clientVersion, resetCreditDetails: details),
             stopWhen: { CodexRateLimitsParser.isAnswer($0) },
             timeout: 15)
         let result = runner.run(request)
@@ -187,9 +217,16 @@ public struct CodexUsageCollector: Sendable {
                 // A read attributed to another account (a login changed mid-read) is never this home's
                 // quota, and drops the login fingerprint so no earlier windows are kept for it either.
                 if let reported = parsed.accountId, account.identity?.owns(accountId: reported) != true {
+                    resetCredits.forget(account: account.id)
                     return finish(.failed(.accountMismatch), attributed: false)
                 }
-                return finish(.ok, parsed.windows, plan: parsed.plan)
+                // A read that asked for details counts as detailed even when the server sent the count
+                // alone — otherwise every 5-minute poll would keep asking for them.
+                let credits = parsed.resetCredits.map {
+                    resetCredits.merge(account: account.id, read: $0,
+                                       detailed: details || parsed.resetCreditDetails, now: now())
+                }
+                return finish(.ok, parsed.windows, plan: parsed.plan, credits: credits)
             case .failure(let failure): return finish(Self.state(for: failure))
             }
         }
@@ -206,12 +243,13 @@ public struct CodexUsageCollector: Sendable {
     }
 
     /// The three handshake messages, in order. stdin stays open after these or the server exits
-    /// without answering.
-    static func stdinLines(version: String) -> [String] {
+    /// without answering. A background poll skips the reset-credit detail lookup, as Codex asks;
+    /// the count still comes back either way.
+    static func stdinLines(version: String, resetCreditDetails: Bool = false) -> [String] {
         [
             #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"usageswitch","version":"\#(version)"}}}"#,
             #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#,
+            #"{"id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":\#(!resetCreditDetails)}}"#,
         ]
     }
 }

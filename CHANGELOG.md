@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Codex limit resets are shown.** When OpenAI grants a Codex account free limit
+resets, its row now says how many it holds and when the first one expires
+(“Limit resets: 2 · first expires in 18d 5h”). UsageSwitch only reads them; use a
+reset in Codex itself. Claude Code's own limit resets are not shown — its `/usage`
+output doesn't list them.
+
+**Choose what the menu bar shows.** **⚙︎ › Menu Bar Usage** picks the limit the
+menu bar title reports. **Automatic** keeps the old behavior: a pinned limit, else
+the one with the least left that isn't used up.
+
 ## 2.3.2 — signed-out profiles and a tidier usage list
 
 **A signed-out profile says so.** When a saved Claude account's CLI profile is

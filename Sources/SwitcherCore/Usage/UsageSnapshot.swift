@@ -25,6 +25,14 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         /// `UsageAuthentication.rawValue` — absent in older files, additive.
         public let authentication: String?
         public let windows: [Window]
+        /// Limit resets the account holds — absent in older files and for vendors that report none.
+        public let resetCredits: ResetCredits?
+    }
+
+    public struct ResetCredits: Codable, Equatable, Sendable {
+        public let available: Int
+        /// The first expiry still ahead when the snapshot was written; nil when unknown.
+        public let nextExpiry: Date?
     }
 
     public struct Window: Codable, Equatable, Sendable {
@@ -75,6 +83,8 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
             Window(kind: window.kind.rawValue, scope: window.scope.map(safeString),
                    durationMinutes: window.durationMinutes, usedPercent: window.usedPercent,
                    leftPercent: max(0, 100 - window.usedPercent), resetsAt: window.resetsAt)
+        }, resetCredits: usage.resetCredits.map {
+            ResetCredits(available: $0.available, nextExpiry: $0.nextExpiry(now: usage.readAt))
         })
     }
 
@@ -104,7 +114,7 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
                 Window(kind: $0.kind, scope: $0.scope.map(Self.safeString),
                        durationMinutes: $0.durationMinutes, usedPercent: $0.usedPercent,
                        leftPercent: $0.leftPercent, resetsAt: $0.resetsAt)
-            })
+            }, resetCredits: account.resetCredits)
         }
         return UsageSnapshot(generatedAt: generatedAt, accounts: safeAccounts)
     }
