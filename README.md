@@ -478,6 +478,7 @@ swift build                    # debug build
 ./scripts/test.sh              # tests and a coverage report
 python3 scripts/check-l10n.py  # checks that all five languages have every string
 ./scripts/bundle.sh            # universal build/UsageSwitch.app (Developer ID if available, ad-hoc otherwise)
+./scripts/vendor-drift.sh      # checks installed vendor CLIs against what the app reads (docs/vendor-drift.md)
 ```
 
 To try the interface without any accounts, run the bundle with demo data — it never touches your real data:

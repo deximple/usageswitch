@@ -474,6 +474,7 @@ swift build                    # 调试构建
 ./scripts/test.sh              # 测试和覆盖率报告
 python3 scripts/check-l10n.py  # 检查五种语言都包含全部字符串
 ./scripts/bundle.sh            # 通用版 build/UsageSwitch.app(有 Developer ID 则签名,否则 ad-hoc)
+./scripts/vendor-drift.sh      # 检查已安装的厂商 CLI 输出是否仍是应用读取的格式(docs/vendor-drift.md)
 ```
 
 要在没有任何账户的情况下试用界面，用演示数据运行该应用包——它不会碰你的真实数据：

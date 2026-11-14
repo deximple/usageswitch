@@ -475,6 +475,7 @@ swift build                    # 디버그 빌드
 ./scripts/test.sh              # 테스트와 커버리지 보고서
 python3 scripts/check-l10n.py  # 다섯 언어 문자열이 모두 있는지 확인
 ./scripts/bundle.sh            # 유니버설 build/UsageSwitch.app (Developer ID가 있으면 사용, 없으면 ad-hoc 서명)
+./scripts/vendor-drift.sh      # 설치된 벤더 CLI의 출력이 앱이 읽는 형태와 맞는지 점검 (docs/vendor-drift.md)
 ```
 
 계정 없이 화면만 보려면 데모 데이터로 실행하세요. 실제 데이터에는 손대지 않습니다.

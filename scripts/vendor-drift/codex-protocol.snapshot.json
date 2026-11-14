@@ -1,0 +1,186 @@
+{
+  "cliVersion" : "0.167.0",
+  "clientNotifications" : {
+    "initialized" : "none"
+  },
+  "notifications" : {
+    "account/gatewayOAuth/changed" : "GatewayOAuthChangedNotification",
+    "account/login/completed" : "AccountLoginCompletedNotification",
+    "account/rateLimits/updated" : "AccountRateLimitsUpdatedNotification",
+    "account/updated" : "AccountUpdatedNotification"
+  },
+  "requests" : {
+    "account/gatewayOAuth/cancel" : "null",
+    "account/gatewayOAuth/login" : "null",
+    "account/gatewayOAuth/read" : "null",
+    "account/login/cancel" : "CancelLoginAccountParams",
+    "account/login/start" : "LoginAccountParams",
+    "account/logout" : "null",
+    "account/rateLimitResetCredit/consume" : "ConsumeAccountRateLimitResetCreditParams",
+    "account/rateLimits/read" : "GetAccountRateLimitsParams | null",
+    "account/read" : "GetAccountParams",
+    "account/sendAddCreditsNudgeEmail" : "SendAddCreditsNudgeEmailParams",
+    "account/usage/read" : "GetAccountTokenUsageParams | null",
+    "account/workspaceMessages/read" : "null",
+    "initialize" : "InitializeParams"
+  },
+  "types" : {
+    "AbsolutePathBuf" : {
+      "(shape)" : "string"
+    },
+    "Account" : {
+      "amazonBedrock.type" : "enum(amazonBedrock) (required)",
+      "amazonBedrock.usesCodexManagedCredentials" : "boolean",
+      "apiKey.type" : "enum(apiKey) (required)",
+      "chatgpt.email" : "string | null (required)",
+      "chatgpt.planType" : "PlanType (required)",
+      "chatgpt.type" : "enum(chatgpt) (required)",
+      "chatgpt.workspaceName" : "string | null",
+      "gcp.type" : "enum(gcp) (required)"
+    },
+    "AccountRateLimitsUpdatedNotification" : {
+      "rateLimits" : "RateLimitSnapshot (required)"
+    },
+    "ClientInfo" : {
+      "name" : "string (required)",
+      "title" : "string | null",
+      "version" : "string (required)"
+    },
+    "ConsumeAccountRateLimitResetCreditOutcome" : {
+      "alreadyRedeemed" : "enum value",
+      "noCredit" : "enum value",
+      "nothingToReset" : "enum value",
+      "reset" : "enum value"
+    },
+    "ConsumeAccountRateLimitResetCreditParams" : {
+      "creditId" : "string | null",
+      "idempotencyKey" : "string (required)"
+    },
+    "ConsumeAccountRateLimitResetCreditResponse" : {
+      "outcome" : "ConsumeAccountRateLimitResetCreditOutcome (required)"
+    },
+    "CreditsSnapshot" : {
+      "balance" : "string | null",
+      "hasCredits" : "boolean (required)",
+      "unlimited" : "boolean (required)"
+    },
+    "GetAccountParams" : {
+      "refreshToken" : "boolean"
+    },
+    "GetAccountRateLimitsParams" : {
+      "excludeResetCreditDetails" : "boolean",
+      "supportsLunaReserve" : "boolean"
+    },
+    "GetAccountRateLimitsResponse" : {
+      "accountId" : "string | null",
+      "ordinaryUsageAllowed" : "boolean | null",
+      "rateLimitResetCredits" : "RateLimitResetCreditsSummary | null",
+      "rateLimitUpsell" : "any",
+      "rateLimits" : "RateLimitSnapshot (required)",
+      "rateLimitsByLimitId" : "{(any other key): RateLimitSnapshot} | null"
+    },
+    "GetAccountResponse" : {
+      "account" : "Account | null",
+      "requiresOpenaiAuth" : "boolean (required)"
+    },
+    "InitializeCapabilities" : {
+      "experimentalApi" : "boolean",
+      "explicitGatewayOauth" : "boolean",
+      "extensions" : "object | null",
+      "mcpServerOpenaiFormElicitation" : "boolean",
+      "optOutNotificationMethods" : "[string] | null",
+      "requestAttestation" : "boolean",
+      "requiredHumanApproval" : "boolean"
+    },
+    "InitializeParams" : {
+      "capabilities" : "InitializeCapabilities | null",
+      "clientInfo" : "ClientInfo (required)"
+    },
+    "InitializeResponse" : {
+      "codexHome" : "AbsolutePathBuf (required)",
+      "platformFamily" : "string (required)",
+      "platformOs" : "string (required)",
+      "userAgent" : "string (required)"
+    },
+    "JSONRPCErrorError" : {
+      "code" : "integer<int64> (required)",
+      "data" : "any",
+      "message" : "string (required)"
+    },
+    "PlanType" : {
+      "business" : "enum value",
+      "edu" : "enum value",
+      "edu_plus" : "enum value",
+      "edu_pro" : "enum value",
+      "ent26" : "enum value",
+      "enterprise" : "enum value",
+      "enterprise_cbp_automation" : "enum value",
+      "enterprise_cbp_usage_based" : "enum value",
+      "free" : "enum value",
+      "go" : "enum value",
+      "plus" : "enum value",
+      "pro" : "enum value",
+      "prolite" : "enum value",
+      "promax" : "enum value",
+      "sci" : "enum value",
+      "sci_plus" : "enum value",
+      "self_serve_business_prolite" : "enum value",
+      "self_serve_business_usage_based" : "enum value",
+      "team" : "enum value",
+      "unknown" : "enum value"
+    },
+    "RateLimitReachedType" : {
+      "rate_limit_reached" : "enum value",
+      "workspace_member_credits_depleted" : "enum value",
+      "workspace_member_usage_limit_reached" : "enum value",
+      "workspace_owner_credits_depleted" : "enum value",
+      "workspace_owner_usage_limit_reached" : "enum value"
+    },
+    "RateLimitResetCredit" : {
+      "description" : "string | null",
+      "expiresAt" : "integer<int64> | null",
+      "grantedAt" : "integer<int64> (required)",
+      "id" : "string (required)",
+      "resetType" : "RateLimitResetType (required)",
+      "status" : "RateLimitResetCreditStatus (required)",
+      "title" : "string | null"
+    },
+    "RateLimitResetCreditStatus" : {
+      "available" : "enum value",
+      "redeemed" : "enum value",
+      "redeeming" : "enum value",
+      "unknown" : "enum value"
+    },
+    "RateLimitResetCreditsSummary" : {
+      "availableCount" : "integer<int64> (required)",
+      "credits" : "[RateLimitResetCredit] | null"
+    },
+    "RateLimitResetType" : {
+      "codexRateLimits" : "enum value",
+      "unknown" : "enum value"
+    },
+    "RateLimitSnapshot" : {
+      "credits" : "CreditsSnapshot | null",
+      "individualLimit" : "SpendControlLimitSnapshot | null",
+      "limitId" : "string | null",
+      "limitName" : "string | null",
+      "normalModelSlug" : "string | null",
+      "planType" : "PlanType | null",
+      "primary" : "RateLimitWindow | null",
+      "rateLimitReachedType" : "RateLimitReachedType | null",
+      "secondary" : "RateLimitWindow | null",
+      "spendControlReached" : "boolean | null"
+    },
+    "RateLimitWindow" : {
+      "resetsAt" : "integer<int64> | null",
+      "usedPercent" : "integer<int32> (required)",
+      "windowDurationMins" : "integer<int64> | null"
+    },
+    "SpendControlLimitSnapshot" : {
+      "limit" : "string (required)",
+      "remainingPercent" : "integer<int32> (required)",
+      "resetsAt" : "integer<int64> (required)",
+      "used" : "string (required)"
+    }
+  }
+}

@@ -474,6 +474,7 @@ swift build                    # compilación de depuración
 ./scripts/test.sh              # tests y un informe de cobertura
 python3 scripts/check-l10n.py  # comprueba que los cinco idiomas tienen cada cadena
 ./scripts/bundle.sh            # build/UsageSwitch.app universal (Developer ID si está disponible, ad-hoc si no)
+./scripts/vendor-drift.sh      # comprueba que las CLI instaladas siguen dando lo que la app lee (docs/vendor-drift.md)
 ```
 
 Para probar la interfaz sin ninguna cuenta, ejecute el paquete con datos de demostración — nunca toca sus datos reales:

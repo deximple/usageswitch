@@ -28,6 +28,11 @@ let package = Package(
             dependencies: ["SwitcherCore"],
             exclude: ["Fixtures"]
         ),
+        // Developer tool, not shipped in the app: checks installed vendor CLIs against what
+        // SwitcherCore reads (scripts/vendor-drift.sh, docs/vendor-drift.md).
+        .target(name: "VendorDrift", dependencies: ["SwitcherCore"]),
+        .executableTarget(name: "usageswitch-drift", dependencies: ["VendorDrift"]),
+        .testTarget(name: "VendorDriftTests", dependencies: ["VendorDrift", "SwitcherCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

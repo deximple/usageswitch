@@ -200,7 +200,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
                                    environment: [String: String], workingDirectory: URL) -> AuthResult {
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return .problem(.failed(.refused)) }
         let result = runner.run(UsageProcessRequest(executable: binary,
-            arguments: ["auth", "status", "--json"], environment: environment,
+            arguments: authStatusArguments, environment: environment,
             workingDirectory: workingDirectory, timeout: 20))
         switch result.outcome {
         case .timedOut: return .problem(.failed(.timeout))
@@ -214,6 +214,15 @@ public struct ClaudeProfileUsageCollector: Sendable {
               let status = parseAuthStatus(value)
         else { return .problem(.failed(.schemaChanged)) }
         return .status(status)
+    }
+
+    /// The sign-in status command this collector runs.
+    public static let authStatusArguments = ["auth", "status", "--json"]
+
+    /// Whether that command's output still has the shape this build reads. Shape only, for
+    /// the vendor drift check (scripts/vendor-drift.sh): no value is kept.
+    public static func understandsAuthStatus(_ output: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: output) as? [String: Any]).flatMap(parseAuthStatus) != nil
     }
 
     private static func parseAuthStatus(_ value: [String: Any]) -> AuthStatus? {
