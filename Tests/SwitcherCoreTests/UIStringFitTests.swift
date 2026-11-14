@@ -23,11 +23,6 @@ enum MenuLimitRow {
     static let reset = TextSlot(width: 52, style: TextStyle(size: 11, monospacedDigits: true), minimumScale: 0.8)
 }
 
-/// The main window's limit row keeps the full window name ("Monthly · Cursor Models") in 168pt and never shrinks it.
-enum MainLimitRow {
-    static let name = TextSlot(width: 168, style: TextStyle(size: 12))
-}
-
 /// Strings that must fit a fixed-width cell or a one-line row, in every shipped language. The app's own
 /// words must fit at full size: text that only fits by shrinking is smaller than the rows around it.
 /// Defects that exist today are listed next to their test as known issues, and a listed one that no
@@ -114,22 +109,33 @@ struct UIStringFitTests {
 
     // MARK: - Main window limit row
 
-    /// The same group name after a window kind is 175–196pt of the main window's 168pt, except in
-    /// zh-Hans, where it fits by under a point — so this one is not required to recur everywhere.
-    private static let scopesCutInTheMainWindowToday: Set<String> = ["Claude And Gpt Models"]
+    /// The main window's name column: the full window name ("Monthly · Cursor Models"), never shrunk. Its
+    /// width is read from the view, written either beside the menu's 84 or as `wideNameWidth`, so there is
+    /// no copy here to fall behind.
+    private static func wideNameColumn() throws -> TextSlot {
+        let views = try viewSources()
+        let match = try #require(views.firstMatch(of: /wideNameWidth: CGFloat = (\d+)/)
+                                    ?? views.firstMatch(of: /frame\(width: compact \? 84 : (\d+)/),
+                                 "the main window's name column width is not where this test reads it")
+        return TextSlot(width: try #require(Double(match.output.1)), style: TextStyle(size: 12))
+    }
+
+    /// Antigravity's group name after a window kind is 168–196pt: cut wherever the column is narrower.
+    /// It depends on the view's width, so it is not required to recur.
+    private static let scopesTooWideForANarrowNameColumn: Set<String> = ["Claude And Gpt Models"]
 
     /// The widest full name a scope can get: the longest window kind in that language, then the scope.
     @Test(arguments: AppLanguage.allCases, scopes)
     func scopedWindowNameFitsTheWideNameColumn(language: AppLanguage, scope: String) throws {
-        let style = MainLimitRow.name.style
+        let column = try Self.wideNameColumn()
         let names = Self.windowNameKeys.map {
             L10n.string(.usageWinScope, language: language, [L10n.string($0, language: language), scope])
         }
-        let widest = try #require(names.max { style.width(of: $0) < style.width(of: $1) })
+        let widest = try #require(names.max { column.style.width(of: $0) < column.style.width(of: $1) })
         withKnownIssue("vendor scope name is cut off in the main window", isIntermittent: true) {
-            #expect(MainLimitRow.name.fit(widest) == .fits, "\(language.rawValue): \(MainLimitRow.name.describe(widest))")
+            #expect(column.fit(widest) == .fits, "\(language.rawValue): \(column.describe(widest))")
         } when: {
-            Self.scopesCutInTheMainWindowToday.contains(scope)
+            Self.scopesTooWideForANarrowNameColumn.contains(scope)
         }
     }
 
@@ -216,13 +222,18 @@ struct UIStringFitTests {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Sources/ClaudeSwitcher")
 
-    /// The widths in `MenuLimitRow` are copies of literals in the views. This fails when a column changes
-    /// in the code, so DESIGN.md, the view and `MenuLimitRow` change together.
-    @Test func limitRowContractMatchesTheViews() throws {
-        let views = try FileManager.default.contentsOfDirectory(at: Self.appSources, includingPropertiesForKeys: nil)
+    /// Every view file as one string, for the checks that read a layout number out of the code.
+    private static func viewSources() throws -> String {
+        try FileManager.default.contentsOfDirectory(at: appSources, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "swift" }
             .map { try String(contentsOf: $0, encoding: .utf8) }
             .joined(separator: "\n")
+    }
+
+    /// The widths in `MenuLimitRow` are copies of literals in the views. This fails when a column changes
+    /// in the code, so DESIGN.md, the view and `MenuLimitRow` change together.
+    @Test func limitRowContractMatchesTheViews() throws {
+        let views = try Self.viewSources()
         for literal in [
             "frame(width: compact ? \(Int(MenuLimitRow.name.width)) :",
             "frame(maxWidth: compact ? \(Int(MenuLimitRow.barMaxWidth)) :",
