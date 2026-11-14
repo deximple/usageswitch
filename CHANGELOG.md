@@ -1,6 +1,48 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 — a Guide that shows its reasoning, bars in vendor colors, Codex limit resets
+
+**The Guide says why.** Under the suggestion, a folded **Why this suggestion**
+list shows up to four accounts it was weighed against — the limit in the way, the
+share left and when it resets — and the accounts left out: at the warning level,
+likely to run out before the reset, or needing a new reading. The headline names
+the provider, so a Claude "Personal" and a Codex "Personal" can't be confused.
+When no account has room, the Guide now says "No account has room right now." and
+which limit frees up first, instead of going blank.
+
+**The Guide looks ahead.** From each limit's average pace so far it lists the
+accounts that may run out before their reset, soonest first. A limit about to
+reset counts the share that would otherwise lapse unused, so 60% left three hours
+before a weekly reset now ranks above 70% left for six more days. For the
+suggested account it says how much a day lasts to the reset ("Spread evenly,
+about 15% a day lasts to the reset"). These are estimates, and nothing is
+projected before 15% of a limit's window has passed.
+
+**Lighter options and other tools.** When an account is on course to run out and
+its local logs show what it mostly ran in the last day, the Guide names a lighter
+model or effort from the same maker — a direction, not a promised saving. When
+nothing can be suggested, tools the Guide doesn't rank (Cursor, Devin, Copilot,
+Antigravity) that still have room are listed, two at most. A used-up Codex
+account that holds a limit reset is pointed out ("you could use one yourself"),
+and so is a reset that expires within two days. The Guide still only reads:
+nothing switches, signs in or uses a reset for you.
+
+**Usage bars in each vendor's color.** Bars are filled with the vendor's logo
+color — Claude's terracotta, blue for Gemini and Antigravity, black or white for
+the rest — instead of the same gray everywhere. The warning and used-up colors
+still take over, the state is still told by icon and accessibility label too, and
+every fill keeps at least 3:1 contrast against both the window and the bar's track
+in light and dark mode. A used-up bar no longer paints its track red.
+
+**Tidier rows.** The reset time sits in a fixed column, so bars and percentages
+line up; longer notes such as "may run out in …" move below the bar. **Details**
+shows which provider, environment and plan a row belongs to, in the two-line
+layout. Text is never smaller than 11 pt, and warning text is no longer orange or
+red on a light background — the icon carries the color. In the menu, an
+Antigravity model group's name gets a line of its own over its weekly and session
+limits instead of being cut off ("Weekly · Claude A…"). The main window's name
+column is wider, the Codex tab's two buttons stack when they don't fit side by
+side, and the Spanish settings menu is no wider than the panel it opens from.
 
 **Codex limit resets are shown.** When OpenAI grants a Codex account free limit
 resets, its row now says how many it holds and when the first one expires
@@ -11,6 +53,14 @@ output doesn't list them.
 **Choose what the menu bar shows.** **⚙︎ › Menu Bar Usage** picks the limit the
 menu bar title reports. **Automatic** keeps the old behavior: a pinned limit, else
 the one with the least left that isn't used up.
+
+**Behind the scenes:**
+- `swift test` checks that menu and window labels fit their columns in all five
+  languages, and `scripts/ui-snapshots.sh` compares offscreen renders before and
+  after a change.
+- `scripts/vendor-drift.sh` checks that the Claude and Codex CLIs on this Mac
+  still answer in the shape UsageSwitch reads. It only reads; it never uses a
+  reset or signs in.
 
 ## 2.3.2 — signed-out profiles and a tidier usage list
 
