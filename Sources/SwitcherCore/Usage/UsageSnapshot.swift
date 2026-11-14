@@ -114,7 +114,9 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
                 Window(kind: $0.kind, scope: $0.scope.map(Self.safeString),
                        durationMinutes: $0.durationMinutes, usedPercent: $0.usedPercent,
                        leftPercent: $0.leftPercent, resetsAt: $0.resetsAt)
-            }, resetCredits: account.resetCredits)
+            }, resetCredits: account.resetCredits.map {
+                ResetCredits(available: max(0, $0.available), nextExpiry: $0.nextExpiry)
+            })
         }
         return UsageSnapshot(generatedAt: generatedAt, accounts: safeAccounts)
     }

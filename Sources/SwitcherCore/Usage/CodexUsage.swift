@@ -196,7 +196,7 @@ public struct CodexUsageCollector: Sendable {
             ? UsageChildEnvironment.make(for: codexCLI, home: userHome)
             : SystemCodexAppControl.environment(home: URL(fileURLWithPath: account.home))
         env["CODEX_HOME"] = account.home
-        let details = resetCredits.wantsDetails(account: account.id, now: now())
+        let details = resetCredits.wantsDetails(account: account.id, login: identityKey, now: now())
         let request = UsageProcessRequest(
             executable: codexCLI,
             arguments: ["--disable", "plugins", "app-server"],
@@ -222,10 +222,8 @@ public struct CodexUsageCollector: Sendable {
                 }
                 // A read that asked for details counts as detailed even when the server sent the count
                 // alone — otherwise every 5-minute poll would keep asking for them.
-                let credits = parsed.resetCredits.map {
-                    resetCredits.merge(account: account.id, read: $0,
-                                       detailed: details || parsed.resetCreditDetails, now: now())
-                }
+                let credits = resetCredits.merge(account: account.id, login: identityKey, read: parsed.resetCredits,
+                                                 detailed: details || parsed.resetCreditDetails, now: now())
                 return finish(.ok, parsed.windows, plan: parsed.plan, credits: credits)
             case .failure(let failure): return finish(Self.state(for: failure))
             }

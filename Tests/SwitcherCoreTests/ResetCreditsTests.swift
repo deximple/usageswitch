@@ -105,12 +105,14 @@ struct ResetCreditsTests {
     func cacheLifetime() {
         let cache = CodexResetCreditCache()
         let now = Self.readAt
-        #expect(cache.wantsDetails(account: "a1", now: now))
-        _ = cache.merge(account: "a1", read: UsageResetCredits(available: 1), detailed: true, now: now)
-        #expect(!cache.wantsDetails(account: "a1", now: now.addingTimeInterval(300)))
-        #expect(cache.wantsDetails(account: "a1", now: now.addingTimeInterval(CodexResetCreditCache.detailLifetime)))
-        #expect(cache.wantsDetails(account: "a1", now: now.addingTimeInterval(-60)))  // clock went back
-        #expect(cache.wantsDetails(account: "other", now: now))
+        #expect(cache.wantsDetails(account: "a1", login: "L", now: now))
+        _ = cache.merge(account: "a1", login: "L", read: UsageResetCredits(available: 1), detailed: true, now: now)
+        #expect(!cache.wantsDetails(account: "a1", login: "L", now: now.addingTimeInterval(300)))
+        #expect(cache.wantsDetails(account: "a1", login: "L",
+                                   now: now.addingTimeInterval(CodexResetCreditCache.detailLifetime)))
+        #expect(cache.wantsDetails(account: "a1", login: "L", now: now.addingTimeInterval(-60)))  // clock went back
+        #expect(cache.wantsDetails(account: "other", login: "L", now: now))
+        #expect(cache.wantsDetails(account: "a1", login: "another login", now: now))
     }
 
     @Test("a count-only read keeps the expiries while the count matches and drops them when it changes")
@@ -118,11 +120,16 @@ struct ResetCreditsTests {
         let cache = CodexResetCreditCache()
         let expiry = Self.readAt.addingTimeInterval(86_400)
         let detailed = UsageResetCredits(available: 2, expiries: [expiry])
-        _ = cache.merge(account: "a1", read: detailed, detailed: true, now: Self.readAt)
-        #expect(cache.merge(account: "a1", read: UsageResetCredits(available: 2), detailed: false, now: Self.readAt) == detailed)
-        let used = cache.merge(account: "a1", read: UsageResetCredits(available: 1), detailed: false, now: Self.readAt)
+        _ = cache.merge(account: "a1", login: "L", read: detailed, detailed: true, now: Self.readAt)
+        #expect(cache.merge(account: "a1", login: "L", read: UsageResetCredits(available: 2), detailed: false,
+                            now: Self.readAt) == detailed)
+        // Another login in the same home never gets the kept expiries.
+        #expect(cache.merge(account: "a1", login: "M", read: UsageResetCredits(available: 2), detailed: false,
+                            now: Self.readAt) == UsageResetCredits(available: 2))
+        let used = cache.merge(account: "a1", login: "L", read: UsageResetCredits(available: 1), detailed: false,
+                               now: Self.readAt)
         #expect(used == UsageResetCredits(available: 1))
-        #expect(cache.wantsDetails(account: "a1", now: Self.readAt))
+        #expect(cache.wantsDetails(account: "a1", login: "L", now: Self.readAt))
     }
 
     // MARK: - Collector
@@ -156,12 +163,42 @@ struct ResetCreditsTests {
     @Test("a read attributed to another login carries no credits and forgets the kept ones")
     func mismatchForgets() throws {
         let cache = CodexResetCreditCache()
-        _ = cache.merge(account: "a1", read: UsageResetCredits(available: 3), detailed: true, now: Self.readAt)
+        _ = cache.merge(account: "a1", login: nil, read: UsageResetCredits(available: 3), detailed: true, now: Self.readAt)
         let other = #"{"id":2,"result":{"accountId":"acct-b","rateLimits":{"primary":null},"rateLimitResetCredits":{"availableCount":5,"credits":null}}}"#
         let usage = try #require(collector(runner([other]), cache: cache).collect().first)
         #expect(usage.state == .failed(.accountMismatch))
         #expect(usage.resetCredits == nil)
-        #expect(cache.wantsDetails(account: "a1", now: Self.readAt))
+        #expect(cache.wantsDetails(account: "a1", login: nil, now: Self.readAt))
+    }
+
+    @Test("a server that sends no reset credits is asked for details once, not on every poll")
+    func noCreditsAskedOnce() {
+        let cache = CodexResetCreditCache()
+        let plain = #"{"id":2,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":10,"windowDurationMins":300,"resetsAt":1794700000}}}}"#
+        let runner = runner([plain])
+        let first = collector(runner, cache: cache).collect().first
+        _ = collector(runner, cache: cache).collect()
+        let lines = runner.requests.compactMap { $0.stdinLines?.last }
+        #expect(first?.resetCredits == nil)
+        #expect(lines.map { $0.contains(#""excludeResetCreditDetails":true"#) } == [false, true])
+    }
+
+    @Test("another account signed into the same home doesn't inherit the kept expiries")
+    func newLoginSameHome() throws {
+        let cache = CodexResetCreditCache()
+        _ = collector(runner([Self.detailed]), cache: cache).collect()
+        let otherLogin = CodexAccount(id: "a1", kind: .standard, label: "Codex a1", customName: nil,
+                                      defaultName: "b1@example.com", home: "/tmp/codex-home", homePath: "~/.codex",
+                                      identity: CodexIdentity(mode: .chatgpt, email: "b1@example.com", accountId: "acct-b"),
+                                      state: .signedIn, pids: [])
+        let status = CodexStatus(installed: true, version: "0.167.0", accounts: [otherLogin], found: [], hiddenCount: 0)
+        let runner = runner([Self.countOnly(2)])
+        let usage = try #require(CodexUsageCollector(
+            status: { status }, runner: runner, codexCLI: URL(fileURLWithPath: "/fake/codex"),
+            workingDirectory: FileManager.default.temporaryDirectory, resetCredits: cache,
+            now: { Self.readAt }).collect().first)
+        #expect(runner.requests.first?.stdinLines?.last?.contains(#""excludeResetCreditDetails":false"#) == true)
+        #expect(usage.resetCredits == UsageResetCredits(available: 2))
     }
 
     @Test("a failed re-read of the same login keeps the last known credits with its windows")
