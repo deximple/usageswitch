@@ -818,7 +818,8 @@ struct UsageBarRow: View {
     }
 
     /// Width of the name column outside the menu; the note below the row lines up with the bar.
-    private static let wideNameWidth: CGFloat = 168
+    /// Fits the longest full name seen, "週間 · Claude And Gpt Models" (196pt), without cutting it.
+    private static let wideNameWidth: CGFloat = 200
     /// Fits the longest localized countdown ("11日 23時間") without scaling.
     private static let wideResetWidth: CGFloat = 88
 
