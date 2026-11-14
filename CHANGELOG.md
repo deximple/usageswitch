@@ -38,10 +38,11 @@ in light and dark mode. A used-up bar no longer paints its track red.
 line up; longer notes such as "may run out in …" move below the bar. **Details**
 shows which provider, environment and plan a row belongs to, in the two-line
 layout. Text is never smaller than 11 pt, and warning text is no longer orange or
-red on a light background — the icon carries the color. Antigravity's limits
-within one model group are told apart ("Weekly · Gemini Models"), the main
-window's name column is wider, and the Codex tab's two buttons stack when they
-don't fit side by side.
+red on a light background — the icon carries the color. In the menu, an
+Antigravity model group's name gets a line of its own over its weekly and session
+limits instead of being cut off ("Weekly · Claude A…"). The main window's name
+column is wider, the Codex tab's two buttons stack when they don't fit side by
+side, and the Spanish settings menu is no wider than the panel it opens from.
 
 **Codex limit resets are shown.** When OpenAI grants a Codex account free limit
 resets, its row now says how many it holds and when the first one expires
