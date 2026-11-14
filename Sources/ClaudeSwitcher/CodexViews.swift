@@ -429,7 +429,7 @@ struct CodexMainContent: View {
                 .onChange(of: model.focusedAccountID) { _, _ in scrollToFocus(proxy) }
                 }
 
-                Divider().overlay(Theme.hairline)
+                Divider()
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Button(L10n.t(.codexAdd)) { model.add() }

@@ -11,7 +11,8 @@ import SwitcherCore
 /// `--tab usage|claude|codex` (not saved),
 /// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).
 /// `--snapshot <path.png>` (render the window offscreen at 2x to a PNG and quit; no real window, honors --ui-fixture, --menu-preview, --appearance, --lang),
-/// `--snapshot-height <points>` (override the snapshot height; width stays 360 for menus, 700 for windows).
+/// `--snapshot-height <points>` (override the snapshot height; width stays 360 for menus, 700 for windows),
+/// `--detail <usage-id>` (with --snapshot: render that account's usage detail, 460 wide, instead of the window).
 enum LaunchOptions {
     static let args = CommandLine.arguments
     static var background: Bool { args.contains("--background") }
@@ -23,6 +24,7 @@ enum LaunchOptions {
     static var behind: Bool { args.contains("--behind") }
     static var snapshot: String? { value("--snapshot") }
     static var snapshotHeight: Double? { value("--snapshot-height").flatMap(Double.init) }
+    static var detail: String? { value("--detail") }
 
     static func value(_ flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
@@ -189,14 +191,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func takeSnapshot(to path: String) {
         let model = AppModel.shared
         let menuPreview = LaunchOptions.menuPreview
+        let detailID = LaunchOptions.detail
         let content = LanguageScoped(model: model) {
-            if menuPreview {
+            if let detailID {
+                UsageDetailView(model: model, usage: AppModel.usage, codex: AppModel.codex,
+                                id: detailID, onClose: {})
+                    .background(Theme.canvas)
+            } else if menuPreview {
                 MenuView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
             } else {
                 MainView(model: model, codex: AppModel.codex, usage: AppModel.usage, tabs: AppModel.tabs)
             }
         }
-        let base = menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
+        let base = detailID != nil ? CGSize(width: 460, height: 420)
+            : menuPreview ? CGSize(width: 360, height: 600) : CGSize(width: 700, height: 760)
         let size = LaunchOptions.snapshotHeight.map { CGSize(width: base.width, height: $0) } ?? base
         let hosting = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
