@@ -353,6 +353,8 @@ extension Strings {
         .suggestionBudget: "平均使用的话，每天约 %d%% 可撑到重置",
         .suggestionOutlookRecent: "%1$@ — %2$@ 按此速度可能在 %3$@ 后耗尽",
         .suggestionOutlookAverage: "%1$@ — %2$@ 按目前的平均速度可能在 %3$@ 后耗尽",
+        .suggestionLighter: "%1$@ — 最近主要使用 %2$@ · 更轻的组合：%3$@",
+        .suggestionOtherTool: "未参与排名但有余量：%1$@ — %2$@ 剩余%3$d%%",
         .apiTitle: "API 预算与估算",
         .apiEmptyState: "没有可用于支出估算的 API 密钥账户。不包含订阅账户；仅使用 API 密钥账户的本地 CLI 日志。",
         .apiKeyHelp: "API 密钥保存在 macOS 钥匙串中，不会发送到任何地方。目前没有经过验证的只读余额接口。",

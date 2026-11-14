@@ -24,6 +24,19 @@ struct GuideOutlookView: View {
     }
 }
 
+/// Plain secondary lines: a lighter combination for a draining account, or tools the
+/// catalog can't rank that still have room.
+struct GuideNoteLines: View {
+    let lines: [String]
+
+    var body: some View {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+            Text(line).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 /// The Guide's "why": the lines for a missing pick, then the folded comparison — every weighed
 /// account in rank order and every account left out with the limit in its way. Text only;
 /// nothing here switches, opens or signs in.

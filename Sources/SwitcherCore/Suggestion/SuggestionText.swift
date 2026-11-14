@@ -118,6 +118,40 @@ public enum SuggestionText {
         }
     }
 
+    /// "Codex · Work — mostly GPT-6 Astra · High lately · lighter option: GPT-6.1 Sol · High".
+    public static func lighterLines(_ options: [SuggestionOutlook.Lighter], usages: [AccountUsage],
+                                    catalog: SuggestionCatalog,
+                                    label: (AccountUsage) -> String) -> [String] {
+        let names = Dictionary(catalog.models.map { ($0.key, $0.name) },
+                               uniquingKeysWith: { first, _ in first })
+        func combination(_ key: String, _ effort: String?) -> String? {
+            guard let name = names[key] else { return nil }
+            return effort == nil ? name : "\(name) · \(effortName(effort))"
+        }
+        return options.compactMap { option in
+            guard let usage = usages.first(where: { $0.id == option.accountID }),
+                  let current = combination(option.modelKey, option.effort),
+                  let lighter = combination(option.lighterModelKey, option.lighterEffort)
+            else { return nil }
+            return L10n.t(.suggestionLighter,
+                          "\(UsageText.providerName(usage.provider)) · \(label(usage))",
+                          current, lighter)
+        }
+    }
+
+    /// "Not ranked, but has room: Cursor · Cursor sign-in — Monthly 70% left · resets in 12d".
+    public static func otherToolLines(_ tools: [SuggestionOutlook.OtherTool], usages: [AccountUsage],
+                                      now: Date, label: (AccountUsage) -> String) -> [String] {
+        tools.compactMap { tool in
+            guard let usage = usages.first(where: { $0.id == tool.accountID }),
+                  let window = window(usage, tool.windowKey) else { return nil }
+            return L10n.t(.suggestionOtherTool,
+                          "\(UsageText.providerName(usage.provider)) · \(label(usage))",
+                          UsageText.name(of: window), UsageText.percentLeft(window.usedPercent) ?? 0)
+                + resetSuffix(window.resetsAt, now: now)
+        }
+    }
+
     /// "About 15% a day lasts to the reset" — rounded down, and silent under a point a day.
     public static func budgetLine(_ budget: SuggestionOutlook.Budget?) -> String? {
         guard let budget, budget.percentPerDay.isFinite, budget.percentPerDay >= 1 else { return nil }

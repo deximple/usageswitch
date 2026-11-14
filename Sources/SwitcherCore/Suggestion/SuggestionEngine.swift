@@ -290,7 +290,7 @@ public enum SuggestionEngine {
 
     /// model-tf ranks use 1 = best. Interpolate the requested task axis first, then
     /// invert the rank so higher quality contributes a larger score.
-    private static func quality(_ ranks: [String: Int], task: Double) -> Double? {
+    static func quality(_ ranks: [String: Int], task: Double) -> Double? {
         let simple = ranks["simpleCoding"].map(Double.init)
         let reasoning = ranks["reasoning"].map(Double.init)
         let rank: Double

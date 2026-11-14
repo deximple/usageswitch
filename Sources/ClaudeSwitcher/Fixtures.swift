@@ -199,6 +199,10 @@ enum Fixtures {
             ], segment: .guide)
             model.guideExpanded = true
             model.guideBasisExpanded = true
+            // The Claude row is over its weekly pace; its demo logs say what it mostly ran.
+            model.seedDemoLogHints([
+                "claude:cli": SuggestionLogSummary.Hint(model: "claude/claude-opus-5-5", effort: "xhigh"),
+            ])
             return model
         case "usage-guide-none":
             // Every account at or past the warning level: no pick, only when one frees up.
@@ -211,6 +215,10 @@ enum Fixtures {
                         auth: .subscription, identityKey: "fixture-personal", windows: [
                     window(300, 95, resetsIn: 70 * 60),
                     window(10080, 31, resetsIn: 4 * 86400),
+                ]),
+                // The catalog can't rank Cursor, but its plan-wide limit has room.
+                account(.cursor, "cursor", "Cursor sign-in", .ok, windows: [
+                    window(43200, 30, resetsIn: 12 * 86400),
                 ]),
             ], segment: .guide)
             model.guideExpanded = true

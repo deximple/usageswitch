@@ -58,6 +58,11 @@ public struct SuggestionLogSummary: Sendable {
     public struct Hint: Equatable, Sendable {
         public let model: String
         public let effort: String?
+
+        public init(model: String, effort: String?) {
+            self.model = model
+            self.effort = effort
+        }
     }
 
     public static func matchingHint(for accountRef: String?,

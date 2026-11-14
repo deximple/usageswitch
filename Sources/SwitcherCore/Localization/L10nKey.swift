@@ -421,6 +421,8 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case suggestionBudget = "suggestion.budget"
     case suggestionOutlookRecent = "suggestion.outlook.recent"
     case suggestionOutlookAverage = "suggestion.outlook.average"
+    case suggestionLighter = "suggestion.lighter"
+    case suggestionOtherTool = "suggestion.otherTool"
     case apiTitle = "api.title"
     case apiEmptyState = "api.empty_state"
     case apiKeyHelp = "api.key_help"
