@@ -790,7 +790,7 @@ struct UsageBarRow: View {
     /// remaining model/version text. Any other provider/shape uses the full name.
     private var windowLabel: String {
         let fallback = compact
-            ? (window.scope ?? UsageText.name(of: window, scoped: false))
+            ? UsageText.compactName(of: window, among: usage.windows)
             : UsageText.name(of: window)
         guard usage.provider == .gemini, let scope = window.scope else { return fallback }
         for (suffix, tag) in [(" [input]", "IN"), (" [output]", "OUT")] where scope.hasSuffix(suffix) {
