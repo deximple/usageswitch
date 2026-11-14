@@ -21,11 +21,15 @@ public struct SuggestionReport: Equatable, Sendable {
         public let effort: String?
         public let situation: SituationCode
         public let limitingWindowKey: String
-        /// Remaining share (0…1) of the limiting window.
+        /// The share (0…1) the ranking used: the limiting window's, or 1 when the only
+        /// limit in play is about to reset.
         public let remainingShare: Double
+        /// The long limit left out of the ranking because it resets soon with room to spare.
+        public let expiringWindowKey: String?
 
         public init(accountID: String, provider: UsageProvider, modelKey: String, effort: String?,
-                    situation: SituationCode, limitingWindowKey: String, remainingShare: Double) {
+                    situation: SituationCode, limitingWindowKey: String, remainingShare: Double,
+                    expiringWindowKey: String? = nil) {
             self.accountID = accountID
             self.provider = provider
             self.modelKey = modelKey
@@ -33,6 +37,7 @@ public struct SuggestionReport: Equatable, Sendable {
             self.situation = situation
             self.limitingWindowKey = limitingWindowKey
             self.remainingShare = remainingShare
+            self.expiringWindowKey = expiringWindowKey
         }
     }
 

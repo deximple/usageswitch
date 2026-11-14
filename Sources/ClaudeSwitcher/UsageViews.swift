@@ -246,11 +246,16 @@ struct UsageContent: View {
                     Text(item.text).font(.system(size: 12))
                         .foregroundStyle(item.warn ? Theme.usageLow : Theme.inkMuted)
                 }
+                GuideOutlookView(lines: model.suggestionOutlookLines(now: now, label: currentLabel))
                 if let headline = explanation?.headline {
                     Text(headline).font(.system(size: 13)).foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if let situation = explanation?.situation {
                         Text(situation).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let budget = model.suggestionBudgetLine(now: now) {
+                        Text(budget).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let target = model.suggestionSwitchTarget(now: now) {
