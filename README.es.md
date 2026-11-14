@@ -56,7 +56,7 @@ Una app nativa de macOS para la barra de menús, pensada para quienes trabajan c
 |---|---|
 | 📊 **Todos los límites de un vistazo** | Límites de sesión, diarios, semanales y mensuales de cada cuenta, mostrados como la parte que **queda** y el tiempo hasta el reinicio. |
 | 🧭 **Solo lo que de verdad usa** | La lista muestra las herramientas instaladas en este Mac y las cuentas que registró. Una herramienta que no tiene nunca aparece, y nada se lee de ella; una que apague u oculte sale de la lista. Para Claude y Codex, los registros de uso locales detrás de la Guía y la pestaña API siempre se leen — eso no se puede desactivar. |
-| 💡 **Una sugerencia, nunca un piloto automático** | La **Guía** — impulsada por esas lecturas locales siempre activas — sugiere qué cuenta — y qué modelo y esfuerzo — encaja con lo que queda. Nunca cambia, abre ni inicia sesión por sí misma. |
+| 💡 **Una sugerencia, nunca un piloto automático** | La **Guía** — impulsada por esas lecturas locales siempre activas — sugiere qué cuenta — y qué modelo y esfuerzo — encaja con lo que queda, muestra por qué y avisa cuando un límite va camino de agotarse antes de reiniciarse. Nunca cambia, abre ni inicia sesión por sí misma. |
 | 🔁 **Cambio con un clic** | Cambie el inicio de sesión de Claude Desktop entre cuentas guardadas (con verificación y reversión automática), y use cuentas de Codex en paralelo en ventanas independientes. |
 | 🔒 **Privada por diseño** | Sin analítica ni telemetría. Las actualizaciones solo se buscan cuando usted lo pide, o a diario si lo permite. Los correos se muestran ocultos. Las siete herramientas opcionales están apagadas hasta que las encienda una a una. |
 
@@ -133,16 +133,17 @@ Cada cuenta es un pequeño bloque: quién es y luego una línea por límite.
 | `API` · *Clave API · facturación aparte* | Un perfil de clave de API. Se factura por uso y no tiene límite de suscripción, así que nunca cuenta como cuota restante. |
 | `al•••kim@example.com` | El correo oculto. Active **⚙︎ › Mostrar siempre los correos** para verlo completo. |
 | `Semanal ▬▬▬▭▭ 45%  3d 23h` | Un límite: su nombre, una barra, la parte que **queda** y el tiempo hasta el reinicio. |
-| `Cursor Models`, `Gemini Models`… | Un límite que aplica solo a algunos modelos, con el nombre que le da el proveedor. |
+| `Cursor Models`, `Gemini Models`… | Un límite que aplica solo a algunos modelos, con el nombre que le da el proveedor. En el menú, un grupo de modelos con más de un límite (Antigravity) lleva una línea de título, y las filas debajo solo muestran *Semanal*, *Sesión*… |
 | *podría agotarse en 5h* | Al ritmo actual, este límite se vacía antes de reiniciarse. |
+| *Reinicios de límite: 2 · el primero vence en 18d 5h* | Reinicios de límite gratuitos que OpenAI dio a esta cuenta de Codex: cuántos hay y cuándo vence el primero. UsageSwitch solo los lee; use un reinicio en el propio Codex. |
 | **2 límites más** | El menú compacto muestra hasta tres límites por cuenta. El resto está en **Detalles**. |
 | **Detalles** | Abre una ventana con todos los límites, horas de reinicio, el origen de la lectura y la versión de la herramienta. |
 
-**Colores de la barra:** gris hay margen; naranja ha pasado su nivel de aviso (80% usado por defecto); rojo está agotado; una barra difuminada es una lectura antigua esperando actualización — o, para una cuenta de Claude guardada o un inicio de Codex que no se puede leer ahora, su última lectura correcta con la hora en que se vio. Una ventana cuyo reinicio ya pasó no muestra número.
+**Colores de la barra:** una barra con margen se rellena con el color del logotipo de la herramienta — terracota para Claude, azul para Gemini y Antigravity, negro (blanco en modo oscuro) para las demás; ámbar con un icono de aviso ha pasado su nivel de aviso (80% usado por defecto); un icono rojo y la barra vacía indican que está agotado; una barra gris difuminada es una lectura antigua esperando actualización — o, para una cuenta de Claude guardada o un inicio de Codex que no se puede leer ahora, su última lectura correcta con la hora en que se vio. Una ventana cuyo reinicio ya pasó no muestra número.
 
 **Pie:** *actualizado hace 1m · Próxima actualización en 4m*. UsageSwitch se actualiza cada 5 minutos, justo después de que un límite se reinicie y al pulsar ↻.
 
-**Fijar un límite:** haga clic con el botón derecho en un límite y elija **Fijar**. La barra de menús muestra entonces ese límite (por ejemplo *Semanal 25% restante*) en lugar del más ajustado.
+**Elegir el límite de la barra de menús:** elija un límite en **⚙︎ › Uso en la barra de menús**, o haga clic con el botón derecho en un límite y elija **Fijar**. La barra de menús muestra entonces ese límite (por ejemplo *Semanal 25% restante*) en lugar del más ajustado. Lo elegido en **Uso en la barra de menús** tiene prioridad sobre lo fijado; **Automático (el que menos queda)** vuelve a lo fijado y, si no hay, al más ajustado.
 
 <p align="center">
   <img src="docs/screenshots/es/all-usage.png" width="640" alt="La ventana principal listando cada herramienta detectada: Claude, Codex, Cursor, Grok, Gemini, Devin y OpenCode con sus límites">
@@ -177,7 +178,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 |---|---|---|---|
 | **Claude Code** | Límites de sesión (5 h), semanales y semanales por modelo | El `/usage` del CLI `claude` | Automático |
 | **Cuentas de Claude Desktop guardadas** | Igual que Claude Code | Un perfil de Claude Code que usted vincula (`claude auth status`, luego `/usage`) | Por cuenta, en **Detalles** |
-| **Codex** | Límites de sesión y semanales, por cuenta de ChatGPT | `codex app-server` | Automático |
+| **Codex** | Límites de sesión y semanales, por cuenta de ChatGPT, y los reinicios de límite que tenga la cuenta | `codex app-server` | Automático |
 | **Cursor** | Total Mensual, más *Cursor Models* y *Other Models* | La API de uso de Cursor, con el inicio de sesión de `cursor-agent` | ⚙︎ › Conexiones de uso |
 | **Grok** | Límite semanal | El endpoint de uso del CLI de Grok | ⚙︎ › Conexiones de uso |
 | **Gemini** | Límites de entrada y salida por modelo | La cuota de Gemini Code Assist, con el inicio de sesión del CLI de Gemini | ⚙︎ › Conexiones de uso |
@@ -222,9 +223,14 @@ Haga clic en **Guía** encima de la lista para abrirla. Un pequeño punto junto 
   | *Urgente* | modelos de frontera, esfuerzo Máximo — pregunta antes, y vuelve a *Equilibrado* en el próximo reinicio de 5 horas de Claude (o tras cinco horas) |
 
 - **Tarea** — deslice de *Programación sencilla* a *Máximo razonamiento* para decir qué va a hacer.
-- **Sugerencia** — una línea que nombra la cuenta, el modelo y el esfuerzo que encajan con lo que queda ahora. Cuando ninguna sugerencia de modelo encaja, la Guía muestra la cuenta con más margen entre las cuentas de suscripción comparables. Los perfiles de clave de API nunca se sugieren.
+- **Sugerencia** — una línea que nombra el proveedor y la cuenta, el modelo y el esfuerzo que encajan con lo que queda ahora (*Sugerido: …*; con una sola cuenta que comparar, *Disponible: …*). Cuando ninguna sugerencia de modelo encaja, la Guía muestra la cuenta con más margen entre las cuentas de suscripción comparables. Los perfiles de clave de API nunca se sugieren.
+- **Por qué esta sugerencia** — al desplegarla muestra hasta cuatro cuentas con las que se comparó (el límite que frena, la parte restante y cuándo se reinicia) y las cuentas **Excluidas**: en el nivel de aviso, que podrían agotarse antes del reinicio o que esperan una lectura nueva.
+- **Lo que viene** — a partir del ritmo de cada límite (el reciente cuando dos lecturas coinciden; si no, su media hasta ahora), la Guía lista hasta tres cuentas que podrían agotarse antes de reiniciarse, la más próxima primero. No se proyecta nada antes de que pase el 15% de la ventana de un límite. Un límite a punto de reiniciarse cuenta la parte que se perdería sin usar, así que un 60% restante tres horas antes del reinicio semanal queda por delante de un 70% restante con seis días por delante. Para la cuenta sugerida añade *Repartido por igual, alrededor de 15% al día alcanza hasta el reinicio*.
+- **Una opción más ligera** — cuando una cuenta va camino de agotarse y sus registros muestran qué usó sobre todo el último día, la Guía nombra un modelo o esfuerzo más ligero del mismo fabricante (*opción más ligera: …*). Indica una dirección, no un ahorro.
+- **Cuando nada tiene margen** — la Guía dice *Ninguna cuenta tiene margen ahora mismo.* y qué límite se libera primero. Las herramientas que no puede clasificar (Cursor, Devin, Copilot, Antigravity) y aún tienen margen aparecen como *Sin clasificar, pero con margen*, dos como máximo.
+- **Reinicios de límite** — señala una cuenta de Codex agotada que tiene un reinicio de límite (*puedes usar uno tú mismo*), y también un reinicio que vence en menos de dos días.
 
-La Guía solo sugiere. Para actuar, cambia usted mismo.
+Las previsiones son estimaciones a partir de las lecturas que ya se muestran. La Guía solo sugiere: nunca cambia de cuenta, inicia sesión ni usa un reinicio de límite. Para actuar, cambia usted mismo.
 
 <details>
 <summary><b>Qué lee y guarda la Guía</b></summary>
@@ -281,13 +287,14 @@ Todo está en el menú **⚙︎**.
 | Abrir al iniciar sesión | Arranca UsageSwitch al iniciar sesión. |
 | Mostrar la cuenta en la barra de menús | Muestra el nombre de la cuenta de Claude actual junto al icono (los correos siguen ocultos). |
 | Mostrar siempre los correos | Muestra los correos completos en lugar de ocultos. |
-| Mostrar uso en la barra de menús | Muestra el límite más ajustado (o fijado) junto al icono, por ejemplo *Semanal 25% restante*. Activado por defecto. |
+| Mostrar uso en la barra de menús | Muestra un límite junto al icono, por ejemplo *Semanal 25% restante*. Activado por defecto. |
+| Uso en la barra de menús | Qué límite es. **Automático (el que menos queda)** usa un límite fijado o, si no hay, el que menos queda sin estar agotado; también puede elegir un límite de la lista. |
 | Alertas de uso · Avisar al porcentaje usado | Envía una notificación de macOS cuando un límite supera el 70%, 80% (por defecto) o 90% usado. |
 | Mostrar el indicador de Guía | El punto junto a **Guía** cuando hay una sugerencia lista. |
 | Conexiones de uso | Enciende o apaga cada herramienta opcional; una herramienta apagada sale de la lista de uso. Solo lista herramientas encontradas en este Mac. |
 | Borrar datos de aprendizaje | Elimina los archivos locales de aprendizaje de la Guía. |
 | Mostrar la carpeta de datos en el Finder | Abre `~/Library/Application Support/com.jaysong.usageswitch/`. |
-| Buscar actualizaciones… | Abre la página de versiones en su navegador. |
+| Buscar actualizaciones… | Busca en el canal de actualizaciones cuando el actualizador está activado; si no, abre la página de versiones en su navegador. |
 
 ## Privacidad y seguridad
 
