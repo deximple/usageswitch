@@ -1,8 +1,9 @@
 import Foundation
 
 /// A lighter combination than the one in use, from the same maker: a cheaper model at no
-/// higher effort, or the same model at a lower effort. "Lighter" is a direction, not an
-/// amount — a subscription's limits are not billed by the token prices compared here.
+/// higher effort (or with no effort setting), or the same model at a lower effort.
+/// "Lighter" is a direction, not an amount — a subscription's limits are not billed by the
+/// token prices compared here.
 public enum SuggestionLighter {
     public struct Alternative: Equatable, Sendable {
         public let modelKey: String
@@ -23,7 +24,8 @@ public enum SuggestionLighter {
         guard task.isFinite, (0...1).contains(task),
               let current = catalog.models.first(where: { $0.key == modelKey }) else { return nil }
         let currentPrice = outputPrice(current)
-        let currentEffort = effort.flatMap(effortOrder.firstIndex(of:))
+        // With no effort on record, the maker's default for that model stands in.
+        let currentEffort = (effort ?? defaultEffort(current)).flatMap(effortOrder.firstIndex(of:))
         let models = Dictionary(catalog.models.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
 
         let lighter = catalog.entries.compactMap { entry -> (alternative: Alternative, quality: Double)? in
@@ -35,7 +37,11 @@ public enum SuggestionLighter {
             } else {
                 guard let currentPrice, let price = outputPrice(model), price < currentPrice
                 else { return nil }
-                if let currentEffort, let entryEffort, entryEffort > currentEffort { return nil }
+                // An entry with an effort setting must not ask for more than the effort in
+                // use — and when that is unknown, it can't be called lighter at all.
+                if let entryEffort {
+                    guard let currentEffort, entryEffort <= currentEffort else { return nil }
+                }
             }
             return (Alternative(modelKey: model.key,
                                 effort: model.efforts.isEmpty ? nil : entry.effort), quality)
@@ -47,6 +53,10 @@ public enum SuggestionLighter {
             }
             return ($0.alternative.effort ?? "") < ($1.alternative.effort ?? "")
         }?.alternative
+    }
+
+    private static func defaultEffort(_ model: SuggestionCatalog.Model) -> String? {
+        model.values.first { $0.code == "defaultEffort" }?.text
     }
 
     /// The model's own output price fact; a qualified variant (a long-context tier, say) is

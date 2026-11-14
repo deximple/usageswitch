@@ -71,11 +71,14 @@ struct SuggestionAlternativesTests {
         SuggestionTestSupport.window(300, used: 100, resetsIn: 1800),
     ])
 
-    private func otherTools(_ usages: [AccountUsage]) throws -> [SuggestionOutlook.OtherTool] {
+    private func otherTools(_ usages: [AccountUsage],
+                            pace: [String: UsagePace.Reading] = [:]
+    ) throws -> [SuggestionOutlook.OtherTool] {
         let catalog = try Support.singleModelCatalog()
         let report = SuggestionEngine.report(mode: .balanced, task: 0.5, catalog: catalog,
                                              usages: usages, pace: [:], now: now)
-        return SuggestionOutlook.otherTools(report: report, usages: usages, catalog: catalog, now: now)
+        return SuggestionOutlook.otherTools(report: report, usages: usages, catalog: catalog,
+                                            pace: pace, now: now)
     }
 
     @Test("with no pick, a tool the catalog can't rank is listed by its tightest plan-wide limit")
@@ -139,6 +142,22 @@ struct SuggestionAlternativesTests {
                 Support.window(43200, used: 30, resetsIn: -60),
             ]),
             Support.usage("empty", provider: .grok, windows: []),
+        ]).isEmpty)
+    }
+
+    @Test("a tool on course to run out before its reset is not said to have room")
+    func drainingToolIsNotListed() throws {
+        // A 30-day month, 5 days in, 60% used: the average pace empties it in about 3 days.
+        let overPace = Support.usage("cursor", provider: .cursor, windows: [
+            Support.window(43200, used: 60, resetsIn: 25 * day),
+        ])
+        #expect(try otherTools([blockedCodex, overPace]).isEmpty)
+
+        let window = Support.window(43200, used: 30, resetsIn: 12 * day)
+        let measured = Support.usage("devin", provider: .devin, windows: [window])
+        #expect(try otherTools([blockedCodex, measured]).count == 1)
+        #expect(try otherTools([blockedCodex, measured], pace: [
+            UsagePriority.key(measured, window): .depleting(at: now.addingTimeInterval(day)),
         ]).isEmpty)
     }
 

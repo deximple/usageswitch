@@ -178,7 +178,7 @@ final class UsageModel: ObservableObject {
         let eligible = suggestionUsages(now: now)
         return SuggestionText.otherToolLines(
             SuggestionOutlook.otherTools(report: suggestionReport(now: now), usages: eligible,
-                                         catalog: catalog, now: now,
+                                         catalog: catalog, pace: pace, now: now,
                                          warnThreshold: Double(settings.usageWarnPercent)),
             usages: eligible, now: now, label: label)
     }

@@ -72,13 +72,49 @@ struct SuggestionLighterTests {
                                               catalog: catalog, task: 0.5) == nil)
     }
 
-    @Test("with no effort on record only a cheaper model counts")
+    @Test("with no effort on record the model's default effort stands in")
+    func defaultEffortStandsIn() throws {
+        let defaulted = Support.Model(vendor: "claude", model: "defaulted", name: "Defaulted",
+                                      efforts: ["low", "medium", "high", "max"], outputPrice: 20,
+                                      defaultEffort: "high")
+        let catalog = try Support.catalog(models: [defaulted, small], entries: [
+            entry(defaulted, "medium", 10), entry(small, "high", 6), entry(small, "max", 2),
+        ])
+        #expect(alternative(to: defaulted, effort: nil, in: catalog)
+            == SuggestionLighter.Alternative(modelKey: small.key, effort: "high"))
+    }
+
+    @Test("with no effort on record and no default, nothing with an effort setting is called lighter")
     func unknownEffort() throws {
         let catalog = try catalog([
             entry(big, "low", 30), entry(small, "max", 2), entry(small, "low", 20),
         ])
-        #expect(alternative(to: big, effort: nil, in: catalog)
-            == SuggestionLighter.Alternative(modelKey: small.key, effort: "max"))
+        #expect(alternative(to: big, effort: nil, in: catalog) == nil)
+    }
+
+    @Test("a model without an effort setting is undercut only by a cheaper one without it")
+    func effortlessModels() throws {
+        let plain = Support.Model(vendor: "google", model: "plain", name: "Plain", efforts: [],
+                                  outputPrice: 20)
+        let lite = Support.Model(vendor: "google", model: "lite", name: "Lite", efforts: [],
+                                 outputPrice: 5)
+        let tunable = Support.Model(vendor: "google", model: "tunable", name: "Tunable",
+                                    efforts: ["low", "max"], outputPrice: 5)
+        let catalog = try Support.catalog(models: [plain, lite, tunable], entries: [
+            entry(plain, "default", 5), entry(lite, "default", 9), entry(tunable, "max", 1),
+        ])
+        #expect(alternative(to: plain, effort: nil, in: catalog)
+            == SuggestionLighter.Alternative(modelKey: lite.key, effort: nil))
+        // Lite costs the same as Tunable, so it is not cheaper.
+        #expect(alternative(to: tunable, effort: "max", in: catalog) == nil)
+        // A known effort still admits a cheaper model that has no effort setting at all.
+        let pricierTunable = Support.Model(vendor: "google", model: "tunable", name: "Tunable",
+                                           efforts: ["low", "max"], outputPrice: 30)
+        let second = try Support.catalog(models: [pricierTunable, lite], entries: [
+            entry(pricierTunable, "max", 1), entry(lite, "default", 9),
+        ])
+        #expect(alternative(to: pricierTunable, effort: "max", in: second)
+            == SuggestionLighter.Alternative(modelKey: lite.key, effort: nil))
     }
 
     @Test("the task setting decides which lighter option ranks best")

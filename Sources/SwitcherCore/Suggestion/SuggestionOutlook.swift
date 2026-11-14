@@ -120,11 +120,12 @@ public enum SuggestionOutlook {
 
     /// When the engine has no pick: fresh, readable accounts it can't rank (no catalog model,
     /// or no limit it can tie to one) whose plan-wide limits — every limit, for an account
-    /// with only model-scoped ones — sit under the warning level. Roomiest first. No model or
-    /// effort is claimed for them.
+    /// with only model-scoped ones — sit under the warning level and are not on course to
+    /// run out before their reset. Roomiest first. No model or effort is claimed for them.
     public static func otherTools(report: SuggestionReport, usages: [AccountUsage],
                                   catalog: SuggestionCatalog,
-                                  harnessMap: SuggestionHarnessMap = .standard, now: Date,
+                                  harnessMap: SuggestionHarnessMap = .standard,
+                                  pace: [String: UsagePace.Reading], now: Date,
                                   warnThreshold: Double = SuggestionEngine.defaultWarnThreshold
     ) -> [OtherTool] {
         guard report.options.isEmpty, warnThreshold.isFinite, (50...99).contains(warnThreshold)
@@ -141,6 +142,9 @@ public enum SuggestionOutlook {
             guard windows.allSatisfy({
                 $0.usedPercent.isFinite && (0..<warnThreshold).contains($0.usedPercent)
                     && !$0.isStale(now: now)
+                    && UsagePace.runsOutEarly(pace[UsagePriority.key(usage, $0)] ?? .unknown,
+                                              window: $0) == nil
+                    && UsageForecast.projection($0, now: now)?.runsOutAt == nil
             }), let tightest = windows.max(by: {
                 $0.usedPercent != $1.usedPercent ? $0.usedPercent < $1.usedPercent
                     : UsagePriority.key(usage, $0) > UsagePriority.key(usage, $1)
