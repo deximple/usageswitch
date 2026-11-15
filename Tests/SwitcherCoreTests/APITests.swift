@@ -122,6 +122,22 @@ struct APITests {
             record(daysAgo: 6, usd: 14)],
             apiKeyAccounts: [key], catalog: catalog, now: now)
         #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 4) < 0.01)
+        // An account that rested for weeks is not a new one: spend anywhere in the retained
+        // history before the window makes it the full seven days.
+        for daysAgo in [7, 14, 20, 34] {
+            e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
+                record(daysAgo: daysAgo, usd: 5)],
+                apiKeyAccounts: [key], catalog: catalog, now: now)
+            #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01, "spend \(daysAgo) days ago")
+        }
+        // Earlier use counts even when its price is unknown: the account was in use either way.
+        let unpriced = SuggestionLogUsage(day: day(20), provider: .claude, accountRef: key.accountKey,
+            model: "no-such-model", effort: "high", turns: 1, inputTokens: 1_000,
+            cachedInputTokens: 0, cachedCreationTokens: 0,
+            outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14), unpriced],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01)
     }
 
     /// A priced Codex API-key record worth `usd`, on the UTC day `daysAgo` days before `now`.

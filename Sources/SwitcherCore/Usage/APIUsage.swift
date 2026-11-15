@@ -216,12 +216,14 @@ public enum APIUsageEstimator {
             var unknownBudgetPrice = hasUnloggedAccounts || isReadingLogs
             var unknownRecentPrice = hasUnloggedAccounts || isReadingLogs
             var unknownSevenDayPrice = hasUnloggedAccounts || isReadingLogs
+            var usedBeforeWindow = false
             let firstSeven = SuggestionRetention.utcDay(
                 calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? now)
             for record in records where record.day >= firstBudgetDay && record.day <= today
                 && (record.provider == .claude || record.provider == .codex)
                 && record.subscription != true
                 && accounts.contains(APIKeyAccountKey(provider: record.provider, accountKey: record.accountRef)) {
+                if record.day < firstSeven { usedBeforeWindow = true }
                 guard let cost = cost(of: record, catalog: catalog) else {
                     unknownBudgetPrice = true
                     if record.day >= firstRecentDay { unknownRecentPrice = true }
@@ -239,10 +241,11 @@ public enum APIUsageEstimator {
             let median = (sorted[6] + sorted[7]) / 2
             let sevenDayValue = unknownSevenDayPrice ? nil : sevenDaySpend
             // The rate divides by the days this vendor has been in use inside the 7-day window, quiet
-            // days included, not a flat 7 (audit B-07): a first day at $14 is $14 a day, not $2. Spend
-            // recorded before the window means all seven days count. The log coverage can't stand in
-            // for the first day — it starts 13 days behind the first pass, always before the window.
-            let usedBeforeWindow = days.dropFirst(7).contains { daily[$0] != nil }
+            // days included, not a flat 7 (audit B-07): a first day at $14 is $14 a day, not $2. Use
+            // recorded anywhere in the retained history before the window, priced or not, means all
+            // seven days count: an account that rested for weeks is not a new one. The log coverage
+            // can't stand in for the first day — it starts 13 days behind the first pass, always
+            // before the window.
             let coveredDays = usedBeforeWindow
                 ? 7 : days.prefix(7).lastIndex { daily[$0] != nil }.map { $0 + 1 } ?? 7
             result[vendor] = APIUsageEstimate(
