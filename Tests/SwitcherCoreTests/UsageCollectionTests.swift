@@ -249,12 +249,13 @@ struct UsageConsentSettingsTests {
         #expect(s.enabledUsageProviders == [.grok])
     }
 
-    @Test("legacy cursor flag is the sole Cursor SSOT; stray cursor entry ignored")
+    @Test("legacy cursor flag is the only Cursor switch; a cursor entry is ignored")
     func cursorUnion() {
         var s = SwitcherSettings()
         s.cursorUsageEnabled = true
+        s.usageConnections = ["cursor.v2"]
         #expect(s.enabledUsageProviders.contains(.cursor))
-        s.usageConnections = ["cursor"]
+        s.usageConnections = ["cursor", "cursor.v2"]
         #expect(s.enabledUsageProviders == [.cursor])
         s.cursorUsageEnabled = false
         #expect(s.enabledUsageProviders.isEmpty)

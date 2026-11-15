@@ -102,11 +102,19 @@ public enum UsageText {
         return L10n.t(.usageDurM, minutes)
     }
 
+    /// "Resets in 2h 5m", or "Resets within a minute" for the last minute — the countdown's "now"
+    /// never lands inside the sentence. nil when the interval can't be counted.
+    public static func resetsIn(_ resetsAt: Date, now: Date) -> String? {
+        guard let seconds = safeSeconds(to: resetsAt, from: now) else { return nil }
+        return seconds < 60 ? L10n.t(.usageResetsSoon) : L10n.t(.usageResetsIn, countdown(to: resetsAt, from: now))
+    }
+
     /// "Limit resets: 2 · first expires in 29d 3h" — nil when the account holds none. The expiry part
     /// is left out when only the count is known.
     public static func resetCredits(_ credits: UsageResetCredits?, now: Date) -> String? {
         guard let credits, credits.available > 0 else { return nil }
-        guard let expiry = credits.nextExpiry(now: now) else {
+        // Inside the last minute the countdown is "now", which doesn't fit the sentence: show the count alone.
+        guard let expiry = credits.nextExpiry(now: now), expiry.timeIntervalSince(now) >= 60 else {
             return L10n.t(.usageResetCredits, credits.available)
         }
         return L10n.t(.usageResetCreditsExpiry, credits.available, countdown(to: expiry, from: now))
@@ -211,6 +219,19 @@ public enum UsageText {
         case (.cursor, _): return L10n.t(.usageLabelCursor)
         default: return showEmails ? usage.label : Privacy.maskEmails(in: usage.label)
         }
+    }
+
+    /// When a figure was read, as a clock time in the app's language. The date is added once the
+    /// reading is not from today, so an older figure never looks like today's.
+    public static func readTime(_ date: Date, now: Date, language: AppLanguage,
+                                calendar: Calendar = .current) -> String {
+        let style = Date.FormatStyle(
+            date: calendar.isDate(date, inSameDayAs: now) ? .omitted : .abbreviated,
+            time: .shortened,
+            locale: Locale(identifier: language.rawValue),
+            calendar: calendar,
+            timeZone: calendar.timeZone)
+        return date.formatted(style)
     }
 
     /// Plan badge text: known plans get their display name, anything else shows as reported.

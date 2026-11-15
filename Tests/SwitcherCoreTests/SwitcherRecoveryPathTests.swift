@@ -155,6 +155,52 @@ struct SwitcherRecoveryPathTests {
                        as: UTF8.self) == "OUTGOING-cookies")
     }
 
+    @Test func aSessionThatCommitsALeftoverJournalStripsTheKeptTokenCaches() throws {
+        // Launch recovery is skipped while Claude runs, so the next session's resolvePending()
+        // is what commits the journal. The kept copy must lose its token caches there too.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        let displaced = env.displacedDir.appendingPathComponent("unsaved-1")
+        try FileManager.default.createDirectory(at: env.previousDir, withIntermediateDirectories: true)
+        let cached = Data(#"{"oauth:tokenCache":{"token":"x"},"lastKnownAccountUuid":"a"}"#.utf8)
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        try cached.write(to: env.previousDir.appendingPathComponent("config.json"))
+        var journal = SwapEngine.Journal(state: "installed", applied: [])
+        journal.keepPreviousAt = displaced.path
+        try JSONEncoder().encode(journal).write(to: env.journalFile)
+
+        #expect(try rig.switcher.swapper.resolvePending() == .committed)
+
+        let config = try #require(try? ClaudeConfig.load(displaced.appendingPathComponent("config.json")))
+        #expect(!config.hasTokenCache)
+        #expect(String(decoding: try Data(contentsOf: displaced.appendingPathComponent("Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+    }
+
+    @Test func setAsideStripsTokenCachesFromTheCopiesItKeeps() throws {
+        // A set-aside journal keeps previous/ and staging/ for manual recovery; neither may
+        // keep Claude's token caches in the store.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        let env = rig.env
+        let cached = Data(#"{"oauth:tokenCache":{"token":"x"},"lastKnownAccountUuid":"a"}"#.utf8)
+        for dir in [env.previousDir, env.stagingDir] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try cached.write(to: dir.appendingPathComponent("config.json"))
+        }
+        try Data("OUTGOING-cookies".utf8).write(to: env.previousDir.appendingPathComponent("Cookies"))
+        try Data("{unreadable".utf8).write(to: env.journalFile)
+
+        let destination = try rig.switcher.setAsidePendingJournal().destination
+
+        for kept in ["previous", "staging"] {
+            let url = destination.appendingPathComponent("\(kept)/config.json")
+            let config = try #require(try? ClaudeConfig.load(url))
+            #expect(!config.hasTokenCache, "\(kept)/config.json still holds a token cache")
+        }
+        #expect(String(decoding: try Data(contentsOf: destination.appendingPathComponent("previous/Cookies")),
+                       as: UTF8.self) == "OUTGOING-cookies")
+    }
+
     @Test func anUnreadableJournalFailsBeforeAnythingIsSuspendedOrQuit() throws {
         // A damaged swap journal must stop every session before relaunchers are suspended
         // or Claude is quit — the live files may be mid-swap (audit B-03).

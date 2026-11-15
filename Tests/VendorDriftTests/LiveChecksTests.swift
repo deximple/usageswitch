@@ -75,6 +75,34 @@ struct LiveClaudeChecksTests {
         #expect(runner.requests.count == 1)
     }
 
+    @Test("a model limit the app's Guide maps to no model is drift, shown without its name")
+    func unmappedModelLimit() {
+        let panel = """
+            Current session: 40% used · resets 7:40pm (Asia/Seoul)
+            Current week (all models): 75% used · resets Nov 6 at 12:59pm (Asia/Seoul)
+            Current week (Sonnet only): 100% used · resets Nov 6 at 12:59pm (Asia/Seoul)
+            Current week (Nimbus preview): 12% used · resets Nov 6 at 1pm (Asia/Seoul)
+            """
+        let finding = read(Sample.claudeStream(panel)).finding
+        #expect(finding.status == .drift)
+        #expect(finding.summary.hasPrefix("The app's parser read 4 usage windows, but the Guide maps 1 model limit to no model"))
+        // Only the line the Guide can't place; the limits it maps are not listed.
+        #expect(finding.details == ["`Current week (…): N% used · resets Mon N at Npm (Zone)`"])
+        #expect(!text(of: finding).contains("Nimbus"))
+    }
+
+    @Test("the model limits the app's Guide maps are ok")
+    func mappedModelLimits() {
+        let panel = """
+            Current week (all models): 75% used · resets Nov 6 at 12:59pm (Asia/Seoul)
+            Current week (Fable): 3% used · resets Nov 6 at 12:59pm (Asia/Seoul)
+            Current week (Sonnet only): 100% used · resets Nov 6 at 12:59pm (Asia/Seoul)
+            """
+        let finding = read(Sample.claudeStream(panel)).finding
+        #expect(finding.status == .ok)
+        #expect(finding.summary == "The app's parser read 3 usage windows.")
+    }
+
     @Test("a Current line the parser no longer matches is drift")
     func changedLine() {
         let read = read(Sample.claudeStream("Current week: 75% used, resets soon"))
@@ -129,6 +157,143 @@ struct LiveClaudeChecksTests {
                 #expect(!text(of: finding).contains(secret))
             }
         }
+    }
+
+    // MARK: - usage_report
+
+    private let unreadCheck = "Claude `/usage` fields the app does not read (live)"
+
+    private func unreadFields(rateLimits: [String: Any]?) -> DriftFinding? {
+        let report: [String: Any] = Sample.usageReport(rateLimits: rateLimits)
+        return read(Sample.claudeStream(Sample.claudePanel, usageReport: report)).unreadFields
+    }
+
+    @Test("a usage_report in the shape this tool knows adds no finding")
+    func knownReportShape() {
+        #expect(read(Sample.claudeStream(Sample.claudePanel)).unreadFields == nil)
+        // An account with no limit listed shows none of a limit's keys; that is not a change.
+        var noLimits: [String: Any] = Sample.rateLimits
+        noLimits["limits"] = [[String: Any]]()
+        #expect(unreadFields(rateLimits: noLimits) == nil)
+    }
+
+    @Test("a new key beside the limits is worth a look, and one named like a limit reset is pointed out")
+    func newRateLimitsKey() throws {
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limit_resets"] = ["available": 4, "next_grant_at": "2027-01-02T03:04:05Z"] as [String: Any]
+        rateLimits["tier"] = "private-tier"
+        let finding = try #require(unreadFields(rateLimits: rateLimits))
+        #expect(finding.section == .live)
+        #expect(finding.check == unreadCheck)
+        #expect(finding.status == .attention)
+        let summary: String = "The answer's `usage_report` has 2 fields this tool has not seen before; "
+            + "the app reads none of it. It may be the limit resets an account holds, which the app can't "
+            + "show for Claude yet. Named like a limit reset: 1."
+        #expect(finding.summary == summary)
+        #expect(finding.details == [
+            "**named like a limit reset** — added `usage_report.rate_limits.limit_resets`",
+            "added `usage_report.rate_limits.tier`",
+        ])
+    }
+
+    @Test("a new key inside a limit is found in whichever limit carries it")
+    func newLimitKey() throws {
+        var limit: [String: Any] = Sample.usageLimit(scopedTo: "Fable")
+        limit["window_minutes"] = 10080
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = [Sample.usageLimit(), limit]
+        let finding = try #require(unreadFields(rateLimits: rateLimits))
+        #expect(finding.status == .attention)
+        let summary: String = "The answer's `usage_report` has 1 field this tool has not seen before; "
+            + "the app reads none of it. It may be the limit resets an account holds, which the app can't "
+            + "show for Claude yet."
+        #expect(finding.summary == summary)
+        #expect(finding.details == ["added `usage_report.rate_limits.limits[].window_minutes`"])
+    }
+
+    @Test("a new key is found at every position this tool knows, and nothing is looked at anywhere else")
+    func watchedPositions() throws {
+        let model: [String: Any] = ["display_name": "Fable", "family": "x"]
+        let surface: [String: Any] = ["display_name": "private-surface", "channel": "x"]
+        let scope: [String: Any] = ["model": model, "surface": surface, "origin": "x"]
+        var limit: [String: Any] = Sample.usageLimit()
+        limit["scope"] = scope
+        limit["grants_left"] = 2
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = [limit]
+        var extra: [String: Any] = rateLimits["extra_usage"] as? [String: Any] ?? [:]
+        extra["credit_balance"] = 5
+        rateLimits["extra_usage"] = extra
+        rateLimits["plan"] = "x"
+        var report: [String: Any] = Sample.usageReport(rateLimits: rateLimits)
+        // The session totals are keyed by model name; nobody has vetted what lies in there.
+        let byModel: [String: Any] = ["private-model": ["cost": 1] as [String: Any]]
+        report["session"] = ["model_usage": byModel, "private_total": 1] as [String: Any]
+        report["notices"] = ["x"]
+        let finding = try #require(read(Sample.claudeStream(Sample.claudePanel, usageReport: report)).unreadFields)
+        #expect(finding.status == .attention)
+        #expect(finding.details == [
+            "**named like a limit reset** — added `usage_report.rate_limits.extra_usage.credit_balance`",
+            "**named like a limit reset** — added `usage_report.rate_limits.limits[].grants_left`",
+            "added `usage_report.notices`",
+            "added `usage_report.rate_limits.limits[].scope.model.family`",
+            "added `usage_report.rate_limits.limits[].scope.origin`",
+            "added `usage_report.rate_limits.limits[].scope.surface.channel`",
+            "added `usage_report.rate_limits.plan`",
+        ])
+    }
+
+    @Test("only the name of a new key is shown: never a value, a name below it, or a key that may be an id")
+    func unreadFieldsLeakNothing() throws {
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limit_resets"] = ["granted_to": Sample.email, "next_grant_at": "2027-01-02T03:04:05Z",
+                                      "available": 4] as [String: Any]
+        rateLimits["org-AbCdEf123456"] = ["used": 1] as [String: Any]
+        rateLimits[Sample.accountId] = "x"
+        rateLimits["credit9f8e7d6c"] = 1
+        let finding = try #require(unreadFields(rateLimits: rateLimits))
+        #expect(finding.details == [
+            "**named like a limit reset** — added `usage_report.rate_limits.*`",
+            "**named like a limit reset** — added `usage_report.rate_limits.limit_resets`",
+            "added `usage_report.rate_limits.*`",
+        ])
+        for secret in [Sample.email, Sample.accountId, "AbCdEf", "9f8e7d6c", "2027-01-02", "granted_to",
+                       "next_grant_at", "available", "Fable", "2026-11-20", "weekly_scoped", "normal", "53"] {
+            #expect(!text(of: finding).contains(secret))
+        }
+    }
+
+    @Test("a known key that is absent adds no finding: several are optional, and the app reads none")
+    func absentReportKeys() throws {
+        var limit: [String: Any] = Sample.usageLimit()
+        limit["scope"] = nil
+        limit["severity"] = nil
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = [limit]
+        rateLimits["extra_usage"] = nil
+        #expect(unreadFields(rateLimits: rateLimits) == nil)
+        rateLimits["limits"] = NSNull()
+        #expect(unreadFields(rateLimits: rateLimits) == nil)
+        // What is new is still reported, and only that.
+        rateLimits["overage"] = "x"
+        let finding = try #require(unreadFields(rateLimits: rateLimits))
+        #expect(finding.details == ["added `usage_report.rate_limits.overage`"])
+    }
+
+    @Test("an answer without usage_report can't be watched: worth a look when the panel was read, else nothing")
+    func missingReport() throws {
+        let finding = try #require(read(Sample.claudeStream(Sample.claudePanel, usageReport: nil)).unreadFields)
+        #expect(finding.check == unreadCheck)
+        #expect(finding.status == .attention)
+        let summary: String = "The answer carries no `usage_report.rate_limits` to compare, so a new field "
+            + "there (the limit resets an account holds, say) would go unnoticed. The app reads the panel text "
+            + "and is not affected."
+        #expect(finding.summary == summary)
+        #expect(finding.details.isEmpty)
+        #expect(unreadFields(rateLimits: nil) == finding)
+        // When the read itself settled nothing, its own finding already says so.
+        #expect(read(Sample.claudeStream("You are not signed in", usageReport: nil)).unreadFields == nil)
+        #expect(read([], outcome: .timedOut).unreadFields == nil)
     }
 
     // MARK: - auth status

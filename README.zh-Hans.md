@@ -58,7 +58,7 @@
 | 🧭 **只显示你真在用的** | 列表只展示这台 Mac 上已安装的工具和已注册的账户。没有的工具不出现，也不会读取它的任何信息；关闭或隐藏的工具也会从列表中移除。Claude 和 Codex 的本地用量日志始终会被读取，用于指南和 API 标签页——这部分无法关闭。 |
 | 💡 **只给建议，不做自动驾驶** | **指南**依据始终读取的本地日志，根据剩余量建议合适的账户、模型和强度，说明理由，并提醒哪项额度可能在重置前耗尽。它绝不自行切换、启动或登录。 |
 | 🔁 **一键切换** | 在已保存的账户间更换 Claude Desktop 登录（带校验和自动回滚）；Codex 账户可在独立窗口并行使用。 |
-| 🔒 **隐私优先设计** | 无分析、无遥测。只在你手动检查时检查更新，或在你允许后每天检查一次。邮箱始终打码。七个可选工具在你逐个开启前保持关闭。 |
+| 🔒 **隐私优先设计** | 无分析、无遥测。只在你手动检查时检查更新，或在你允许后每天检查一次。邮箱打码显示。七个可选工具在你逐个开启前保持关闭。 |
 
 ## 实际效果
 
@@ -136,14 +136,14 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | `Cursor Models`, `Gemini Models`… | 只适用于部分模型的额度，按服务商的命名显示。在菜单中，有多项额度的模型组（Antigravity）会单独显示一行标题，其下各行只显示 *每周*、*会话*… |
 | *按此速度 5小时 后耗尽* | 按当前速度，该额度会在重置前用完。 |
 | *重置券 2 张 · 首张 18天 5小时 后到期* | OpenAI 发给这个 Codex 账户的免费额度重置：有几张，以及第一张何时到期。UsageSwitch 只读取，不使用；要用请在 Codex 中自行操作。 |
-| **另有 2 项上限** | 紧凑菜单中每个账户最多显示三项额度，其余在**详情**中。 |
+| **另有 2 项限额** | 紧凑菜单中每个账户最多显示三项额度，其余在**详情**中。 |
 | **详情** | 打开一个窗口，显示所有额度、重置时间、读数来源和工具版本。 |
 
 **进度条颜色：** 有余量的条用该工具的标志色填充（Claude 为陶土橙，Gemini 和 Antigravity 为蓝色，其余为黑色，深色模式下为白色）；琥珀色加警告图标=超过你的警告线（默认已用 80%）；红色图标加空条=耗尽；变淡的灰色条=等待刷新的旧读数，或暂时无法读取的已保存 Claude 账号/Codex 登录的最近一次成功读数（附读取时间）；已过重置时间的窗口不显示数字。
 
 **底部信息：** *1 分钟前更新 · 4 分钟后更新*。UsageSwitch 每 5 分钟刷新一次，也在额度重置后立即刷新，并可点击 ↻ 手动刷新。
 
-**选择菜单栏显示的额度：** 在 **⚙︎ › 菜单栏用量** 中选一项额度，或右键点击额度并选择**置顶**。菜单栏随后显示该额度（例如 *每周剩余 25%*），而不是最紧张的那一项。在**菜单栏用量**中的选择优先于置顶；选回**自动（剩余最少的上限）**后，先用置顶的额度，没有则用最紧张的额度。
+**选择菜单栏显示的额度：** 在 **⚙︎ › 菜单栏用量** 中选一项额度，或右键点击额度并选择**置顶**。菜单栏随后显示该额度（例如 *每周剩余 25%*），而不是最紧张的那一项。在**菜单栏用量**中的选择优先于置顶；选回**自动（剩余最少的限额）**后，先用置顶的额度，没有则用最紧张的额度。
 
 <p align="center">
   <img src="docs/screenshots/zh-Hans/all-usage.png" width="640" alt="主窗口列出所有检测到的工具:Claude、Codex、Cursor、Grok、Gemini、Devin、OpenCode 及各自的额度">
@@ -157,13 +157,13 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 |---|---|---|
 | **需要连接用量** | 该可选工具尚未开启。 | 点击**连接用量**，或用 **⚙︎ › 用量连接**。不使用的话，点击**隐藏**。 |
 | **未找到登录信息 · 请先登录 *X*** | 工具已安装但在这台 Mac 上未登录。 | 登录该工具一次。 |
-| **此账号的 CLI 配置文件未登录 — 在"详情"中查看方法** | 已保存 Claude 账号关联的 CLI 配置文件已退出登录，因此以变淡的方式保留上次读数。 | 在**详情**中复制命令，在终端运行并用同一账号登录。 |
-| **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude auth login`、`codex login`、`cursor-agent login`、`grok login`、`gemini`、`agy`、`devin auth login`、`opencode auth login`。 |
+| **此账户的 CLI 配置目录未登录 — 在“详情”中查看方法** | 已保存 Claude 账号关联的 CLI 配置文件已退出登录，因此以变淡的方式保留上次读数。 | 在**详情**中复制命令，在终端运行并用同一账号登录。 |
+| **登录已过期 · 请在终端运行一次 *`command`*** | 已保存的登录已过期。 | 运行显示的命令：`claude auth login`、`codex login`、`cursor-agent login`、`grok login`、`gemini`、`agy`、`devin auth login`、`opencode auth login`、`gh auth login`。 |
 | **登录被拒绝 · 请在终端运行一次 *`command`*** | 服务商拒绝了已保存的登录——它已被撤销、被其他应用的登录替换，或属于此工具不支持的账户。 | 运行显示的命令，并用你想查看的账户登录。 |
 | **未关联 CLI 配额** | 已保存的 Claude Desktop 账户没有关联的 Claude Code 配置。 | 在**详情**中[关联配置](#3-给已保存的-claude-账户配上它自己的数字可选)。 |
 | **未报告用量** | 工具应答了但没有返回用量数字：API 密钥配置（无订阅额度）、已登出的 Codex 主目录，或没有订阅额度的账户。 | 无需处理。花费估算见 [API 标签页](#api-标签页)（仅限 Codex API 密钥账户）。 |
 | **此账户不适用 *X* 用量** | 服务商表示该账户的套餐没有可显示的配额。 | 无需处理。 |
-| **Google 已停止为个人账号提供 Gemini CLI 配额（已迁移到 Antigravity）** | Google 已把个人账户迁移到 Antigravity。 | 开启 **Antigravity**；其 *Gemini Models* 额度显示的正是同一配额。 |
+| **Google 已停止为个人账户提供 Gemini CLI 配额（已迁移到 Antigravity）** | Google 已把个人账户迁移到 Antigravity。 | 开启 **Antigravity**；其 *Gemini Models* 额度显示的正是同一配额。 |
 | **读取用量被拒绝** | 工具的命令行程序在没有返回用量报告的情况下停止了。 | 下次刷新时重试。若持续出现，请在终端中运行一次该工具，确认它已登录且工作正常。 |
 | **返回的是其他账户的用量，因此不显示** | 读取期间登录发生了变化。UsageSwitch 绝不显示别的账户的数字。 | 等待下次刷新。 |
 | **无法读取用量 — 此 *X* 版本可能需要更新 UsageSwitch** | 工具的响应格式变了。 | 检查是否有新版 UsageSwitch，或[提交问题](https://github.com/deximple/usageswitch/issues)。 |
@@ -185,6 +185,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | **Antigravity** | 模型组额度（例如 *Gemini Models*） | `agy` 的 `/usage` 界面，以及每次刷新时调用的只读配额 API（无法读取界面时显示该数值） | ⚙︎ › 用量连接 |
 | **Devin** | Devin CLI 报告的配额 | Devin CLI 的用户状态 | ⚙︎ › 用量连接 |
 | **OpenCode Go** | 滚动 5 小时、每周和每月额度 | OpenCode 的 Go 用量端点 | ⚙︎ › 用量连接 |
+| **GitHub Copilot** | 聊天、补全和高级交互配额，以及重置日期和套餐 | GitHub 的 Copilot 配额端点，使用 `gh` CLI 登录 | ⚙︎ › 用量连接 |
 
 当工具的命令行程序位于 `PATH`（或 `~/.local/bin`、常见的 npm、bun、Volta 目录、`/opt/homebrew/bin`、`/usr/local/bin`）中，或其应用位于 `/Applications` 或 `~/Applications` 时，该工具就会被列出。发现工具永远不会去运行它。
 
@@ -197,12 +198,13 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 
 | 工具 | 读取的本地登录 | 连接的主机 | 说明 |
 |---|---|---|---|
-| Cursor | Cursor 的钥匙串项，然后 `~/.cursor/auth.json` | `api2.cursor.sh` | 每次刷新一次请求。过期令牌不发送请求。浏览器 `cursor-agent login` 约维持 60 天；API 密钥登录约 1 小时。不读取 Grok Bot 和按需付费。 |
+| Cursor | Cursor 的钥匙串项，然后 `~/.cursor/auth.json` | `api2.cursor.sh` | 每次刷新一次请求。已保存的令牌过期时，UsageSwitch 会先运行一次 `cursor-agent status`，让 cursor-agent 自行续期登录；若仍然过期则不发送请求。浏览器 `cursor-agent login` 约维持 60 天；API 密钥登录约 1 小时。不读取 Grok Bot 和按需付费。 |
 | Grok | Grok CLI 的登录文件 | `cli-chat-proxy.grok.com` | 实验性。 |
 | Gemini | Gemini CLI 的钥匙串项，然后 `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | 若访问令牌过期，UsageSwitch 用已保存的刷新令牌和已安装 Gemini CLI 自带的登录客户端获取仅保存于内存的临时令牌。不回写任何内容。每次刷新最多三次请求。 |
 | Antigravity | 在隐藏终端中从你的主目录运行的 `agy` 本体（最多每 9 分钟一次）；agy 的钥匙串项（钥匙串没有时读取 `~/.gemini/jetski-standalone-oauth-token`）在每次刷新时读取 | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` 以其正常设置启动，包括你配置的任何 MCP 服务器。UsageSwitch 从不回答 agy 的提示。macOS 可能会弹出一次钥匙串访问授权。 |
 | Devin | Devin CLI 的凭据和版本 | `server.codeium.com` | 需要受支持的 Devin CLI 版本。 |
 | OpenCode Go | OpenCode `auth.json` 中的 `opencode-go` 条目 | `opencode.ai` | 仅 Go 套餐，不含其他 OpenCode 用量。 |
+| GitHub Copilot | 在检测到的 `gh` 可执行文件上运行 `gh auth token`——GitHub CLI 自己的登录 | `api.github.com` | 每次刷新向非官方的 `/copilot_internal/user` 端点发送一次只读请求；令牌只保存在内存中，`gh` 从不发起该 API 调用。该端点没有公开文档，可能随时变化。 |
 
 这些都是私有端点，不是稳定的公开 API。服务商的更新可能在 UsageSwitch 更新前导致读取失败——届时该行会说明情况，而不是显示错误数字。
 读写文件的完整清单见 [PRIVACY.md](PRIVACY.md)（英文）。
@@ -274,7 +276,8 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 
 - **预算** — 为 Anthropic、OpenAI、Google、xAI 设置预付余额或月度配额（含重置日）。
 - **估算** — 过去 7 天的花费、日均费率和预算大约还能撑几天。仅根据 API 密钥账户的本地 CLI 日志估算，绝不向服务商查询。
-- **API 密钥保险库** — 在应用中添加、显示或删除密钥时会要求 Touch ID 或密码。密钥存放在登录钥匙串，遵循钥匙串自身的访问规则。密钥绝不会发往任何地方。
+- **实际花费** — 注册一个**账单 admin 密钥**（Anthropic 的 `sk-ant-admin-*`，或 OpenAI 的 admin 密钥 / 授予了 `api.usage.read` 权限的密钥）后，从该服务商自己的组织费用端点读到的真实数字会取代估算：本月花费和最近 7 天的花费，并附读取时间。每个服务商每 30 分钟一次只读账单查询；普通 API 密钥绝不会发往任何地方。
+- **API 密钥保险库** — 在应用中添加、显示或删除密钥时会要求 Touch ID 或密码。密钥存放在登录钥匙串，遵循钥匙串自身的访问规则。普通 API 密钥绝不会发往任何地方；账单 admin 密钥只会发往其所属服务商的账单端点。
 
 ## 设置
 
@@ -288,7 +291,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 | 在菜单栏中显示账户名称 | 在图标旁显示当前 Claude 账户名（邮箱仍然打码）。 |
 | 始终显示电子邮件 | 显示完整邮箱而非打码。 |
 | 在菜单栏显示用量 | 在图标旁显示一项额度，例如 *每周剩余 25%*。默认开启。 |
-| 菜单栏用量 | 选择显示哪一项。**自动（剩余最少的上限）**先用置顶的额度，否则用未耗尽的额度中剩余最少的一项；也可以从列表中选定一项。 |
+| 菜单栏用量 | 选择显示哪一项。**自动（剩余最少的限额）**先用置顶的额度，否则用未耗尽的额度中剩余最少的一项；也可以从列表中选定一项。 |
 | 用量提醒 · 用量警告阈值 | 某项额度已用超过 70%、80%（默认）或 90% 时发送 macOS 通知。 |
 | 显示指南指示点 | 建议就绪时**指南**旁的小点。 |
 | 用量连接 | 开关每个可选工具；关闭的工具会从用量列表中移除。只列出在此 Mac 上找到的工具。 |
@@ -302,7 +305,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
 flowchart LR
     A["发现安装在这台<br/>Mac 上的工具"] --> B{"可选<br/>工具?"}
     B -- "Claude Code, Codex" --> D
-    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode" --> C["由你开启<br/>(⚙︎ › 用量连接)"]
+    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode, Copilot" --> C["由你开启<br/>(⚙︎ › 用量连接)"]
     C --> D["经工具自身登录发起的<br/>只读用量请求"]
     D --> E["只保留额度和套餐<br/>邮箱打码,丢弃原始响应"]
     E --> F["菜单 · 详情<br/>--cli usage"]
@@ -382,15 +385,16 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
         "windows" : []
       }
     ],
+    "ageSeconds" : 42,
     "generatedAt" : "2026-11-09T05:10:00Z"
   }
 }
 ```
 
-`state` 为 `ok`、`notReporting`、`unavailable` 或 `failed`;`problem` 说明原因。账户 ID 是不透明的，顺序随列表变化。
+`state` 为 `ok`、`notReporting`、`unavailable` 或 `failed`;`problem` 说明原因。账户 ID 是不透明的，顺序随列表变化。`ageSeconds` 是应用保存这份读数后经过的秒数，数值越大，数字越旧。
 
 ```bash
-"$APP" --cli usage | jq -r '.result.accounts[]
+"$APP" --cli usage | jq -r '.result.accounts[] | select(.state == "ok")
   | "\(.provider)\t\(.label)\t\([.windows[] | "\(.scope // .kind) \(.leftPercent | floor)% left"] | join(", "))"'
 ```
 
@@ -418,7 +422,7 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 <details>
 <summary><b>我用的工具不在列表里。</b></summary>
 
-只有当 UsageSwitch 在 `PATH`（或常见的 npm、bun、Volta 目录）中找到工具的命令行程序，或其应用位于 `/Applications` / `~/Applications` 时才会列出。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode 还需要 **⚙︎ › 用量连接**。
+只有当 UsageSwitch 在 `PATH`（或常见的 npm、bun、Volta 目录）中找到工具的命令行程序，或其应用位于 `/Applications` / `~/Applications` 时才会列出。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode 和 GitHub Copilot 还需要 **⚙︎ › 用量连接**。
 
 </details>
 
@@ -432,7 +436,7 @@ Claude Desktop 登录不公开用量。请关联一个用同一账户登录的 C
 <details>
 <summary><b>Cursor 一直提示登录过期。</b></summary>
 
-UsageSwitch 使用 `cursor-agent` 保存的登录，自身不续期。浏览器 `cursor-agent login` 约维持 60 天，API 密钥登录约 1 小时。运行 `cursor-agent login` 并选择浏览器登录。
+UsageSwitch 使用 `cursor-agent` 保存的登录。它自身从不续期令牌；已保存的令牌过期时，会运行一次 `cursor-agent status`，让 cursor-agent 自行续期登录。浏览器 `cursor-agent login` 约维持 60 天，API 密钥登录约 1 小时。运行 `cursor-agent login` 并选择浏览器登录。
 
 </details>
 
@@ -463,7 +467,7 @@ Google 已停止为个人账号提供 Gemini CLI 配额并将其迁到 Antigravi
 - 已保存的 Claude 登录可能过期或被撤销。届时该行会要求你**需重新登录**。
 - 把登录保存在钥匙串中的 Codex 文件夹（`cli_auth_credentials_store = "keyring"`）可能显示为未登录。
 - 可选连接使用可能随时变化的私有端点。
-- UsageSwitch 显示各服务商报告的额度，不显示服务商余额或账单；API 标签页只有本地估算。
+- UsageSwitch 显示各服务商报告的额度。除非注册了账单 admin 密钥，否则服务商余额或账单不会出现在 API 标签页中——注册后，Anthropic 或 OpenAI 的实际花费会取代本地估算。
 
 ## 卸载
 
@@ -497,7 +501,7 @@ build/UsageSwitch.app/Contents/MacOS/UsageSwitch --ui-fixture usage-seven
 
 ## 致谢
 
-独立开源项目——与 Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、SST（OpenCode）均无隶属或背书关系。产品名称归各自所有者。
+独立开源项目——与 Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、GitHub、SST（OpenCode）均无隶属或背书关系。产品名称归各自所有者。
 相关社区项目：[CodexBar](https://github.com/steipete/CodexBar)、[claudepot-app](https://github.com/xiaolai/claudepot-app)、[claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts)、[Swivel](https://github.com/jspanji/Swivel)、[claude-graft](https://github.com/aaditya-v-more/claude-graft)。
 
 ## 许可证

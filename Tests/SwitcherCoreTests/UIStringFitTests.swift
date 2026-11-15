@@ -195,6 +195,41 @@ struct UIStringFitTests {
                 "\(language.rawValue) \(row.rawValue) needs \(needed.rounded())pt of \(MenuLimitRow.contentWidth)")
     }
 
+    // MARK: - Account rows of the menu
+
+    /// The state line of an account row in the menu (`AccountRow`, `CodexRow`): the state chip with its
+    /// marker, the App label and the info button, beside the row's own button. Modelled from the views
+    /// like the rows above. The chip is never cut (`fixedSize`), so a line too wide pushes the button out.
+    @Test(arguments: AppLanguage.allCases)
+    func accountStateLineFitsBesideItsButton(language: AppLanguage) throws {
+        func text(_ key: L10nKey) -> String { L10n.string(key, language: language) }
+        let chipStyle = TextStyle(size: 11, weight: .medium)
+        let small = TextStyle(size: 11)
+        let info = try #require(small.width(ofSymbol: "info.circle"))
+        let current = try #require(TextStyle(size: 18).width(ofSymbol: "checkmark.circle.fill"))
+        // each state with the button its row shows; the signed-in Claude account shows a checkmark
+        let rows: [(marker: StatusMarker, state: L10nKey, button: L10nKey?)] = [
+            (.claude(.ready, active: false), .uiStateReady, .uiSwitch),
+            (.claude(.expired, active: false), .uiStateExpired, .uiRelogin),
+            (.claude(.corrupt, active: false), .uiStateCorrupt, .uiRelogin),
+            (.claude(.ready, active: true), .uiStateActive, nil),
+            (.codex(.running), .codexStateRunning, .codexShow),
+            (.codex(.signedIn), .codexStateSignedIn, .codexOpen),
+            (.codex(.signedOut), .codexStateSignedOut, .codexSignIn),
+        ]
+        for row in rows {
+            let marker = try #require(chipStyle.width(ofSymbol: row.marker.symbol), "no symbol \(row.marker.symbol)")
+            // marker, 4pt, text, 7pt of padding either side
+            let chip = marker + 4 + chipStyle.width(of: text(row.state)) + 14
+            let line = chip + 6 + small.width(of: text(.usageEnvApp)) + 8 + info
+            let button = row.button.map { TextStyle(size: 12, weight: .semibold).width(of: text($0)) + 24 } ?? current
+            // 10pt of row padding either side; name column, 12, spacer of at least 8, 12, button
+            let needed = line + 12 + 8 + 12 + button
+            #expect(needed <= MenuLimitRow.contentWidth - 20,
+                    "\(language.rawValue) \(row.state.rawValue) needs \(needed.rounded())pt")
+        }
+    }
+
     // MARK: - Gear menu
 
     /// AppKit sizes a menu to its widest item and never cuts it, so the check is the menu's own width: the

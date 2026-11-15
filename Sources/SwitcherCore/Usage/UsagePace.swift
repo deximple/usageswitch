@@ -64,13 +64,16 @@ public enum UsagePace {
 
     /// The anchor the next sample should carry: kept while use climbs (≤ maximumAnchorAge),
     /// moved to the current sample when flat, falling, or out of the continuous window.
+    /// A streak that outlives its anchor slides it to the previous sample rather than starting
+    /// over, so a steady drain stays provable instead of going unknown for two reads every hour.
     public static func anchor(for window: UsageWindow, previous: Sample?, now: Date,
                               identityKey: String? = nil) -> (at: Date, percent: Double)? {
         guard window.usedPercent.isFinite, (0...100).contains(window.usedPercent) else { return nil }
         if let previous, admits(window, previous: previous, now: now, identityKey: identityKey),
-           window.usedPercent > previous.usedPercent,
-           now.timeIntervalSince(previous.anchorAt) <= maximumAnchorAge {
-            return (previous.anchorAt, previous.anchorPercent)
+           window.usedPercent > previous.usedPercent {
+            return now.timeIntervalSince(previous.anchorAt) <= maximumAnchorAge
+                ? (previous.anchorAt, previous.anchorPercent)
+                : (previous.at, previous.usedPercent)
         }
         return (now, window.usedPercent)
     }
@@ -90,8 +93,10 @@ public enum UsagePace {
         // Otherwise project only on anchored evidence: ≥ 2 points over ≥ 10 minutes (audit B-08).
         let anchorDt = now.timeIntervalSince(previous.anchorAt)
         let anchorClimb = window.usedPercent - previous.anchorPercent
-        // An anchor older than maximumAnchorAge is dropped by `anchor(for:)`; it is not evidence here either.
-        guard anchorDt >= 600, anchorDt <= maximumAnchorAge, anchorClimb >= 2 else { return .unknown }
+        // `anchor(for:)` retires an anchor on the first read after maximumAnchorAge, so one still in
+        // use is at most a read gap older than that; anything older is not evidence.
+        guard anchorDt >= 600, anchorDt <= maximumAnchorAge + maximumSampleGap, anchorClimb >= 2
+        else { return .unknown }
         let hoursToEmpty = (100 - window.usedPercent) / (anchorClimb / (anchorDt / 3600))
         return .depleting(at: now.addingTimeInterval(hoursToEmpty * 3600))
     }

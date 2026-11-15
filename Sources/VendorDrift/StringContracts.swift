@@ -54,10 +54,13 @@ public enum StringContracts {
         return [escaped, utf8, latin1]
     }
 
-    /// The `/usage` screen title `AntigravityUsageScreen` looks for. The screen's footer is
-    /// put together at run time, so it can't be found in the binary and isn't listed.
+    /// The `/usage` screen wording `AntigravityUsageScreen` looks for. The screen's footer and the
+    /// command menu's hint are put together at run time, so they can't be found in the binary
+    /// and aren't listed.
     public static let antigravity: [StringContract] = [
         StringContract("Models & Quota", reason: "AntigravityUsageScreen finds the quota screen by this title"),
+        StringContract("? for shortcuts", reason: "AntigravityUsageScreen types /usage only at the prompt showing this hint"),
+        StringContract("Refreshes in", reason: "AntigravityUsageScreen reads each limit's reset time from this wording"),
     ]
 
     /// The error wording `CodexRateLimitsParser.failure(for:)` maps to a reason, and the request it sends.

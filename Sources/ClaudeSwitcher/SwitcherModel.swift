@@ -105,7 +105,8 @@ final class SwitcherModel: ObservableObject {
         usagePins = demo == nil ? settings.effectiveUsagePins : []
         menuBarShowsUsage = demo == nil ? settings.effectiveMenuBarShowsUsage : true
         menuBarUsageKey = demo == nil ? settings.effectiveMenuBarUsageKey : nil
-        cursorUsageEnabled = demo == nil ? settings.effectiveCursorUsageEnabled : false
+        // A flag saved under the older Cursor wording stays off until the dialog is accepted again.
+        cursorUsageEnabled = demo == nil ? settings.enabledUsageProviders.contains(.cursor) : false
         usageConnections = demo == nil
             ? settings.enabledUsageProviders.subtracting([.cursor]) : []
         turnedOffUsageConnections = demo == nil ? settings.hiddenUsageProviders : []
@@ -516,11 +517,11 @@ final class SwitcherModel: ObservableObject {
         let before = cursorUsageEnabled
         cursorUsageEnabled = on
         // Rebuild usageConnections too so leftover extra entries from older
-        // builds are dropped on the next save.
+        // builds are dropped on the next save. Cursor's disclosure marker is stored there.
         if !saveSettings({
             $0.cursorUsageEnabled = on
             $0.usageConnections = SwitcherSettings.usageConnectionsValue(
-                providers: self.usageConnections,
+                providers: self.enabledUsageProviders,
                 geminiTokenRefresh: self.geminiTokenRefreshAllowed)
         }) { cursorUsageEnabled = before }
     }
@@ -537,8 +538,9 @@ final class SwitcherModel: ObservableObject {
         // revoking removes both. It is not a UsageProvider rawValue, so it can never
         // enable a provider by itself.
         if !saveSettings({
+            // The whole consent set, so another provider's toggle keeps Cursor's marker.
             $0.usageConnections = SwitcherSettings.usageConnectionsValue(
-                providers: self.usageConnections,
+                providers: self.enabledUsageProviders,
                 geminiTokenRefresh: provider == .gemini ? on : self.geminiTokenRefreshAllowed)
         }) { usageConnections = before } else if provider == .gemini {
             geminiTokenRefreshAllowed = on

@@ -130,7 +130,7 @@ struct SettingsMenu: View {
 
     /// Which limit the menu bar shows: automatic (pins, then the least left that isn't used up) or one
     /// window the user picks. A chosen window that isn't read right now stays listed so the choice
-    /// survives a failed read; the bar falls back to automatic meanwhile.
+    /// survives a failed read; the bar shows the account name meanwhile, never another limit.
     private var menuBarUsagePicker: some View {
         let choices = usage.menuBarChoices
         let chosen = model.menuBarUsageKey

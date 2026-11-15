@@ -36,14 +36,27 @@ public enum UsageRefreshPolicy {
     /// began* — `lastReadStartedAt < resetsAt <= now`. A window already stale at read time
     /// (resetsAt ≤ lastReadStartedAt, e.g. a Claude weekly reset inside its last day) is not a
     /// reason to read again. nil `lastReadStartedAt` counts as never having read.
+    /// A collector's cached reading is due the same way, when its cache ran out since then.
     public static func isDue(now: Date, nextRefresh: Date, lastReadStartedAt: Date?,
                              usages: [AccountUsage]) -> Bool {
         if now >= nextRefresh { return true }
         let readStarted = lastReadStartedAt ?? .distantPast
         return usages.contains { usage in
-            usage.windows.contains { window in
+            if let cachedUntil = cachedUntil(usage), readStarted < cachedUntil, cachedUntil <= now {
+                return true
+            }
+            return usage.windows.contains { window in
                 window.resetsAt.map { readStarted < $0 && $0 <= now } ?? false
             }
         }
+    }
+
+    /// When a current reading's collector stops handing it back and reads anew; nil for a
+    /// collector that reads on every refresh. Antigravity keeps its `/usage` screen for nine
+    /// minutes, so two five-minute intervals would carry the same reading past
+    /// `UsagePresentations.verifiedAgeLimit` before the third replaced it.
+    private static func cachedUntil(_ usage: AccountUsage) -> Date? {
+        guard usage.provider == .antigravity, usage.state == .ok else { return nil }
+        return usage.readAt.addingTimeInterval(AntigravityUsageScreenCache.minimumInterval)
     }
 }

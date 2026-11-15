@@ -54,7 +54,7 @@ Claude、Codex、Cursor などの AI コーディングツールを — しば�
 
 | | |
 |---|---|
-| 📊 **すべての上限を一目で** | セッション（5 時間）、週間、月間の上限をアカウントごとに、残りの**割合**とリセットまでの時間で表示します。 |
+| 📊 **すべての上限を一目で** | セッション、日次、週間、月間の上限をアカウントごとに、残りの**割合**とリセットまでの時間で表示します。 |
 | 🧭 **実際に使っているものだけ** | リストにはこの Mac にインストールされているツールと登録済みアカウントだけが表示されます。持っていないツールは表示されず、何も読み取られません。オフにしたり非表示にしたツールも一覧から消えます。Claude と Codex のローカル使用ログはガイドと API タブのために常に読み取られます — オフにはできません。 |
 | 💡 **ヒントだけ、自動操縦はなし** | **ガイド**は、常に読み取られるローカルログをもとに、残りの量に合うアカウント・モデル・作業量を提案し、その根拠を示し、リセット前に尽きそうな上限を知らせます。勝手に切り替えたり、起動したり、サインインしたりはしません。 |
 | 🔁 **ワンクリックで切り替え** | Claude Desktop のサインインを保存済みアカウント間で切り替えます（検証と自動ロールバック付き）。Codex アカウントは別ウィンドウで並行して使えます。 |
@@ -95,7 +95,7 @@ Claude、Codex、Cursor などの AI コーディングツールを — しば�
 
 Cursor、Grok、Gemini、Antigravity、Devin、OpenCode Go、GitHub Copilot は**デフォルトでオフ**です。使うものごとに：
 
-- その行の**使用状況に接続**をクリック、または **⚙︎ › 使用量の接続** を開きます、
+- その行の**使用量を接続**をクリック、または **⚙︎ › 使用量の接続** を開きます、
 - ダイアログを読みます — 何を読み取り、どこへリクエストを送るかが正確に書かれています。
 - **有効にする**をクリック。
 
@@ -155,10 +155,10 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 
 | メッセージ | 理由 | 対処 |
 |---|---|---|
-| **使用量の接続が必要です** | この任意ツールはまだオンにしていません。 | **使用状況に接続**をクリック、または **⚙︎ › 使用量の接続** へ。使わない場合は**非表示**をクリック。 |
+| **使用量の接続が必要です** | この任意ツールはまだオンにしていません。 | **使用量を接続**をクリック、または **⚙︎ › 使用量の接続** へ。使わない場合は**非表示**をクリック。 |
 | **サインインが見つかりません · 先に *X* にサインインしてください** | ツールはインストールされていますが、この Mac でサインインしていません。 | そのツールに一度サインイン。 |
 | **このアカウントの CLI プロファイルはサインインしていません — 「詳細」で手順を確認** | 保存した Claude アカウントに連結した CLI プロファイルがサインアウトしているため、最後の読み取りが薄く残っています。 | **詳細**でコマンドをコピーしてターミナルで実行し、同じアカウントでサインインします。 |
-| **サインインの期限切れ · ターミナルで *`command`* を一度実行してください** | 保存されたサインインが期限切れです。 | 表示されたコマンドを実行：`claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login`。 |
+| **サインインの期限切れ · ターミナルで *`command`* を一度実行してください** | 保存されたサインインが期限切れです。 | 表示されたコマンドを実行：`claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login`, `gh auth login`。 |
 | **サインインが拒否されました · ターミナルで *`command`* を一度実行してください** | プロバイダが保存されたサインインを拒否しました — 取り消されたか、別のアプリのサインインに置き換えられたか、このツールが対応しないアカウントです。 | 表示されたコマンドを実行し、表示したいアカウントでサインインしてください。 |
 | **CLI クォータと未リンク** | 保存済み Claude Desktop アカウントにリンクされた Claude Code プロファイルがありません。 | **詳細**で[プロファイルをリンク](#3-保存済み-claude-アカウントに自分の数字を持たせる任意)します。 |
 | **使用量を報告していません** | ツールが使用量の数字なしに応答しました: API キープロファイル（サブスクリプション上限なし）、サインアウトした Codex ホーム、サブスクリプション上限のないアカウントです。 | 対処不要。使用料の見積もりは [API タブ](#api-タブ)を使います（Codex API キーアカウントのみ）。 |
@@ -185,6 +185,7 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 | **Antigravity** | モデルグループの上限（例：*Gemini Models*） | `agy` の `/usage` 画面と、更新のたびに呼び出す読み取り専用クォータ API（画面を読み取れない場合はこの値を表示） | ⚙︎ › 使用量の接続 |
 | **Devin** | Devin CLI が報告するクォータ | Devin CLI のユーザーステータス | ⚙︎ › 使用量の接続 |
 | **OpenCode Go** | ローリング 5 時間・週間・月間の上限 | OpenCode の Go 使用量エンドポイント | ⚙︎ › 使用量の接続 |
+| **GitHub Copilot** | チャット・補完・プレミアムインタラクションのクォータに加え、リセット日とプラン | GitHub の Copilot クォータエンドポイント、`gh` CLI のサインインを使用 | ⚙︎ › 使用量の接続 |
 
 ツールは、そのコマンドラインプログラムが `PATH` 上（または `~/.local/bin`、一般的な npm・bun・Volta のフォルダ、`/opt/homebrew/bin`、`/usr/local/bin` 内）にあるか、そのアプリが `/Applications` または `~/Applications` にある場合に表示されます。ツールを見つけても実行されることはありません。
 
@@ -197,12 +198,13 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 
 | ツール | 読み取るローカルサインイン | 接続するホスト | 補足 |
 |---|---|---|---|
-| Cursor | Cursor のキーチェーン項目、続いて `~/.cursor/auth.json` | `api2.cursor.sh` | 更新ごとに 1 リクエスト。期限切れトークンではリクエストを送りません。ブラウザの `cursor-agent login` は約 60 日、API キーサインインは約 1 時間持ちます。Grok Bot とオンデマンド料金は読み取りません。 |
+| Cursor | Cursor のキーチェーン項目、続いて `~/.cursor/auth.json` | `api2.cursor.sh` | 更新ごとに 1 リクエスト。保存されたトークンが期限切れの場合、UsageSwitch はまず `cursor-agent status` を一度実行して cursor-agent 自身にサインインを更新させ、それでも期限切れならリクエストを送りません。ブラウザの `cursor-agent login` は約 60 日、API キーサインインは約 1 時間持ちます。Grok Bot とオンデマンド料金は読み取りません。 |
 | Grok | Grok CLI のサインインファイル | `cli-chat-proxy.grok.com` | 実験的。 |
 | Gemini | Gemini CLI のキーチェーン項目、続いて `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | アクセストークンが期限切れの場合、UsageSwitch は保存済み更新トークンとインストール済み Gemini CLI 自身のサインインクライアントで、メモリにだけ保持する一時トークンを取得します。何も書き戻しません。更新ごとに最大 3 リクエスト。 |
 | Antigravity | ホームフォルダから隠しターミナルで実行される `agy` 自体（最大 9 分ごと）。agy のキーチェーン項目（キーチェーンにない場合は `~/.gemini/jetski-standalone-oauth-token`）を更新のたびに読み取ります | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` は通常の設定で起動し、設定済みの MCP サーバーも含みます。UsageSwitch は agy のプロンプトに答えません。macOS がキーチェーンアクセスを一度尋ねることがあります。 |
 | Devin | Devin CLI の認証情報とバージョン | `server.codeium.com` | 対応する Devin CLI バージョンが必要。 |
 | OpenCode Go | OpenCode の `auth.json` 内の `opencode-go` エントリ | `opencode.ai` | Go プランのみ。他の OpenCode 使用量は対象外。 |
+| GitHub Copilot | 検出した `gh` バイナリで実行する `gh auth token` — GitHub CLI 自身のサインイン | `api.github.com` | 更新ごとに、非公式の `/copilot_internal/user` エンドポイントへ読み取り専用リクエストを 1 回。トークンはメモリ内にだけ保持し、`gh` が API を呼び出すことはありません。このエンドポイントは文書化されておらず、予告なく変わることがあります。 |
 
 これらは安定した公開 API ではなく、プライベートなエンドポイントです。プロバイダの更新で読み取りが壊れることがあり、その場合は間違った数字を出す代わりに行がその旨を伝えます。
 読み書きするファイルの全一覧は [PRIVACY.md](PRIVACY.md)（英語）にあります。
@@ -274,7 +276,8 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 
 - **予算** — Anthropic、OpenAI、Google、xAI に対し、プリペイド残高または月次クォータ（リセット日付き）を設定。
 - **見積もり** — 過去 7 日間の消費、平均日次レート、予算がだいたい何日持つか。API キーアカウントのローカル CLI ログからの推定のみで、プロバイダから取得しません。
-- **API キー保管庫** — アプリでキーの追加・表示・削除を行うときに Touch ID またはパスワードを求めます。キーはログインキーチェーンに保存され、キーチェーン自体のアクセスルールに従います。キーがどこかへ送られることはありません。
+- **実際の利用額** — **請求 admin キー**（Anthropic の `sk-ant-admin-*`、または OpenAI の admin キーか `api.usage.read` スコープを付与したキー）を登録すると、そのプロバイダ自身の組織コストエンドポイントから読み取った実際の金額が見積もりに置き換わります：今月の利用額と過去 7 日間の利用額を、読み取り時刻とともに表示します。読み取り専用の請求クエリはプロバイダごとに 30 分に 1 回で、通常の API キーがどこかへ送られることはありません。
+- **API キー保管庫** — アプリでキーの追加・表示・削除を行うときに Touch ID またはパスワードを求めます。キーはログインキーチェーンに保存され、キーチェーン自体のアクセスルールに従います。通常の API キーがどこかへ送られることはありません。請求 admin キーは、そのプロバイダの請求エンドポイントにだけ送られます。
 
 ## 設定
 
@@ -302,7 +305,7 @@ UsageSwitch は、プロファイルのアカウント・組織 ID と CLI が�
 flowchart LR
     A["この Mac にインストール<br/>されたツールを探す"] --> B{"任意の<br/>ツール?"}
     B -- "Claude Code, Codex" --> D
-    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode" --> C["あなたがオンにする<br/>(⚙︎ › 使用量の接続)"]
+    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode, Copilot" --> C["あなたがオンにする<br/>(⚙︎ › 使用量の接続)"]
     C --> D["ツール自身のサインイン経由の<br/>読み取り専用使用量リクエスト"]
     D --> E["上限とプランだけを保持<br/>メールは伏せ字、生の応答は捨てる"]
     E --> F["メニュー · 詳細<br/>--cli usage"]
@@ -382,15 +385,16 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
         "windows" : []
       }
     ],
+    "ageSeconds" : 42,
     "generatedAt" : "2026-11-09T05:10:00Z"
   }
 }
 ```
 
-`state` は `ok`、`notReporting`、`unavailable`、`failed` のいずれかで、`problem` が理由を示します。アカウント ID は不透明で、リストの並び順で変わります。
+`state` は `ok`、`notReporting`、`unavailable`、`failed` のいずれかで、`problem` が理由を示します。アカウント ID は不透明で、リストの並び順で変わります。`ageSeconds` はアプリがこの読み取りを保存してからの経過秒数で、大きいほど古い数値です。
 
 ```bash
-"$APP" --cli usage | jq -r '.result.accounts[]
+"$APP" --cli usage | jq -r '.result.accounts[] | select(.state == "ok")
   | "\(.provider)\t\(.label)\t\([.windows[] | "\(.scope // .kind) \(.leftPercent | floor)% left"] | join(", "))"'
 ```
 
@@ -418,7 +422,7 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
 <details>
 <summary><b>使っているツールがリストにありません。</b></summary>
 
-UsageSwitch は、そのツールのコマンドラインプログラムを `PATH`（または `~/.local/bin`、一般的な npm・bun・Volta のフォルダ、`/opt/homebrew/bin`、`/usr/local/bin`）で見つけたとき、またはそのアプリが `/Applications` / `~/Applications` にあるときだけ表示します。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode はさらに **⚙︎ › 使用量の接続** が必要です。
+UsageSwitch は、そのツールのコマンドラインプログラムを `PATH`（または `~/.local/bin`、一般的な npm・bun・Volta のフォルダ、`/opt/homebrew/bin`、`/usr/local/bin`）で見つけたとき、またはそのアプリが `/Applications` / `~/Applications` にあるときだけ表示します。Cursor、Grok、Gemini、Antigravity、Devin、OpenCode、GitHub Copilot はさらに **⚙︎ › 使用量の接続** が必要です。
 
 </details>
 
@@ -432,7 +436,7 @@ Claude Desktop のサインインは使用量を公開しません。同じア�
 <details>
 <summary><b>Cursor がサインイン期限切れと言い続けます。</b></summary>
 
-UsageSwitch は `cursor-agent` が保存するサインインを使い、自分では更新しません。ブラウザの `cursor-agent login` は約 60 日持ち、API キーサインインは約 1 時間です。`cursor-agent login` を実行してブラウザサインインを選んでください。
+UsageSwitch は `cursor-agent` が保存するサインインを使います。トークンを自分で更新することはなく、保存されたトークンが期限切れのときは `cursor-agent status` を一度実行して、cursor-agent 自身にサインインを更新させます。ブラウザの `cursor-agent login` は約 60 日持ち、API キーサインインは約 1 時間です。`cursor-agent login` を実行してブラウザサインインを選んでください。
 
 </details>
 
@@ -463,7 +467,7 @@ Google は個人アカウント向けの Gemini CLI クォータを終了し、A
 - 保存済み Claude サインインは期限切れや取り消しがありえます。その行は**要再サインイン**を促します。
 - サインインをキーチェーンに保持する Codex フォルダ（`cli_auth_credentials_store = "keyring"`）はサインアウト状態に見えることがあります。
 - 任意接続は予告なく変わりうるプライベートエンドポイントを使います。
-- UsageSwitch は各プロバイダが報告する上限を表示します。プロバイダの残高や請求は表示しません。API タブはローカル推定のみです。
+- UsageSwitch は各プロバイダが報告する上限を表示します。プロバイダの残高や請求は、請求 admin キーを登録しない限り API タブに表示されません。登録すると、Anthropic または OpenAI の実際の利用額がローカル推定に置き換わります。
 
 ## アンインストール
 
@@ -497,7 +501,7 @@ build/UsageSwitch.app/Contents/MacOS/UsageSwitch --ui-fixture usage-seven
 
 ## 謝辞
 
-独立したオープンソースプロジェクト — Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、SST（OpenCode）とは提携・承認関係はありません。製品名はそれぞれの所有者に帰属します。
+独立したオープンソースプロジェクト — Anthropic、OpenAI、Anysphere（Cursor）、xAI、Google、Cognition（Devin）、GitHub、SST（OpenCode）とは提携・承認関係はありません。製品名はそれぞれの所有者に帰属します。
 関連するコミュニティプロジェクト：[CodexBar](https://github.com/steipete/CodexBar)、[claudepot-app](https://github.com/xiaolai/claudepot-app)、[claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts)、[Swivel](https://github.com/jspanji/Swivel)、[claude-graft](https://github.com/aaditya-v-more/claude-graft)。
 
 ## ライセンス

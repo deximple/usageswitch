@@ -10,7 +10,7 @@ import SwitcherCore
 /// `--menu-preview` (render the menu content in the window for screenshots), `--lang <code>` (not saved),
 /// `--tab usage|claude|codex` (not saved),
 /// `--behind` (open the window behind other windows without activating, for screenshots while the Mac is in use).
-/// `--snapshot <path.png>` (render the window offscreen at 2x to a PNG and quit; no real window, honors --ui-fixture, --menu-preview, --appearance, --lang),
+/// `--snapshot <path.png>` (render the window offscreen at 2x to a PNG and quit; no real window and no glass chrome, honors --ui-fixture, --menu-preview, --appearance, --lang),
 /// `--snapshot-height <points>` (override the snapshot height; width stays 360 for menus, 700 for windows),
 /// `--detail <usage-id>` (with --snapshot: render that account's usage detail, 460 wide, instead of the window).
 enum LaunchOptions {
@@ -46,13 +46,11 @@ enum AppModel {
     /// Visible UI surfaces (menu panel + owned windows). While zero, both status
     /// pollers run at the slow 30 s cadence; showing any surface restores 6 s and
     /// triggers an immediate refresh (audit P3 / A-02).
-    private(set) static var visibleSurfaces = 0
-    static var anySurfaceVisible: Bool { visibleSurfaces > 0 }
+    private static var visibleSurfaces = VisibleSurfaces()
+    static var anySurfaceVisible: Bool { visibleSurfaces.anyVisible }
 
-    static func noteSurface(open: Bool) {
-        let was = anySurfaceVisible
-        visibleSurfaces = max(0, visibleSurfaces + (open ? 1 : -1))
-        guard anySurfaceVisible != was else { return }
+    static func noteSurface(_ surface: VisibleSurfaces.Surface, open: Bool) {
+        guard visibleSurfaces.note(surface, open: open) else { return }
         shared.scheduleStatusPoll(visible: anySurfaceVisible)
         codex.scheduleStatusPoll(visible: anySurfaceVisible)
         if anySurfaceVisible {
@@ -147,14 +145,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         detailID = id
         guard let window = detailWindow else { return }
         window.contentViewController = NSHostingController(
-            rootView: LanguageScoped(model: AppModel.shared) {
+            // Weak here too: the window owns this closure, so a strong capture would keep every
+            // closed detail window (and its view tree) alive.
+            rootView: LanguageScoped(model: AppModel.shared) { [weak self, weak window] in
                 UsageDetailView(model: AppModel.shared, usage: AppModel.usage,
                                 codex: AppModel.codex, id: id,
-                                onClose: { [weak self] in self?.detailWindow?.close() })
+                                onClose: { self?.detailWindow?.close() })
                 // The tree is rebuilt on a language change, so the AppKit title follows it here.
-                .onAppear { [weak window] in window?.title = L10n.t(.uiDetails) }
+                .onAppear { window?.title = L10n.t(.uiDetails) }
             })
-        if window.isVisible != true { AppModel.noteSurface(open: true) }
+        AppModel.noteSurface(.detailWindow, open: true)
         window.makeKeyAndOrderFront(nil)
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
@@ -166,11 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let closing = notification.object as? NSWindow else { return }
         // Revealed API keys must not outlive their window (audit B-06).
         NotificationCenter.default.post(name: Self.apiKeysShouldHideNotification, object: nil)
+        AppModel.noteSurface(closing === detailWindow ? .detailWindow : .mainWindow, open: false)
         if closing === detailWindow { detailWindow = nil; detailID = nil }
-        AppModel.noteSurface(open: false)
-        // only OUR two owned windows decide the policy — menus/alerts never count
+        // only OUR two owned windows decide the policy — menus/alerts never count.
+        // A minimized window is still open: going accessory would take its Dock icon away.
         let stillOpen = [window, detailWindow].contains {
-            $0 !== closing && $0?.isVisible == true
+            $0 !== closing && ($0?.isVisible == true || $0?.isMiniaturized == true)
         }
         NSApp.setActivationPolicy(stillOpen ? .regular : .accessory)
     }
@@ -294,8 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             codex.banner = .init(kind: .info, text: L10n.t(.codexBusyQuit))
             AppModel.tabs.tab = .codex
         } else {
-            codex.stopForQuit()
+            // Cancel collection first, so no reader starts another vendor command while the
+            // running ones are being stopped.
             AppModel.usage.stopForQuit()
+            codex.stopForQuit()
             return .terminateNow
         }
         showMainWindow()
@@ -333,7 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         NSApp.setActivationPolicy(.regular)
-        if window?.isVisible != true { AppModel.noteSurface(open: true) }
+        AppModel.noteSurface(.mainWindow, open: true)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }

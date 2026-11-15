@@ -199,7 +199,7 @@ Every optional connection reads the tool's own local sign-in, keeps it in memory
 
 | Tool | Local sign-in it reads | Host it contacts | Notes |
 |---|---|---|---|
-| Cursor | Cursor's Keychain entry, then `~/.cursor/auth.json` | `api2.cursor.sh` | One request per refresh. An expired token sends no request. A browser `cursor-agent login` lasts about 60 days; an API-key sign-in about an hour. Grok Bot and on-demand spending are not read. |
+| Cursor | Cursor's Keychain entry, then `~/.cursor/auth.json` | `api2.cursor.sh` | One request per refresh. When the stored token has expired, UsageSwitch first runs `cursor-agent status` once so cursor-agent can renew its own sign-in; a token that is still expired sends no request. A browser `cursor-agent login` lasts about 60 days; an API-key sign-in about an hour. Grok Bot and on-demand spending are not read. |
 | Grok | The Grok CLI sign-in file | `cli-chat-proxy.grok.com` | Experimental. |
 | Gemini | Gemini CLI's Keychain item, then `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | If the access token has expired, UsageSwitch uses the stored refresh token with the installed Gemini CLI's own sign-in client to get a temporary token held only in memory. It never writes anything back. Up to three requests per refresh. |
 | Antigravity | `agy` itself, run in a hidden terminal from your home folder (at most every 9 minutes); agy's Keychain item (or `~/.gemini/jetski-standalone-oauth-token` when the Keychain has none), read on every refresh | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` starts with its normal settings, including any MCP servers you set up. UsageSwitch never answers agy's prompts. macOS may ask once to allow Keychain access. |
@@ -386,15 +386,16 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
         "windows" : []
       }
     ],
+    "ageSeconds" : 42,
     "generatedAt" : "2026-11-09T05:10:00Z"
   }
 }
 ```
 
-`state` is `ok`, `notReporting`, `unavailable` or `failed`; `problem` names the reason. Account IDs are opaque and change order with the list.
+`state` is `ok`, `notReporting`, `unavailable` or `failed`; `problem` names the reason. Account IDs are opaque and change order with the list. `ageSeconds` is how many seconds ago the app saved this reading; a large value means the numbers are old.
 
 ```bash
-"$APP" --cli usage | jq -r '.result.accounts[]
+"$APP" --cli usage | jq -r '.result.accounts[] | select(.state == "ok")
   | "\(.provider)\t\(.label)\t\([.windows[] | "\(.scope // .kind) \(.leftPercent | floor)% left"] | join(", "))"'
 ```
 
@@ -436,7 +437,7 @@ Claude Desktop sign-ins don't expose usage. Link a Claude Code profile signed in
 <details>
 <summary><b>Cursor keeps saying the sign-in expired.</b></summary>
 
-UsageSwitch uses the sign-in that `cursor-agent` stores, and never renews it itself. A browser `cursor-agent login` lasts about 60 days, while an API-key sign-in lasts about an hour. Run `cursor-agent login` and pick the browser sign-in.
+UsageSwitch uses the sign-in that `cursor-agent` stores. It never renews the token itself; when the stored one has expired it runs `cursor-agent status` once so cursor-agent can renew its own sign-in. A browser `cursor-agent login` lasts about 60 days, while an API-key sign-in lasts about an hour. Run `cursor-agent login` and pick the browser sign-in.
 
 </details>
 

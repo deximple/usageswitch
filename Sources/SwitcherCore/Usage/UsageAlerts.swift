@@ -28,10 +28,20 @@ public enum UsageAlerts {
     }
 
     /// Returns the alerts to raise now and the marks to keep for the next refresh.
+    /// `unreadPrefix` names accounts this round did not read at all (their ids start with it): a row
+    /// missing for that reason is not an account that went away, so its marks stay.
     public static func update(usages: [AccountUsage], threshold: Double, alerted: [String: Mark],
-                              now: Date) -> (alerts: [Alert], alerted: [String: Mark]) {
+                              now: Date, unreadPrefix: String? = nil)
+        -> (alerts: [Alert], alerted: [String: Mark]) {
         var next: [String: Mark] = [:]
         var alerts: [Alert] = []
+        if let unreadPrefix {
+            // Only for accounts that really are missing: one read this round is judged by its reading.
+            let read = usages.map { $0.id + "/" }
+            for (key, mark) in alerted where key.hasPrefix(unreadPrefix) && !read.contains(where: key.hasPrefix) {
+                if mark.resetsAt.map({ $0 <= now }) != true { next[key] = mark }
+            }
+        }
         for usage in usages where usage.state != .ok {
             let prefix = usage.id + "/"
             for (key, mark) in alerted where key.hasPrefix(prefix) {

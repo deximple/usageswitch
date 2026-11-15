@@ -28,6 +28,18 @@ public enum APICostReadState: Equatable, Sendable {
     case rateLimited
     case network
     case schemaChanged
+
+    /// A failure that may pass on its own: worth another try at the next refresh rather than
+    /// after the full read interval.
+    public var isTransient: Bool { self == .network || self == .rateLimited }
+
+    /// The per-vendor states after one admin cost round. A fresh result replaces the old one, and a
+    /// vendor whose admin key is gone loses its entry: a figure nothing can refresh is not current.
+    public static func reconciled(previous: [APIVendor: APICostReadState],
+                                  results: [APIVendor: APICostReadState],
+                                  adminVendors: Set<APIVendor>) -> [APIVendor: APICostReadState] {
+        previous.merging(results) { _, new in new }.filter { adminVendors.contains($0.key) }
+    }
 }
 
 /// Read-only billing queries for Anthropic and OpenAI admin keys. Both calls are free
@@ -54,12 +66,14 @@ public struct APICostReader: Sendable {
         }
     }
 
-    private func monthBounds() -> (start: Date, sevenDaysAgo: Date) {
+    /// The month start, the start of the 7-day window, and where the query begins: the earlier of
+    /// the two, so the window still reaches into last month during a month's first days.
+    private func bounds() -> (monthStart: Date, sevenDaysAgo: Date, queryStart: Date) {
         let current = now()
         let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: current))!
         let startOfToday = calendar.startOfDay(for: current)
         let sevenDaysAgo = calendar.date(byAdding: .day, value: -6, to: startOfToday)!
-        return (startOfMonth, sevenDaysAgo)
+        return (startOfMonth, sevenDaysAgo, min(startOfMonth, sevenDaysAgo))
     }
 
     private func send(_ request: UsageHTTPRequest) -> UsageHTTPResponse? { http.send(request) }
@@ -78,18 +92,19 @@ public struct APICostReader: Sendable {
 
     /// GET /v1/organizations/cost_report — daily buckets, `amount` in cents as a decimal string.
     private func readAnthropic(key: String) -> APICostReadState {
-        let (monthStart, sevenDaysAgo) = monthBounds()
+        let (monthStart, sevenDaysAgo, queryStart) = bounds()
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
         var components = URLComponents(url: URL(string: "https://api.anthropic.com/v1/organizations/cost_report")!,
                                        resolvingAgainstBaseURL: false)!
         components.queryItems = [
-            URLQueryItem(name: "starting_at", value: iso.string(from: monthStart)),
+            URLQueryItem(name: "starting_at", value: iso.string(from: queryStart)),
             URLQueryItem(name: "bucket_width", value: "1d"),
             URLQueryItem(name: "limit", value: "31"),
         ]
         let request = UsageHTTPRequest(url: components.url!, method: .get,
-            headers: ["Authorization": "Bearer \(key)",
+            // An admin key goes in x-api-key; Anthropic keeps Authorization: Bearer for OAuth tokens.
+            headers: ["x-api-key": key,
                       "anthropic-version": "2023-06-01",
                       "Content-Type": "application/json"],
             timeout: 10)
@@ -110,12 +125,11 @@ public struct APICostReader: Sendable {
                       cents.isFinite, cents >= 0 else { return .schemaChanged }
                 dayTotal += cents / 100
             }
-            monthTotal += dayTotal
-            // Buckets are RFC 3339 day starts; only the last-7 window counts toward the week.
-            if let rawStart = bucket["starting_at"],
-               let start = UsageJSON.resetDateISO(rawStart), start >= sevenDaysAgo {
-                weekTotal += dayTotal
-            }
+            // Buckets are RFC 3339 day starts. A bucket that can't be placed can't be summed.
+            guard let rawStart = bucket["starting_at"],
+                  let start = UsageJSON.resetDateISO(rawStart) else { return .schemaChanged }
+            if start >= monthStart { monthTotal += dayTotal }
+            if start >= sevenDaysAgo { weekTotal += dayTotal }
         }
         return .ok(APIActualSpend(monthToDateUSD: monthTotal, last7DaysUSD: weekTotal, asOf: now()))
     }
@@ -124,11 +138,11 @@ public struct APICostReader: Sendable {
 
     /// GET /v1/organization/costs — daily buckets, `amount.value` already in USD.
     private func readOpenAI(key: String) -> APICostReadState {
-        let (monthStart, sevenDaysAgo) = monthBounds()
+        let (monthStart, sevenDaysAgo, queryStart) = bounds()
         var components = URLComponents(url: URL(string: "https://api.openai.com/v1/organization/costs")!,
                                        resolvingAgainstBaseURL: false)!
         components.queryItems = [
-            URLQueryItem(name: "start_time", value: String(Int(monthStart.timeIntervalSince1970))),
+            URLQueryItem(name: "start_time", value: String(Int(queryStart.timeIntervalSince1970))),
             URLQueryItem(name: "bucket_width", value: "1d"),
             URLQueryItem(name: "limit", value: "31"),
         ]
@@ -153,11 +167,10 @@ public struct APICostReader: Sendable {
                       value.isFinite, value >= 0 else { return .schemaChanged }
                 dayTotal += value
             }
-            monthTotal += dayTotal
-            if let startTime = bucket["start_time"] as? Double,
-               Date(timeIntervalSince1970: startTime) >= sevenDaysAgo {
-                weekTotal += dayTotal
-            }
+            guard let startTime = bucket["start_time"] as? Double, startTime.isFinite else { return .schemaChanged }
+            let start = Date(timeIntervalSince1970: startTime)
+            if start >= monthStart { monthTotal += dayTotal }
+            if start >= sevenDaysAgo { weekTotal += dayTotal }
         }
         return .ok(APIActualSpend(monthToDateUSD: monthTotal, last7DaysUSD: weekTotal, asOf: now()))
     }

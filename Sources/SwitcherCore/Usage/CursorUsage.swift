@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// One HTTPS POST of an empty JSON object, injected so tests never reach the network or see a token.
@@ -129,6 +130,7 @@ public struct CursorUsageCollector: Sendable {
     /// The `cursor-agent` binary when installed: a browser-session sign-in renews its stored
     /// Keychain token when the CLI runs, so an expired JWT gets one `status` call to renew it.
     private let cursorAgent: URL?
+    private let renewalAttempts: CursorRenewalAttemptCache
 
     /// `endpoint` defaults to Cursor's fixed API host; tests inject their own.
     public init(enabled: Bool, runner: any UsageProcessRunner, http: any UsageHTTP,
@@ -136,10 +138,12 @@ public struct CursorUsageCollector: Sendable {
                 endpoint: URL? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 credentials: any UsageCredentialReading = UsageFileCredentialReader(),
-                cursorAgent: URL? = nil) {
+                cursorAgent: URL? = nil,
+                renewalAttempts: CursorRenewalAttemptCache = CursorRenewalAttemptCache()) {
         self.enabled = enabled; self.runner = runner; self.http = http; self.home = home
         self.credentials = credentials
         self.cursorAgent = cursorAgent
+        self.renewalAttempts = renewalAttempts
         self.endpoint = endpoint ?? URL(string: "https://api2.cursor.sh")!
         self.now = now
     }
@@ -159,10 +163,16 @@ public struct CursorUsageCollector: Sendable {
         // cursor-agent does not refresh its stored token on its own, but a browser
         // `cursor-agent login` session (about 60 days) renews it whenever the CLI runs —
         // ask once, then read the token again. API-key sign-ins (~1 hour) have no session
-        // to renew and stay expired.
+        // to renew and stay expired, so a token the CLI left expired is not asked about again.
         if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60),
-           let renewed = refreshedToken() {
-            token = renewed
+           !renewalAttempts.contains(token), let renewal = refreshedToken() {
+            token = renewal.token
+            // Only once it has really expired: the CLI may leave a token alone inside its
+            // last minute, and that one still gets its try after it expires. And only when the
+            // CLI ran to a clean end: offline or hung, it gave no verdict on this token.
+            if renewal.statusCompleted, let expiry = UsageJSON.jwtExpiry(renewal.token), expiry <= now() {
+                renewalAttempts.record(renewal.token)
+            }
         }
         if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60) {
             return [finish(.unavailable(.signInExpired))]
@@ -184,7 +194,7 @@ public struct CursorUsageCollector: Sendable {
     /// Runs `cursor-agent status` once so a live browser session can renew the stored
     /// Keychain token, then re-reads the token. Its output is discarded — only the
     /// side effect on the Keychain matters. nil when no agent is installed.
-    private func refreshedToken() -> String? {
+    private func refreshedToken() -> (token: String, statusCompleted: Bool)? {
         guard let cursorAgent, !Task.isCancelled else { return nil }
         let request = UsageProcessRequest(
             executable: cursorAgent,
@@ -193,9 +203,9 @@ public struct CursorUsageCollector: Sendable {
             workingDirectory: FileManager.default.temporaryDirectory,
             maxOutputBytes: 8 * 1024,
             timeout: 8)
-        _ = runner.run(request)
-        guard !Task.isCancelled else { return nil }
-        return token()
+        let outcome = runner.run(request).outcome
+        guard !Task.isCancelled, let token = token() else { return nil }
+        return (token, outcome == .exited(0))
     }
 
     /// The Cursor sign-in token: a bounded Keychain probe first, then the bounded
@@ -229,5 +239,36 @@ public struct CursorUsageCollector: Sendable {
               let token = UsageJSON.token(object["accessToken"])
         else { return nil }
         return token
+    }
+}
+
+/// The expired token `cursor-agent status` left in place, kept as a SHA-256 in memory only —
+/// never the token, never on disk. A sign-in with no session to renew (an API key) would
+/// otherwise run cursor-agent on every refresh.
+public final class CursorRenewalAttemptCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var unrenewed: Data?
+
+    public init() {}
+
+    func contains(_ token: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return unrenewed == Self.fingerprint(token)
+    }
+
+    func record(_ token: String) {
+        lock.lock()
+        unrenewed = Self.fingerprint(token)
+        lock.unlock()
+    }
+
+    public func clear() {
+        lock.lock()
+        unrenewed = nil
+        lock.unlock()
+    }
+
+    private static func fingerprint(_ token: String) -> Data {
+        Data(SHA256.hash(data: Data(token.utf8)))
     }
 }

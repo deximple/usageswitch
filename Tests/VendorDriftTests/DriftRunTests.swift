@@ -85,6 +85,39 @@ struct DriftRunTests {
         }
     }
 
+    @Test("a new field in Claude's /usage answer is worth a look, not drift, and its value stays out of the report")
+    func newClaudeUsageField() {
+        installClaudeAndCodex()
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limit_resets"] = ["available": 4, "next_grant_at": "2027-01-02T03:04:05Z",
+                                      "granted_to": Sample.email] as [String: Any]
+        let stream: [String] = Sample.claudeStream(Sample.claudePanel,
+                                                   usageReport: Sample.usageReport(rateLimits: rateLimits))
+        let healthy: FakeRunner = runner()
+        let runner = FakeRunner { (request: UsageProcessRequest) -> UsageProcessResult in
+            guard request.arguments == ClaudeUsageCollector.arguments else { return healthy.run(request) }
+            return UsageProcessResult(lines: stream, outcome: .stopped)
+        }
+        let report = rig.run(runner, frozen: frozen()).report()
+        #expect(!report.hasDrift)
+        #expect(report.findings.map(\.check) == [
+            "Codex protocol — the CLI the app runs (1.2.3)",
+            "Codex answer fields the app does not read",
+            "Claude CLI text", "Codex CLI text — the CLI the app runs",
+            "Claude `/usage` (live)", "Claude `/usage` fields the app does not read (live)",
+            "Claude `auth status --json` (live)", "Codex `account/rateLimits/read` (live)",
+        ])
+        #expect(report.findings.map(\.status) == [.ok, .info, .ok, .ok, .ok, .attention, .ok, .ok])
+        let text = Redaction.scrub(report.markdown(), home: rig.home)
+        #expect(text.contains("**No drift found.** 1 more worth a look."))
+        #expect(text.contains("| Claude `/usage` fields the app does not read (live) | look |"))
+        #expect(text.contains("- **named like a limit reset** — added `usage_report.rate_limits.limit_resets`\n"))
+        for secret in [Sample.email, "2027-01-02", "next_grant_at", "granted_to",
+                       "2026-11-20", "weekly_scoped", "private-server"] {
+            #expect(!text.contains(secret))
+        }
+    }
+
     @Test("a protocol change the parser reads is drift, listed first")
     func protocolDrift() {
         installClaudeAndCodex()
@@ -212,7 +245,7 @@ struct DriftRunTests {
         let report = rig.run(runner).report()
         #expect(report.findings.map(\.check) == ["Antigravity CLI text", "Usage reads that need a stored sign-in"])
         #expect(report.findings.map(\.status) == [.ok, .notChecked])
-        #expect(report.findings[0].summary == "All present: 1 piece of text the app's parsers depend on.")
+        #expect(report.findings[0].summary == "All present: 3 pieces of text the app's parsers depend on.")
         #expect(report.findings[1].details == ["Cursor", "Antigravity", "GitHub Copilot"])
         #expect(runner.requests.isEmpty)
         #expect(!report.hasDrift)

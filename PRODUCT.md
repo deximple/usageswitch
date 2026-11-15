@@ -8,8 +8,10 @@
 
 - **사용량 (Usage)**: Guide와 전체 목록. 목록은 **탐지된 설치 또는 등록된 환경**만 보인다 —
   존재하지 않는 제공자는 수집 잡도, 인증 조회도 만들지 않는다.
-- **API**: 공급자별 예산과 API 키 보관함(키는 Keychain에만), 로컬 로그 기반 지출 추정
-  (Codex API 키 계정만 추정 가능).
+- **API**: API 키 보관함(키는 Keychain에만 — 삭제는 대상을 밝힌 확인 뒤에 인증한다), 로컬 로그 기반
+  지출 추정(Codex API 키 계정만 추정 가능), 청구 admin 키를 등록한 Anthropic·OpenAI의 실제 지출
+  (이번 달·최근 7일). 예산은 지출을 알 수 있는 곳에만 둔다 — OpenAI는 로컬 추정에서, Anthropic은
+  재설정일이 1일인 월간 한도에서 이번 달 실제 지출을 뺀다. Google·xAI에는 예산 입력란이 없다.
 - **아이덴티티 두 줄**: 첫 줄 표시 이름+자물쇠+CLI/App 배지+플랜(또는 `API`), 둘째 줄 마스킹된
   이메일+`상세 보기`. 이름은 현재 레지스트리 메타데이터로 해석하고 수집된 레이블을 신뢰하지
   않는다 — 수집된 읽기 원본은 바꾸지 않는다.
@@ -32,6 +34,9 @@
   경로만 쓴다(Gemini 갱신 토큰, Antigravity 키체인 항목). 비공개 엔드포인트는 **실험**이며
   2.1.x 릴리스 전 소유자 계정으로 확인했다. 사용 연결은 제공자별로 켜고 끄고, 끄면 수집·조회를 하지 않는다.
 - Cursor는 별개의 기존 옵트인 플래그를 쓰고 새 동의 목록의 원천이 아니다.
+- GitHub Copilot(2.3.0 출시): 같은 연결 동의를 거친다. `gh auth token`으로 GitHub CLI의 로그인을 빌려
+  `api.github.com`의 비공개 Copilot 할당량 엔드포인트에 읽기 전용 요청을 보내고, 토큰은 메모리에서만
+  쓰고 저장하지 않는다. 엔드포인트가 바뀌면 추정값 대신 조회 불가로 보인다.
 
 ## 오류·보안 계약
 
@@ -84,9 +89,9 @@
 - **Slice 3a implemented**: 동의+제한 수집, 순서 보존, 부분 게시, 설정.
 - **네이티브 구현**: 환경 우선 아이덴티티, 자물쇠·배지, 상세 보기와 이름 편집, 연결 동의.
   자동화 테스트나 합성 데모 검증을 실제 계정 호환성·VoiceOver 검증으로 간주하지 않는다.
-- **DEFERRED → 2.2.4 승인**: GitHub Copilot 제공자, OAuth 직접 관리(앱 내 로그인),
-  Anthropic·OpenAI 실비용 조회(admin 키), Sparkle 자동 업데이트.
-- **DEFERRED**: API 프로필 실행.
+- **2.3.0 출시**: GitHub Copilot 제공자(연결 동의 후), Anthropic·OpenAI 실비용 조회(청구 admin 키),
+  Sparkle 자동 업데이트.
+- **DEFERRED**: OAuth 직접 관리(앱 내 로그인), API 프로필 실행.
 
 ## 경계 (변하지 않는 약속)
 
@@ -110,4 +115,7 @@
 `--ui-fixture`로 정적 데모 렌더 — 실제 계정·키체인·수집기 없음. 사용량 fixture:
 `usage-local-three`, `usage-claude-only`, `usage-seven`, `usage-none`,
 `usage-connecting`, `usage-long`, `usage-last-known`, `usage-antigravity` — 합성 데이터와 메모리 전용 동의 상태로 동작한다.
+API 탭 fixture(`--tab api`): `api-budget`(Anthropic 실제 지출과 1일에 재설정되는 월간 한도),
+`api-budget-offcycle`(재설정일 15일 — 남은 금액 대신 계산하지 않는 이유). Claude 탭 fixture: `damaged`
+(만료된 저장본과 손상된 저장본이 나란히).
 `--snapshot`에 `--detail <usage-id>`를 더하면 그 계정의 상세(460pt)를 같은 방식으로 렌더한다.

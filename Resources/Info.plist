@@ -51,6 +51,8 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Jay Song</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
 	<key>SUFeedURL</key>
 	<string>https://github.com/deximple/usageswitch/releases/download/appcast/appcast.xml</string>
 	<key>SUPublicEDKey</key>

@@ -197,6 +197,105 @@ struct AntigravityVTParserTests {
 }
 
 
+@Suite("Antigravity Enter gate")
+struct AntigravityEnterGateTests {
+    private func screen(_ text: String) -> AntigravityVTScreenBuffer {
+        var buffer = AntigravityVTScreenBuffer()
+        buffer.feed(Data(text.replacingOccurrences(of: "\n", with: "\r\n").utf8))
+        return buffer
+    }
+
+    @Test func theMainPromptWithTheTypedCommandMaySubmit() {
+        #expect(screen("> /usage\n? for shortcuts").canSubmitUsage)
+    }
+
+    @Test("agy 1.5.9 swaps the shortcuts hint for a command menu once a slash command is typed")
+    func theCommandMenuWithUsageSelectedMaySubmit() {
+        #expect(screen("""
+        > /usage
+        > /usage                 View model quota usage
+          /using-agent-skills    Discovers and invokes agent skills.
+        ↑/↓ Navigate · enter Select · tab Complete
+        esc to cancel
+        """).canSubmitUsage)
+    }
+
+    @Test func aMenuWithAnotherCommandSelectedNeverSubmits() {
+        // Enter would run the selected row, not the typed text.
+        #expect(!screen("""
+        > /usage
+          /usage                 View model quota usage
+        > /using-agent-skills    Discovers and invokes agent skills.
+        ↑/↓ Navigate · enter Select · tab Complete
+        esc to cancel
+        """).canSubmitUsage)
+    }
+
+    @Test func neitherPromptNorMenuNeverSubmits() {
+        #expect(!screen("> /usage\nSomething else entirely").canSubmitUsage)
+        #expect(!screen("↑/↓ Navigate · enter Select · tab Complete").canSubmitUsage)
+    }
+
+    @Test("the screen agy 1.5.9 really shows, banner and scroll hint included, may submit")
+    func theRealCommandMenuMaySubmit() {
+        #expect(screen("""
+        ▄▀▀▄        Antigravity CLI 1.5.9
+        ▀▀▀▀▀▀▀▀      Gemini 4 Argon (High)
+        ┃ Introducing Gemini 4 Hydrogen
+        ┃ esc to dismiss
+        ──────────────────────────────
+        > /usage
+        ──────────────────────────────
+        > /usage                 View model quota usage
+          /using-agent-skills    Discovers and invokes agent skills.
+        ↓ 1 more
+        ↑/↓ Navigate · enter Select · tab Complete
+        esc to cancel
+        """).canSubmitUsage)
+    }
+
+    @Test func aBoxedMenuWithUsageSelectedMaySubmit() {
+        #expect(screen("""
+        > /usage
+        │ > /usage               View model quota usage │
+        │   /status              Show status            │
+        ↑/↓ Navigate · enter Select · tab Complete
+        """).canSubmitUsage)
+    }
+
+    @Test("a menu is trusted only when its selection can be read: any other mark, anywhere, withholds Enter",
+          arguments: [
+            "> /usage\n❯ /status              Show status\n  /usage               View model quota usage",
+            "> /usage\n>  /status             Show status\n  /usage               View model quota usage",
+            "> /usage\n│ > /status            Show status │\n│   /usage             View usage  │",
+            "> /usage\n→ /status              Show status",
+            // A dialog that opened over the typed command: its selection is not a command at all.
+            "> /usage\nDelete the workspace cache?\n> Yes\n  No",
+            "> /usage\nDelete the workspace cache?\n● Yes\n○ No",
+          ])
+    func anUnreadableOrForeignSelectionNeverSubmits(_ body: String) {
+        #expect(!screen(body + "\n↑/↓ Navigate · enter Select · tab Complete").canSubmitUsage)
+    }
+
+    @Test func aMenuThatMarksNoSelectionNeverSubmits() {
+        // Only the typed row carries a mark: which row Enter would run is unknown.
+        #expect(!screen("""
+        > /usage
+          /usage                 View model quota usage
+          /using-agent-skills    Discovers and invokes agent skills.
+        ↑/↓ Navigate · enter Select · tab Complete
+        """).canSubmitUsage)
+    }
+
+    @Test func aTrustPromptNeverSubmits() {
+        #expect(!screen("""
+        Do you trust the contents of this project?
+        > /usage
+        ↑/↓ Navigate · enter Select · tab Complete
+        """).canSubmitUsage)
+    }
+}
+
 @Suite("Antigravity screen parser")
 struct AntigravityScreenTests {
     private var fixture: URL {
@@ -230,6 +329,65 @@ struct AntigravityScreenTests {
         #expect(windows.count == 1)
         #expect(windows[0].usedPercent == 62.5)
         #expect(windows[0].durationMinutes == 10_080)
+    }
+
+    @Test("a group named after a dotted model version keeps its own limits")
+    func dottedGroupHeading() throws {
+        // Without the dot the heading is missed and its limits land under the group above.
+        let data = Data("""
+        Models & Quota
+        GEMINI MODELS
+        Weekly Limit Remaining
+        [████] 80%
+        GEMINI 3.5 PRO
+        Weekly Limit Remaining
+        [█] 5%
+        """.utf8)
+        let windows = try #require(AntigravityUsageScreen.parse(data, now: Date()))
+        #expect(windows.map(\.scope) == ["Gemini Models", "Gemini 3.5 Pro"])
+        #expect(windows.map(\.usedPercent) == [20, 95])
+    }
+
+    @Test("a percentage outside 0…100 fails the screen instead of reading as untouched")
+    func outOfRangePercentage() {
+        let data = Data("""
+        Models & Quota
+        GEMINI MODELS
+        Weekly Limit Remaining
+        [████] 250%
+        """.utf8)
+        #expect(AntigravityUsageScreen.parse(data, now: Date()) == nil)
+    }
+
+    @Test("two limits with the same group and length fail the screen: one of them is misplaced")
+    func duplicateWindow() {
+        let data = Data("""
+        Models & Quota
+        GEMINI MODELS
+        Weekly Limit Remaining
+        [████] 80%
+        Weekly Limit Remaining
+        [█] 5%
+        """.utf8)
+        #expect(AntigravityUsageScreen.parse(data, now: Date()) == nil)
+    }
+
+    @Test("agy 1.5.9 words the reset as \"Refreshes in\", with hours past a day")
+    func refreshesInIsAReset() throws {
+        let now = Date(timeIntervalSince1970: 1_794_584_700)
+        let data = Data("""
+        Models & Quota
+        GEMINI MODELS
+        Weekly Limit Remaining
+        [████] 92.05%
+        Refreshes in 139h 21m
+        Five Hour Limit Remaining
+        [████] 87.17%
+        Refreshes in 2h 21m
+        """.utf8)
+        let windows = try #require(AntigravityUsageScreen.parse(data, now: now))
+        #expect(windows.map(\.resetsAt) == [now.addingTimeInterval(139 * 3600 + 21 * 60),
+                                            now.addingTimeInterval(2 * 3600 + 21 * 60)])
     }
 
     @Test("unrecognized screen fails so the caller can use the API")
@@ -783,6 +941,44 @@ struct AntigravityUsageTests {
         #expect(refreshed?.readAt == now.addingTimeInterval(9 * 60))
         #expect(refreshed?.windows.first?.resetsAt == UsageJSON.resetDateISO("2026-11-17T03:13:50Z"))
         #expect(http.requests.count == 6)
+    }
+
+    @Test("the refresh tick re-reads the screen before its cached value turns last-known")
+    func ticksKeepTheCachedScreenCurrent() {
+        let http = SpyTransport(); let credentials = SpyCredentials()
+        legacyToken(credentials)
+        let window = UsageWindow(scope: "Gemini Models", durationMinutes: 10_080,
+                                 usedPercent: 10, resetsAt: nil)
+        let screen = CountingScreen([.success([window])])
+        let clock = MutableUsageClock(now)
+        let collector = collector(http, credentials, runner: missingKeychain(), screen: screen,
+                                  screenCache: AntigravityUsageScreenCache(), clock: clock)
+        // The app's loop: a 30 s tick asks the policy, a refresh takes 20 s, and the next one
+        // is due 300 s after it ends — so two intervals pass the 600 s freshness limit.
+        let tick: TimeInterval = 30, refreshDuration: TimeInterval = 20, interval: TimeInterval = 300
+        var readStartedAt = clock.now()
+        var row = collector.collect().first
+        var nextRefresh = clock.now().addingTimeInterval(refreshDuration + interval)
+        var refreshes = 1
+        for _ in 0..<60 {
+            clock.advance(tick)
+            let current = clock.now()
+            guard let reading = row, let shown = reading.windows.first else {
+                Issue.record("expected a screen reading at \(current.timeIntervalSince(now)) s")
+                return
+            }
+            #expect(UsagePresentations.windowDisplay(reading, shown, now: current) == .current,
+                    "last-known at \(current.timeIntervalSince(now)) s")
+            guard UsageRefreshPolicy.isDue(now: current, nextRefresh: nextRefresh,
+                                           lastReadStartedAt: readStartedAt, usages: [reading]) else { continue }
+            readStartedAt = current
+            row = collector.collect().first
+            nextRefresh = current.addingTimeInterval(refreshDuration + interval)
+            refreshes += 1
+        }
+        // Half an hour: agy still runs about once in nine minutes, and one refresh is added.
+        #expect(screen.readCount == 4)
+        #expect(refreshes == 7)
     }
 
     @Test("a failed screen read is not retried within nine minutes")

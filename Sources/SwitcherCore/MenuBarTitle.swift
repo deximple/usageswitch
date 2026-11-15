@@ -14,7 +14,9 @@ public enum MenuBarTitle {
     }
 
     /// Picks the window for the bar. The window the user chose for the bar wins whenever it is
-    /// among `accounts` (fresh readings only), used up or not — they asked for that one. Otherwise:
+    /// among `accounts` (fresh readings only), used up or not — they asked for that one. A choice
+    /// that isn't among them selects nothing: another account's limit in the same place would read
+    /// as the chosen one. With no choice:
     /// a live pinned window first; an exhausted pin still outranks unpinned windows but only once
     /// every pin is used up; then the most-used live window (the least left that isn't 0); "used up"
     /// only when nothing live remains. An account whose common (unscoped) window is exhausted is
@@ -25,8 +27,8 @@ public enum MenuBarTitle {
         pins: Set<String>,
         chosen: String? = nil
     ) -> UsageWindow? {
-        if let chosen, let window = accounts.lazy.flatMap({ $0 }).first(where: { $0.key == chosen })?.window {
-            return window
+        if let chosen, !chosen.isEmpty {
+            return accounts.lazy.flatMap({ $0 }).first(where: { $0.key == chosen })?.window
         }
         var livePinned: UsageWindow?
         var exhaustedPinned: UsageWindow?

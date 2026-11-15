@@ -21,6 +21,9 @@ enum Fixtures {
         case "relogin":
             return SwitcherModel(demo: status(active: "work", expired: ["personal"]),
                                  demoBanner: .init(kind: .info, text: L10n.t(.demoExpired, "Personal")))
+        case "damaged":
+            // An expired and a damaged saved sign-in side by side: both rows offer the same button.
+            return SwitcherModel(demo: status(active: "work", expired: ["personal"], corrupt: ["side"]))
         case "error":
             return SwitcherModel(demo: base,
                                  demoSteps: [.preflight, .suspendingRelaunchers, .quittingClaude, .swapping, .launching, .verifying,
@@ -86,11 +89,13 @@ enum Fixtures {
                     account: "d4d4d4d4-0000-4000-8000-000000000004", org: "d4d4d4d4-0000-4000-8000-0000000000f4"),
     ]
 
-    static func status(active: String, expired: Set<String> = [], keys: Set<String>? = nil) -> SwitcherStatus {
+    static func status(active: String, expired: Set<String> = [], corrupt: Set<String> = [],
+                       keys: Set<String>? = nil) -> SwitcherStatus {
         let rows = accounts.filter { keys?.contains($0.key) ?? true }.map { a in
             AccountStatus(id: "\(a.account)__\(a.org)", label: a.name ?? a.email, customName: a.name, defaultName: a.email,
                           email: a.email, accountUuid: a.account, orgUuid: a.org, isActive: a.key == active,
-                          snapshot: expired.contains(a.key) ? .expired : .ready, capturedAt: Date(), sessionExpiresAt: nil)
+                          snapshot: corrupt.contains(a.key) ? .corrupt : expired.contains(a.key) ? .expired : .ready,
+                          capturedAt: Date(), sessionExpiresAt: nil)
         }
         let current = accounts.first { $0.key == active }
         return SwitcherStatus(
@@ -262,6 +267,17 @@ enum Fixtures {
                 ]),
             ], segment: name == "usage-readme-guide" ? .guide : .all)
             if name == "usage-readme-guide" { model.guideExpanded = true }
+            return model
+        case "api-budget", "api-budget-offcycle":
+            // Anthropic with a billing read and a monthly quota. A reset on day 1 lines up with the
+            // calendar month the read is summed by; any other day shows why nothing is worked out.
+            settings.setAPIBudget(.quota(amountUSD: 100, resetDayOfMonth: name == "api-budget" ? 1 : 15),
+                                  for: .anthropic)
+            let model = demo(localThreeUsages(), segment: .all)
+            model.seedDemoActualSpends([
+                .anthropic: .ok(APIActualSpend(monthToDateUSD: 30, last7DaysUSD: 12.4,
+                                               asOf: Date().addingTimeInterval(-600))),
+            ])
             return model
         case "usage-many-long", "usage-long":
             return demo(manyLongUsages(), segment: .all)

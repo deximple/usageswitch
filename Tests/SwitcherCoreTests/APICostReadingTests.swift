@@ -45,7 +45,9 @@ struct APICostReadingTests {
         let request = http.requests.first
         #expect(request?.url.host == "api.anthropic.com")
         #expect(request?.url.path == "/v1/organizations/cost_report")
-        #expect(request?.headers["Authorization"] == "Bearer sk-ant-admin-x")
+        // Anthropic takes an admin key in x-api-key; Authorization: Bearer is for OAuth tokens.
+        #expect(request?.headers["x-api-key"] == "sk-ant-admin-x")
+        #expect(request?.headers["Authorization"] == nil)
         #expect(request?.headers["anthropic-version"] == "2023-06-01")
         #expect(request?.url.query?.contains("bucket_width=1d") == true)
     }
@@ -113,6 +115,71 @@ struct APICostReadingTests {
             http.queue = [UsageHTTPResponse(status: 200, body: Data(json.utf8))]
             #expect(reader(http: http).read(vendor: vendor, key: "k") == .schemaChanged,
                     "\(vendor) \(json)")
+        }
+    }
+
+    @Test("early in the month the last 7 days still reach back into the previous month")
+    func lastSevenDaysCrossTheMonthStart() {
+        // 2026-11-03 12:00 UTC: the 7-day window is Oct 28 – Nov 3, the month so far Nov 1 – 3.
+        let early = Date(timeIntervalSince1970: 1_793_707_200)
+        let days = ["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31",
+                    "2026-11-01", "2026-11-02", "2026-11-03"]
+        let anthropic = days.map {
+            #"{"starting_at":"\#($0)T00:00:00Z","results":[{"amount":"100.00","currency":"USD"}]}"#
+        }.joined(separator: ",")
+        // 2026-10-28T00:00:00Z = Nov 1 minus four days.
+        let firstDay = unixDay(1) - 4 * 86400
+        let openAI = (0..<7).map { openAIBucket(unixStart: firstDay + Double($0) * 86400, usd: 1) }
+            .joined(separator: ",")
+
+        for (vendor, body) in [(APIVendor.anthropic, anthropic), (.openai, openAI)] {
+            let http = SpyTransport()
+            http.queue = [UsageHTTPResponse(status: 200, body: Data(#"{"data":[\#(body)]}"#.utf8))]
+            let state = APICostReader(http: http, now: { early }).read(vendor: vendor, key: "k")
+            guard case .ok(let spend) = state else { Issue.record("\(vendor): \(state)"); continue }
+            #expect(spend.last7DaysUSD == 7, "\(vendor)")
+            #expect(spend.monthToDateUSD == 3, "\(vendor)")
+        }
+    }
+
+    @Test("the billing query starts where the 7-day window starts when that is before the month")
+    func theQueryStartsAtTheEarlierOfMonthAndWindow() {
+        let early = Date(timeIntervalSince1970: 1_793_707_200)
+        let http = SpyTransport()
+        http.queue = [UsageHTTPResponse(status: 200, body: Data(#"{"data":[]}"#.utf8))]
+        _ = APICostReader(http: http, now: { early }).read(vendor: .openai, key: "k")
+        let start = Int(unixDay(1) - 4 * 86400)
+        #expect(http.requests.first?.url.query?.contains("start_time=\(start)") == true)
+    }
+
+    @Test("a vendor whose admin key is gone loses its figure instead of keeping it as current")
+    func removedAdminKeyDropsItsSpend() {
+        let spend = APICostReadState.ok(APIActualSpend(monthToDateUSD: 12, last7DaysUSD: 3, asOf: now))
+        let previous: [APIVendor: APICostReadState] = [.anthropic: spend, .openai: .keyRejected]
+
+        let next = APICostReadState.reconciled(previous: previous, results: [:], adminVendors: [.openai])
+
+        #expect(next == [.openai: .keyRejected])
+    }
+
+    @Test("a fresh result replaces the old one; an unread vendor with a key keeps what it had")
+    func freshResultsWinAndUnreadVendorsKeepTheirState() {
+        let old = APICostReadState.ok(APIActualSpend(monthToDateUSD: 12, last7DaysUSD: 3, asOf: now))
+        let previous: [APIVendor: APICostReadState] = [.anthropic: old, .openai: old]
+
+        let next = APICostReadState.reconciled(
+            previous: previous, results: [.anthropic: .network], adminVendors: [.anthropic, .openai])
+
+        #expect(next == [.anthropic: .network, .openai: old])
+    }
+
+    @Test("only a passing failure is retried at the next refresh")
+    func transientFailuresAreRetriedSooner() {
+        let spend = APIActualSpend(monthToDateUSD: 1, last7DaysUSD: 1, asOf: now)
+        #expect(APICostReadState.network.isTransient)
+        #expect(APICostReadState.rateLimited.isTransient)
+        for settled in [APICostReadState.ok(spend), .keyRejected, .notEligible, .schemaChanged] {
+            #expect(!settled.isTransient)
         }
     }
 

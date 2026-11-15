@@ -19,7 +19,8 @@ the check itself could not run. `--out <folder>` writes the report somewhere els
 |---|---|---|
 | Codex app-server protocol | The installed CLI writes its own schema (`codex app-server generate-json-schema`). The part UsageSwitch depends on is compared with the frozen copy in `scripts/vendor-drift/codex-protocol.snapshot.json`. Both the CLI the app runs (Codex.app's own, when installed) and a different `codex` on `PATH` are compared. | A request the app sends, or a field its parser reads, was removed or changed type, or a request type gained a required member. Everything else that changed is listed as information. |
 | Text the parsers depend on | The vendor binary is searched for the panel lines, stream fields, flags and error wording the app's parsers and collectors rely on. | One of them is gone from the binary. |
-| Claude `/usage` | The app's own `ClaudeUsageCollector` runs `claude -p /usage` with the app's arguments and environment. | A `Current …` line no longer matches, the panel reports usage without one, or the run did more than answer. |
+| Claude `/usage` | The app's own `ClaudeUsageCollector` runs `claude -p /usage` with the app's arguments and environment. Each model limit it reads (`Current week (…)` with a name other than `all models`) is then put to the Guide's own map, `SuggestionHarnessMap`, with the bundled catalog. | A `Current …` line no longer matches, the panel reports usage without one, the run did more than answer, or the panel carries a model limit the Guide maps to no model. |
+| Claude `/usage` fields the app does not read | The same run's answer also carries a structured `usage_report`, which the app does not read. Its key names (`rate_limits`, each limit and its scope, `extra_usage`) are compared with the shape kept in `ClaudeUsageReport`. | Never. A key that is new is marked `look`: it may be the limit resets an account holds, which the app can't show for Claude yet. So is an answer with no `usage_report` to compare. |
 | Claude `auth status --json` | Run the way `ClaudeProfileUsageCollector` runs it; the app's parser says whether it still understands the shape. | The app's parser rejects the output. |
 | Codex `account/rateLimits/read` | The app's own `CodexUsageCollector` asks `codex app-server` in `~/.codex`, the way it does on an account's first read (with reset-credit details); the app's parser reads the answer. | The app's parser rejects the answer, the server no longer knows the method, or the answer carries reset credits the parser can't read. |
 | Gemini CLI sign-in client | The app's own finder looks for the client inside the installed CLI package. | It can't be found any more. |
@@ -59,6 +60,17 @@ only lists them as not checked.
    ```
 
    That takes the schema from the Codex CLI the app runs; `--codex <path>` takes it from another one.
+
+A model limit the Guide maps to no model is not a parser problem: the app shows the limit, but the
+Guide ranks as if it weren't there, so a model whose limit is used up is still suggested. The report
+leaves the limit's name out, like every other name; run `/usage` in Claude Code to see it, then add it
+to `SuggestionHarnessMap` (in `Sources/SwitcherCore/Suggestion/`) with the catalog model it limits.
+
+A new field in Claude's `usage_report` is `look`, not drift: nothing the app reads changed. The report
+gives the key's name and position, never its value (a name that could be an id is shown as `*`), and
+marks a name with `reset`, `grant` or `credit` in it. Run `/usage` with
+`--output-format stream-json --verbose` to see what it holds, then add the key to `ClaudeUsageReport`
+(in `Sources/VendorDrift/`) so it is reported once.
 
 `CodexAppContract` (in `Sources/VendorDrift/`) lists what the app sends and reads. Its tests build an
 answer from exactly those names and check that the app's parser reads every one of them, so the list

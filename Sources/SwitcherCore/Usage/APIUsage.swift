@@ -21,6 +21,26 @@ public enum APIVendor: String, CaseIterable, Codable, Identifiable, Sendable {
     /// Only Codex rows can be marked as API-key accounts, so only OpenAI spend has local
     /// API-key logs to price (audit B-07, D-5).
     public var hasLogReader: Bool { self == .openai }
+
+    /// The spend figure a budget is counted against.
+    public enum BudgetBasis: Equatable, Sendable { case localLogs, actualSpend }
+
+    /// OpenAI's budget counts the local-log estimate and Anthropic's the billing read. Google
+    /// and xAI have neither, so a budget there could never show what is left: none is offered.
+    public var budgetBasis: BudgetBasis? {
+        switch self {
+        case .openai: .localLogs
+        case .anthropic: .actualSpend
+        case .google, .xai: nil
+        }
+    }
+}
+
+/// What a billing read leaves of a budget.
+public enum APIActualBudget: Equatable, Sendable {
+    case remaining(Double)
+    /// The billing read is summed by UTC calendar month; this budget runs on another cycle.
+    case notCalendarMonth
 }
 
 public enum APIBudget: Codable, Equatable, Sendable {
@@ -218,13 +238,13 @@ public enum APIUsageEstimator {
             let sorted = values.sorted()
             let median = (sorted[6] + sorted[7]) / 2
             let sevenDayValue = unknownSevenDayPrice ? nil : sevenDaySpend
-            // The rate divides by the days the logs actually cover inside the 7-day window, zero-spend
-            // days included, not a flat 7 (audit B-07). Unknown coverage keeps the full window.
-            let coveredDays = coverageStartDay
-                .map { max($0, firstSeven) }
-                .flatMap { SuggestionRetention.date(utcDay: $0) }
-                .flatMap { calendar.dateComponents([.day], from: $0, to: startOfToday).day }
-                .map { min(7, max(1, $0 + 1)) } ?? 7
+            // The rate divides by the days this vendor has been in use inside the 7-day window, quiet
+            // days included, not a flat 7 (audit B-07): a first day at $14 is $14 a day, not $2. Spend
+            // recorded before the window means all seven days count. The log coverage can't stand in
+            // for the first day — it starts 13 days behind the first pass, always before the window.
+            let usedBeforeWindow = days.dropFirst(7).contains { daily[$0] != nil }
+            let coveredDays = usedBeforeWindow
+                ? 7 : days.prefix(7).lastIndex { daily[$0] != nil }.map { $0 + 1 } ?? 7
             result[vendor] = APIUsageEstimate(
                 hasAPIKeyAccounts: !accounts.isEmpty,
                 spendIsComplete: !unknownBudgetPrice,
@@ -322,6 +342,29 @@ public enum APIBudgetMath {
         return max(0, amount - used)
     }
 
+    /// A budget against the month's actual spend from a billing read. Only a monthly quota that
+    /// resets on day 1 covers the same days as that figure; nil for figures that can't be used.
+    public static func actualRemaining(_ budget: APIBudget, monthToDateUSD: Double) -> APIActualBudget? {
+        let amount = budget.amountUSD
+        guard amount.isFinite, amount >= 0, monthToDateUSD.isFinite, monthToDateUSD >= 0 else { return nil }
+        switch budget {
+        case .balance:
+            return .notCalendarMonth
+        case .quota(_, let resetDay):
+            guard (1...31).contains(resetDay) else { return nil }
+            return resetDay == 1 ? .remaining(max(0, amount - monthToDateUSD)) : .notCalendarMonth
+        }
+    }
+
+    /// The same from a billing read. A read taken in an earlier UTC month is last month's total:
+    /// against this month's quota it says nothing, so it yields nil until a new read replaces it.
+    public static func actualRemaining(_ budget: APIBudget, spend: APIActualSpend, now: Date) -> APIActualBudget? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard calendar.isDate(spend.asOf, equalTo: now, toGranularity: .month) else { return nil }
+        return actualRemaining(budget, monthToDateUSD: spend.monthToDateUSD)
+    }
+
     public static func monthlyCycleStart(resetDayOfMonth: Int, now: Date) -> Date? {
         guard (1...31).contains(resetDayOfMonth) else { return nil }
         var calendar = Calendar(identifier: .gregorian)
@@ -338,7 +381,10 @@ public enum APIBudgetMath {
     public static func daysLeft(remainingUSD: Double, dailyRateUSD: Double?) -> Int? {
         guard remainingUSD.isFinite, remainingUSD >= 0,
               let dailyRateUSD, dailyRateUSD.isFinite, dailyRateUSD > 0 else { return nil }
-        return Int(ceil(remainingUSD / dailyRateUSD))
+        let days = ceil(remainingUSD / dailyRateUSD)
+        // Converting an out-of-range Double traps; a count that large is no estimate anyway.
+        guard days.isFinite, days < Double(Int32.max) else { return nil }
+        return Int(days)
     }
 
     public static func showUsageListBalance(usedPercent: Double, remainingUSD: Double?) -> Bool {

@@ -20,10 +20,13 @@
 #
 # render and compare also print WRAPS lines: menus that are taller in some languages, which means text
 # wrapped there. That needs no baseline and is information, not a failure.
+#
+# An offscreen render cannot draw Liquid Glass, so the main window is rendered in its flat look (the one
+# macOS 15 shows). The glass look of macOS 26 and later is not covered here: check it in a real, active window.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage() { sed -n '2,22p' scripts/ui-snapshots.sh | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,25p' scripts/ui-snapshots.sh | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
 LANGS="en ko ja es zh-Hans"; APPEARANCES="light dark"; ONLY=""; REF=""; BUILD=1; TOLERANCE=0

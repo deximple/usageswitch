@@ -85,7 +85,7 @@ struct UsageModelTests {
         #expect(decoded.usagePins == nil)
         #expect(decoded.effectiveUsagePins == [])
         #expect(decoded.effectiveMenuBarShowsUsage == true)
-        #expect(decoded.effectiveCursorUsageEnabled == false)
+        #expect(decoded.cursorUsageEnabled == nil)
 
         let settings = SwitcherSettings(usagePins: ["codex:a/weekly/"], menuBarShowsUsage: false,
                                         cursorUsageEnabled: true)
@@ -94,7 +94,7 @@ struct UsageModelTests {
         #expect(roundTrip.usagePins == ["codex:a/weekly/"])
         #expect(roundTrip.effectiveUsagePins == ["codex:a/weekly/"])
         #expect(roundTrip.effectiveMenuBarShowsUsage == false)
-        #expect(roundTrip.effectiveCursorUsageEnabled == true)
+        #expect(roundTrip.cursorUsageEnabled == true)
     }
 }
 
@@ -389,5 +389,42 @@ struct UsageRefreshPolicyTests {
         // After refresh() records lastReadStartedAt, the same stale window is no longer due.
         #expect(!UsageRefreshPolicy.isDue(now: now, nextRefresh: now.addingTimeInterval(300),
                                           lastReadStartedAt: now, usages: [past]))
+    }
+
+    /// A reading `age` seconds old; the last read began 200 s ago and the interval is not up.
+    func isDue(age: TimeInterval, provider: UsageProvider = .antigravity, state: UsageState = .ok,
+               readStartedAgo: TimeInterval = 200) -> Bool {
+        let row = AccountUsage(id: "\(provider.rawValue):current", provider: provider, accountRef: "current",
+                               label: "A", plan: nil,
+                               windows: [UsageWindow(durationMinutes: 10_080, usedPercent: 50, resetsAt: nil)],
+                               state: state, readAt: now.addingTimeInterval(-age), toolVersion: nil)
+        return UsageRefreshPolicy.isDue(now: now, nextRefresh: now.addingTimeInterval(100),
+                                        lastReadStartedAt: now.addingTimeInterval(-readStartedAgo),
+                                        usages: [row])
+    }
+
+    @Test("a cached Antigravity reading is due once its nine-minute cache has run out, not before")
+    func cachedReadingDue() {
+        #expect(!isDue(age: 300))
+        #expect(!isDue(age: 539))
+        #expect(isDue(age: 540))
+        #expect(isDue(age: 569))
+    }
+
+    @Test("a read that began after the cache ran out is not repeated (the loop case)")
+    func cachedReadingNotDueAgain() {
+        // The refresh this started was abandoned or handed the same reading back.
+        #expect(!isDue(age: 570, readStartedAgo: 30))
+        #expect(!isDue(age: 540, readStartedAgo: 0))
+        #expect(!isDue(age: 900, readStartedAgo: 200))
+    }
+
+    @Test("only a current reading from a collector that caches is due by its age")
+    func cachedReadingScope() {
+        for provider in UsageProvider.allCases where provider != .antigravity {
+            #expect(!isDue(age: 540, provider: provider), "\(provider)")
+        }
+        #expect(!isDue(age: 540, state: .failed(.timeout)))
+        #expect(!isDue(age: 540, state: .unavailable(.signInExpired)))
     }
 }

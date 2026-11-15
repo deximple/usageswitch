@@ -38,7 +38,9 @@ public struct CopilotUsageCollector: Sendable {
         guard let cli else { return nil }
         let result = runner.run(UsageProcessRequest(
             executable: cli,
-            arguments: ["auth", "token"],
+            // Always github.com: without a host gh answers for its default one, which can be an
+            // enterprise server — and that token must never go to api.github.com.
+            arguments: ["auth", "token", "--hostname", "github.com"],
             environment: UsageChildEnvironment.make(for: cli, home: home),
             workingDirectory: home, stdinLines: nil,
             maxOutputBytes: 4096, timeout: 10))
@@ -108,7 +110,7 @@ public struct CopilotUsageCollector: Sendable {
         }
         let plan = UsageJSON.string(root["copilot_plan"])
         if windows.isEmpty { return finish(.notReporting, []) }
-        var row = finish(.ok, windows)
+        let row = finish(.ok, windows)
         return AccountUsage(id: row.id, provider: row.provider, accountRef: row.accountRef,
                             label: row.label, plan: plan, windows: windows, state: .ok,
                             readAt: row.readAt, toolVersion: nil,

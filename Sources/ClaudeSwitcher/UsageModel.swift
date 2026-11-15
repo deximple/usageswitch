@@ -47,6 +47,9 @@ final class UsageModel: ObservableObject {
     /// Billing reads are throttled: daily buckets don't move within minutes, and the
     /// admin APIs are quota'd. 30 minutes per vendor.
     private var lastAdminCostRead: [APIVendor: Date] = [:]
+    /// The admin-key vendors the API tab last reported, and a counter bumped when they change.
+    private var knownAdminVendors: Set<APIVendor>?
+    private var adminKeysRevision = 0
     private static let adminCostInterval: TimeInterval = 1800
     /// Original fixture rows for consent substitution — demo never destroys them.
     private var demoRows: [AccountUsage] = []
@@ -68,6 +71,7 @@ final class UsageModel: ObservableObject {
     private let geminiTokenCache = GeminiAccessTokenCache()
     private let geminiClientFinder = GeminiOAuthClientFinder()
     private let antigravityScreenCache = AntigravityUsageScreenCache()
+    private let cursorRenewalAttempts = CursorRenewalAttemptCache()
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
@@ -366,6 +370,12 @@ final class UsageModel: ObservableObject {
         demoLogHints = hints
     }
 
+    /// Fixture-only: billing reads per vendor, memory only. A demo has no admin key to read with.
+    func seedDemoActualSpends(_ spends: [APIVendor: APICostReadState]) {
+        guard isDemo else { return }
+        apiActualSpends = spends
+    }
+
     func apiBudgetRemaining(for vendor: APIVendor, now: Date = Date()) -> Double? {
         guard let budget = settings.apiBudget(for: vendor),
               let estimate = apiUsageEstimates[vendor],
@@ -410,6 +420,14 @@ final class UsageModel: ObservableObject {
         UsageText.accountLabel(usage, showEmails: settings.showEmails)
     }
 
+    /// The name the list shows for each row id — a saved account's own name, not the collector's
+    /// generic label, so two connected Claude accounts never both read "Claude profile".
+    private func displayNames() -> [String: String] {
+        let rows = presentations(claude: settings.status, codex: AppModel.codex.status)
+        return Dictionary(rows.map { ($0.id, settings.showEmails ? $0.name : Privacy.maskEmails(in: $0.name)) },
+                          uniquingKeysWith: { first, _ in first })
+    }
+
     /// Only ok, fresh windows can feed the menu bar — a stale or failed read is never shown as current.
     private func menuBarCandidates(now: Date) -> [[(key: String, window: UsageWindow)]] {
         usages.map { usage -> [(key: String, window: UsageWindow)] in
@@ -423,8 +441,9 @@ final class UsageModel: ObservableObject {
         }
     }
 
-    /// The window the menu bar shows when usage is on: the one chosen in ⚙︎ › Menu Bar Usage, else a
-    /// pinned one, else the least left that isn't used up.
+    /// The window the menu bar shows when usage is on: the one chosen in ⚙︎ › Menu Bar Usage — nothing
+    /// while that one can't be read — or, with no choice, a pinned one, else the least left that
+    /// isn't used up.
     var menuBarTitle: String? {
         guard let window = MenuBarTitle.selectWindow(accounts: menuBarCandidates(now: Date()), pins: pins,
                                                      chosen: settings.menuBarUsageKey),
@@ -435,10 +454,11 @@ final class UsageModel: ObservableObject {
 
     /// The windows ⚙︎ › Menu Bar Usage offers, in list order: "Codex · Work · Weekly".
     var menuBarChoices: [(key: String, title: String)] {
-        menuBarCandidates(now: Date()).enumerated().flatMap { index, windows in
+        let names = displayNames()
+        return menuBarCandidates(now: Date()).enumerated().flatMap { index, windows in
             windows.map { item in
                 let usage = usages[index]
-                let title = [UsageText.providerName(usage.provider), label(of: usage),
+                let title = [UsageText.providerName(usage.provider), names[usage.id] ?? label(of: usage),
                              UsageText.name(of: item.window)].joined(separator: " · ")
                 return (key: item.key, title: title)
             }
@@ -473,7 +493,7 @@ final class UsageModel: ObservableObject {
     }
 
     /// A tick is not a manual refresh: it waits out a busy Codex tab and fires on the interval or
-    /// when a window reset since the last read began.
+    /// when a window reset, or a collector's cached reading ran out, since the last read began.
     private func tickNow() {
         guard !isDemo else { return }
         if isRefreshing {
@@ -506,6 +526,7 @@ final class UsageModel: ObservableObject {
         let geminiTokenCache = self.geminiTokenCache
         let geminiClientFinder = self.geminiClientFinder
         let antigravityScreenCache = self.antigravityScreenCache
+        let cursorRenewalAttempts = self.cursorRenewalAttempts
         let registeredClaudeIds = Set(AppModel.shared.status?.accounts.map(\.id) ?? [])
         let activeBindings = bindings.filter { registeredClaudeIds.contains($0.accountId) }
         refreshTask?.cancel()
@@ -562,7 +583,8 @@ final class UsageModel: ObservableObject {
                     case .cursor:
                         return CursorUsageCollector(enabled: true, runner: runner,
                             http: http, home: env.home,
-                            cursorAgent: installation.cli).collect()
+                            cursorAgent: installation.cli,
+                            renewalAttempts: cursorRenewalAttempts).collect()
                     case .grok:
                         return GrokUsageCollector(enabled: true, http: transport,
                             credentials: credentials, home: env.home,
@@ -656,6 +678,7 @@ final class UsageModel: ObservableObject {
         suggestionStore?.invalidateBefore(generation)
         if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
         if !enabled.contains(.gemini) { geminiTokenCache.clear() }
+        if !enabled.contains(.cursor) { cursorRenewalAttempts.clear() }
         // revoked providers drop their rows now — installed ones leave a neutral
         // placeholder, absent or turned-off ones disappear entirely
         for provider in UsageProvider.allCases where provider.requiresConsent
@@ -787,22 +810,23 @@ final class UsageModel: ObservableObject {
 
     /// Reads actual spend for vendors with a registered admin billing key, at most once
     /// per `adminCostInterval` per vendor. `revealUnattended` is admin-only by design —
-    /// no biometric prompt fires inside a background refresh. A vendor without an admin
-    /// key keeps whatever result it had (including a failure), not a fabricated figure.
+    /// no biometric prompt fires inside a background refresh. A vendor whose admin key
+    /// is gone loses its figure; one that still has a key keeps its last result (including
+    /// a failure) until the next read, never a fabricated figure.
     private func scheduleAdminCostRead(now: Date) {
         adminCostTask?.cancel()
         let stale = [APIVendor.anthropic, .openai].filter {
             (lastAdminCostRead[$0] ?? .distantPast)
                 .addingTimeInterval(Self.adminCostInterval) <= now
         }
-        guard !stale.isEmpty else { return }
+        let revision = adminKeysRevision
         adminCostTask = Task.detached(priority: .utility) {
             let vault = KeychainAPIKeyVault()
+            // Listing reads attributes only: no key material, no prompt.
             guard let entries = try? await vault.list() else { return }
             let admins = entries.filter {
                 $0.isAdmin && ($0.vendor == .anthropic || $0.vendor == .openai)
             }
-            guard !admins.isEmpty else { return }
             let reader = APICostReader(http: SystemUsageHTTPTransport())
             var results: [APIVendor: APICostReadState] = [:]
             for vendor in stale {
@@ -811,12 +835,36 @@ final class UsageModel: ObservableObject {
                       let key = try? await vault.revealUnattended(id: entry.id) else { continue }
                 results[vendor] = reader.read(vendor: vendor, key: key)
             }
-            guard !results.isEmpty else { return }
+            guard !Task.isCancelled else { return }
+            let adminVendors = Set(admins.map(\.vendor))
             await MainActor.run {
-                for vendor in results.keys { self.lastAdminCostRead[vendor] = now }
-                self.apiActualSpends.merge(results) { _, new in new }
+                // Keys changed while this round was reading: its list is out of date, and applying
+                // it could bring back the figure of a key deleted meanwhile.
+                guard revision == self.adminKeysRevision else { return }
+                for (vendor, state) in results where !state.isTransient {
+                    self.lastAdminCostRead[vendor] = now
+                }
+                self.applyAdminCostRound(results: results, adminVendors: adminVendors)
             }
         }
+    }
+
+    /// The API tab calls this after a key is added or deleted, so a deleted admin key's
+    /// figure goes away at once instead of at the next refresh.
+    func adminKeysDidChange(adminVendors: Set<APIVendor>) {
+        if adminVendors != knownAdminVendors {
+            knownAdminVendors = adminVendors
+            adminKeysRevision += 1
+        }
+        applyAdminCostRound(results: [:], adminVendors: adminVendors)
+    }
+
+    private func applyAdminCostRound(results: [APIVendor: APICostReadState], adminVendors: Set<APIVendor>) {
+        let next = APICostReadState.reconciled(
+            previous: apiActualSpends, results: results, adminVendors: adminVendors)
+        if next != apiActualSpends { apiActualSpends = next }
+        // A key registered again later is read on the next refresh, not after the old interval.
+        lastAdminCostRead = lastAdminCostRead.filter { adminVendors.contains($0.key) }
     }
 
     private func scheduleSuggestionLogRead(now: Date, env: SwitcherEnvironment) {
@@ -927,10 +975,19 @@ final class UsageModel: ObservableObject {
         guard settings.usageAlertsEnabled, !isDemo else { return }
         let saved = loadedAlertState()
         let threshold = Double(settings.usageWarnPercent)
-        let (alerts, alerted) = UsageAlerts.update(usages: usages, threshold: threshold,
-                                                 alerted: saved?.marks(for: threshold) ?? [:], now: now)
+        // The first refresh after launch runs before Claude's status is known and so reads no
+        // connected Claude account; without the prefix their marks would be dropped and every
+        // launch would alert again.
+        let (alerts, alerted) = UsageAlerts.update(
+            usages: usages, threshold: threshold, alerted: saved?.marks(for: threshold) ?? [:], now: now,
+            unreadPrefix: refreshedWithoutClaudeStatus ? "claude:app:" : nil)
         let next = UsageAlertState(threshold: threshold, marks: alerted)
         if next != saved || alertStateNeedsSave { saveAlertState(next) }
-        if !alerts.isEmpty { UsageNotifier.deliver(alerts) { label(of: $0.usage) } }
+        guard !alerts.isEmpty else { return }
+        let names = displayNames()
+        UsageNotifier.deliver(alerts) { alert in
+            UsageText.providerName(alert.usage.provider) + " · "
+                + (names[alert.usage.id] ?? label(of: alert.usage))
+        }
     }
 }

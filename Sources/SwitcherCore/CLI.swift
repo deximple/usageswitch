@@ -47,7 +47,8 @@ public enum CLI {
                 guard let snapshot = UsageSnapshot.load(env: switcher.env) else {
                     return fail("no_usage", L10n.t(.cliUsageNoData), exit: 1, out: out)
                 }
-                return emit(snapshot, out: out)
+                // The file may be days old and still say "ok"; the age lets a script tell.
+                return emit(snapshot.aged(now: switcher.clock.now()), out: out)
             case "switch":
                 guard args.count >= 2, !args[1].hasPrefix("--") else { return fail("usage", usage, exit: 64, out: out) }
                 let fault = value(after: "--inject-fault", in: args).flatMap(InjectedFault.init(rawValue:))

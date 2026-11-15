@@ -17,7 +17,8 @@ defaults:
     shell: bash
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The event is part of the group: a push to main must not cancel the weekly TSan run.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -70,6 +71,8 @@ jobs:
           check 'UsageHTTPTransport.swift$' 85
       - name: Localization
         run: python3 scripts/check-l10n.py 2>&1 | tee l10n.log
+      - name: Info.plist
+        run: plutil -lint Resources/Info.plist
       - name: Acceptance summary self-test
         run: python3 scripts/acceptance-summary.py --self-test
       - name: Source audit (writes outside SafeFS)
@@ -94,6 +97,35 @@ jobs:
             l10n.log
             docs/evidence/coverage.txt
           if-no-files-found: ignore
+
+  release-toolchain:
+    # Builds and tests with the Xcode that produces the shipped binary (scripts/bundle.sh on the
+    # maintainer's Mac), which is newer than the one the `macos` job selects. Keep RELEASE_XCODE
+    # equal to that Mac's `xcodebuild -version`. Not a required check: the image is a preview.
+    name: macos (release toolchain)
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      RELEASE_XCODE: "27.2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select the release Xcode
+        run: |
+          xcode="/Applications/Xcode_${RELEASE_XCODE}.app"
+          test -d "$xcode" || { echo "Xcode $RELEASE_XCODE is not on this image"; ls -d /Applications/Xcode*.app; exit 1; }
+          sudo xcode-select -s "$xcode"
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build
+        run: swift build
+      - name: Universal release compile
+        # The same invocation scripts/bundle.sh uses for the shipped binary.
+        run: swift build -c release --arch arm64 --arch x86_64
+      - name: Test
+        run: swift test
 
   tsan:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

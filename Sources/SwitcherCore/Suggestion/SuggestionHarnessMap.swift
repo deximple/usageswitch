@@ -30,10 +30,13 @@ public struct SuggestionHarnessMap: Sendable {
 
     private static let mappings: [String: Mapping] = [
         // The pinned model-tf snapshot names Anthropic's maker id "claude".
-        // `weekly/Fable` is only verified for this documented model key.
+        // `/usage` names its per-model weekly limits by family, not by model id ("Fable",
+        // "Sonnet only"). Each is tied only to the catalog model it is verified for; a name
+        // that isn't listed here limits no candidate, and the vendor drift check reports it.
         "claude": Mapping(selector: .vendors(["anthropic", "claude"]),
                           scopeMapping: .exactModelID,
-                          familyModels: ["fable": ["claude/claude-fable-5-1"]]),
+                          familyModels: ["fable": ["claude/claude-fable-5-1"],
+                                         "sonnet only": ["claude/claude-sonnet-5-5"]]),
         "codex": Mapping(selector: .vendors(["openai"]), scopeMapping: .commonOnly,
                          familyModels: [:]),
         "grok": Mapping(selector: .vendors(["xai"]), scopeMapping: .commonOnly,

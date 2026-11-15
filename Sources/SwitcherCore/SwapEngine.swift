@@ -222,6 +222,8 @@ public struct SwapEngine: Sendable {
             if Self.exists(env.previousDir) {
                 try fs.createDirectory(keep.deletingLastPathComponent())
                 try fs.move(env.previousDir, to: keep)
+                // Every commit path keeps the copy without Claude's token caches, not only launch recovery.
+                SnapshotStore.stripTokenCaches(inConfigAt: keep.appendingPathComponent(SnapshotItems.config), fs: fs)
             }
             try fs.remove(env.journalFile)
         } else {

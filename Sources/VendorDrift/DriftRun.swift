@@ -72,6 +72,7 @@ public struct DriftRun: Sendable {
         }
         if let claude {
             findings.append(claude.finding)
+            if let unreadFields = claude.unreadFields { findings.append(unreadFields) }
             if let request = claude.request { findings.append(claudeAuthStatus(request)) }
         }
         if let app = codex.first {

@@ -25,13 +25,13 @@ frameDark() { frame "$1" "$2" --dark; }
 
 sips -s format png -Z 256 Resources/AppIcon.icns --out "$OUT/icon.png" >/dev/null
 
-for LANG in en ko ja zh-Hans es; do
-    D="$OUT/$LANG"; mkdir -p "$D"
+for APP_LANG in en ko ja zh-Hans es; do
+    D="$OUT/$APP_LANG"; mkdir -p "$D"
     # menu: snapshot-height lifts the 600pt panel cap; the view self-fits to content
-    render --snapshot "$TMP/menu-light.png" --menu-preview --ui-fixture usage-readme --tab usage --snapshot-height 1200 --appearance light --lang "$LANG"
-    render --snapshot "$TMP/menu-dark.png"  --menu-preview --ui-fixture usage-readme --tab usage --snapshot-height 1200 --appearance dark  --lang "$LANG"
-    render --snapshot "$TMP/all.png"   --ui-fixture usage-seven --tab usage --snapshot-height 1400 --appearance light --lang "$LANG"
-    render --snapshot "$TMP/codex.png" --ui-fixture list        --tab codex --snapshot-height 850  --appearance light --lang "$LANG"
+    render --snapshot "$TMP/menu-light.png" --menu-preview --ui-fixture usage-readme --tab usage --snapshot-height 1200 --appearance light --lang "$APP_LANG"
+    render --snapshot "$TMP/menu-dark.png"  --menu-preview --ui-fixture usage-readme --tab usage --snapshot-height 1200 --appearance dark  --lang "$APP_LANG"
+    render --snapshot "$TMP/all.png"   --ui-fixture usage-seven --tab usage --snapshot-height 1400 --appearance light --lang "$APP_LANG"
+    render --snapshot "$TMP/codex.png" --ui-fixture list        --tab codex --snapshot-height 850  --appearance light --lang "$APP_LANG"
     frame "$TMP/menu-light.png" "$D/menu-light.png"
     frameDark "$TMP/menu-dark.png" "$D/menu-dark.png"
     frame "$TMP/all.png"   "$D/all-usage.png"
@@ -40,10 +40,10 @@ for LANG in en ko ja zh-Hans es; do
     # demo.gif: usage list -> guide-expanded list -> switching -> success.
     # The menu's Claude tab can't show the switch checklist, so all four frames
     # are window renders at one equal height.
-    render --snapshot "$TMP/f1.png" --ui-fixture usage-readme --tab usage --snapshot-height 1050 --appearance light --lang "$LANG"
-    render --snapshot "$TMP/f2.png" --ui-fixture usage-readme-guide --tab usage --snapshot-height 1050 --appearance light --lang "$LANG"
-    render --snapshot "$TMP/f3.png" --ui-fixture switching --tab claude --snapshot-height 1050 --appearance light --lang "$LANG"
-    render --snapshot "$TMP/f4.png" --ui-fixture success   --tab claude --snapshot-height 1050 --appearance light --lang "$LANG"
+    render --snapshot "$TMP/f1.png" --ui-fixture usage-readme --tab usage --snapshot-height 1050 --appearance light --lang "$APP_LANG"
+    render --snapshot "$TMP/f2.png" --ui-fixture usage-readme-guide --tab usage --snapshot-height 1050 --appearance light --lang "$APP_LANG"
+    render --snapshot "$TMP/f3.png" --ui-fixture switching --tab claude --snapshot-height 1050 --appearance light --lang "$APP_LANG"
+    render --snapshot "$TMP/f4.png" --ui-fixture success   --tab claude --snapshot-height 1050 --appearance light --lang "$APP_LANG"
     for i in 1 2 3 4; do frame "$TMP/f$i.png" "$TMP/cf$i.png"; done
     # shared canvas: largest framed frame + 40px margin, soft neutral gradient
     CW=$(sips -g pixelWidth "$TMP"/cf*.png | awk '/pixelWidth/{print $2}' | sort -n | tail -1)
@@ -69,6 +69,6 @@ for LANG in en ko ja zh-Hans es; do
         ffmpeg -y -v error -i "$D/demo.gif" -vf "fps=${FPS},split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 "$TMP/demo-small.gif"
         mv "$TMP/demo-small.gif" "$D/demo.gif"
     done
-    echo "$LANG done"
+    echo "$APP_LANG done"
 done
 echo "screenshots written under $OUT"

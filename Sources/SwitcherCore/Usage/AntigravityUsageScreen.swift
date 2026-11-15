@@ -355,8 +355,7 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
                         outcome = .cancelled
                     } else {
                         _ = readAvailable(retainOutput: false)
-                        if terminal.hasMainInputPrompt && terminal.hasUsageInput
-                            && !terminal.hasTrustPrompt {
+                        if terminal.canSubmitUsage {
                             write([0x0d])
                             let cleanupReserve = timing.interruptInterval + timing.terminateGrace
                                 + timing.killGrace + 5
@@ -496,14 +495,20 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
             if let group, validScope(group),
                let percentageIndex = (index + 1..<end).first(where: { remainingPercent(content[$0]) != nil }),
                let remaining = remainingPercent(content[percentageIndex]) {
+                // Out of range is a changed screen, not an untouched limit: fail so the caller reads the API.
+                guard (0...100).contains(remaining) else { return nil }
                 let reset = (index + 1..<end).compactMap { parseReset(content[$0], now: now) }.first
                 windows.append(UsageWindow(scope: AntigravityScope.canonical(group),
                                            durationMinutes: duration,
-                                           usedPercent: min(100, max(0, 100 - remaining)),
+                                           usedPercent: 100 - remaining,
                                            resetsAt: reset))
             }
             index = max(index + 1, end)
         }
+        // The same group and length twice means a heading went unrecognized: one of the two limits
+        // sits under the wrong group, and there is no telling which.
+        let keys = windows.map { "\($0.scope ?? "")|\($0.durationMinutes ?? 0)" }
+        guard Set(keys).count == keys.count else { return nil }
         return windows.isEmpty ? nil : windows
     }
 
@@ -511,7 +516,7 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
         guard !line.isEmpty, !line.contains("%"), !line.contains("["),
               line.unicodeScalars.allSatisfy({ scalar in
                   (65...90).contains(scalar.value) || (48...57).contains(scalar.value)
-                      || scalar == " " || scalar == "&" || scalar == "-"
+                      || scalar == " " || scalar == "&" || scalar == "-" || scalar == "."
               }),
               line.contains(where: { $0.isLetter }) else { return nil }
         return line.lowercased().split(separator: " ").map { word in
@@ -545,7 +550,9 @@ public struct AntigravityUsageScreen: AntigravityUsageScreenReading {
     }
 
     private static func parseReset(_ line: String, now: Date) -> Date? {
-        guard let regex = try? NSRegularExpression(pattern: #"(?i)\bresets?\s+(in|at)\s+(.+)$"#) else { return nil }
+        // agy 1.5.9 says "Refreshes in 139h 21m" where earlier versions said "Resets in".
+        guard let regex = try? NSRegularExpression(pattern: #"(?i)\b(?:resets?|refreshes?)\s+(in|at)\s+(.+)$"#)
+        else { return nil }
         let range = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let match = regex.firstMatch(in: line, range: range),
               let kindRange = Range(match.range(at: 1), in: line),
@@ -624,6 +631,46 @@ public struct AntigravityVTScreenBuffer: Sendable {
             }
             return false
         }
+    }
+
+    /// agy 1.5.9 swaps the "? for shortcuts" hint for a command menu's hint as soon as a slash
+    /// command is typed, so the main prompt is no longer visible at the moment Enter is due.
+    var hasCommandMenu: Bool {
+        !untrusted && !hasTrustPrompt && lines.contains {
+            $0.localizedCaseInsensitiveContains("enter Select")
+        }
+    }
+
+    /// The text of a row that carries a one-glyph mark in front of it: the prompt's own "> …" row,
+    /// or the selected row of a menu or dialog, whatever glyph marks it. Box borders are peeled
+    /// first; a scroll hint ("↓ 1 more") is not a mark, and neither is a row that starts with "/".
+    private static func markedText(_ line: String) -> Substring? {
+        let row = Substring(line).drop { $0.isWhitespace || "│┃|".contains($0) }
+        guard let mark = row.first, !mark.isLetter, !mark.isNumber, mark != "/", !"↑↓".contains(mark),
+              row.dropFirst().first?.isWhitespace == true else { return nil }
+        let text = row.dropFirst().drop { $0.isWhitespace }
+        return text.isEmpty ? nil : text
+    }
+
+    /// Whether Enter may be sent. At the main prompt, the typed command must be `/usage` and no
+    /// other command row may carry the prompt mark. In a command menu Enter runs the selected row,
+    /// not the typed text, so every marked row on screen must read `/usage` and there must be one
+    /// besides the typed row — a selection that can't be read, or a dialog's, withholds Enter.
+    var canSubmitUsage: Bool {
+        guard hasUsageInput else { return false }
+        if hasMainInputPrompt {
+            return !lines.contains { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                for marker in ["> /", "› /"] where trimmed.hasPrefix(marker) {
+                    let command = trimmed.dropFirst(marker.count - 1).prefix { !$0.isWhitespace }
+                    return command != "/usage"
+                }
+                return false
+            }
+        }
+        guard hasCommandMenu else { return false }
+        let commands = lines.compactMap(Self.markedText).map { $0.prefix { !$0.isWhitespace } }
+        return commands.count >= 2 && commands.allSatisfy { $0 == "/usage" }
     }
 
     var hasQuotaTitle: Bool {

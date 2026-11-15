@@ -12,6 +12,7 @@ public enum UsageProvider: String, Codable, Sendable, CaseIterable {
     /// A grant without it was given under the older wording and no longer counts.
     public var disclosureMarker: String? {
         switch self {
+        case .cursor: "cursor.v2"
         case .antigravity: "antigravity.v2"
         case .gemini: "gemini.v2"
         default: nil
@@ -40,13 +41,16 @@ public extension SwitcherSettings {
     /// in `usageConnections` are ignored, never granted. A provider with a `disclosureMarker`
     /// is granted only together with that marker.
     var enabledUsageProviders: Set<UsageProvider> {
-        // cursorUsageEnabled is Cursor's sole SSOT — a stray "cursor" entry in
-        // usageConnections never grants it (nor any non-consent provider).
+        // cursorUsageEnabled is Cursor's only switch — a "cursor" entry in usageConnections
+        // never grants it (nor any non-consent provider); only its marker is read from there.
         let stored = usageConnections ?? []
+        func hasMarker(_ provider: UsageProvider) -> Bool {
+            provider.disclosureMarker.map(stored.contains) ?? true
+        }
         var out = Set(stored.compactMap { UsageProvider(rawValue: $0) }
             .filter { $0.requiresConsent && $0 != .cursor }
-            .filter { $0.disclosureMarker.map(stored.contains) ?? true })
-        if cursorUsageEnabled == true { out.insert(.cursor) }
+            .filter(hasMarker))
+        if cursorUsageEnabled == true, hasMarker(.cursor) { out.insert(.cursor) }
         return out
     }
 

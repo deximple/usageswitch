@@ -296,7 +296,7 @@ struct UsageContent: View {
                         Button(L10n.t(.uiActionSwitchTo, SwitcherModel.displayLabel(target))) {
                             settings.requestConfirmedSwitch(target)
                         }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                        .buttonStyle(ActionButtonStyle())
                     }
                 } else if SuggestionGuideFallback.shouldShowLegacyProposal(for: suggestion),
                           let proposal = proposals.first,
@@ -412,7 +412,7 @@ struct UsageContent: View {
                 Button(L10n.t(.uiDetails)) {
                     AppDelegate.shared?.showUsageDetail(id: usage.id)
                 }
-                .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                .buttonStyle(ActionButtonStyle())
                 .accessibilityLabel(Text("\(accessibilityContext), \(L10n.t(.uiDetails))"))
             }
             DisclosureGroup(L10n.t(.usageGuideBasis)) {
@@ -665,7 +665,10 @@ struct UsageContent: View {
                 .accessibilityLabel(L10n.t(.usageLockSaved))
         case .requiresSignIn: Image(systemName: "lock.fill").font(.system(size: 10))
                 .foregroundStyle(Theme.inkMuted)
-                .help(L10n.t(.usageLockRequiredHelp, L10n.t(.uiRelogin)))
+                // A Codex account signs in again from its own tab, not Claude's.
+                .help(p?.usage.provider == .codex
+                      ? L10n.t(.usageLockRequiredHelpCodex)
+                      : L10n.t(.usageLockRequiredHelp, L10n.t(.uiRelogin)))
                 .accessibilityLabel(L10n.t(.usageLockRequired))
         default: EmptyView() // unknown login makes no claim
         }
@@ -797,9 +800,8 @@ struct UsageBarRow: View {
                       UsageText.updatedAgo(readAt: usage.readAt, now: now),
                       UsageText.reason(for: usage)]
         case .current:
-            let reset = window.resetsAt.map { UsageText.countdown(to: $0, from: now) }
             parts += [statusIcon?.label,
-                      reset.flatMap { $0 == "—" ? nil : L10n.t(.usageResetsIn, $0) },
+                      window.resetsAt.flatMap { UsageText.resetsIn($0, now: now) },
                       runOutText,]
             return parts.compactMap { $0 }.joined(separator: ", ")
         default:
