@@ -1,5 +1,111 @@
 # Changelog
 
+## 2.5.0 — a new icon, glass in the main window, and a full audit's fixes
+
+**A new app icon.** The Dock and Finder icon now shows three account rows on a
+warm paper tile, each with a remaining-usage meter; the current account is in
+system blue. It no longer uses a vendor's color.
+
+**Liquid Glass, used sparingly.** On macOS 26 and later, the action bar at the
+bottom of the Claude and Codex tabs floats over the list as glass, and the main
+window's secondary buttons outside that bar are glass capsules. Primary buttons
+take the same capsule shape but stay opaque, as do cards, rows and the menu. On
+macOS 15, or with **Reduce transparency** on, none of this applies and the
+window stays flat.
+
+**Buttons and status chips that stay readable.** A primary button keeps your
+accent color's hue and shifts only its brightness, so its label has at least
+4.5:1 contrast at rest and on hover — in every system accent color, graphite
+included. Status chips now sit on a neutral background; a marker before the text
+carries the color and the shape.
+
+**Antigravity 1.5.9.** Antigravity 1.5.9 changed its usage screen, and Gemini
+model limits stopped appearing. UsageSwitch reads the new screen ("Refreshes
+in …") and confirms `/usage` in the new command menu only when that is the
+selected row. A model group with a dot in its name keeps its own limits instead
+of having them listed under the group above, a reading above 100% counts as a
+failed read instead of "0% used", and an Antigravity reading older than nine
+minutes is read again right away.
+
+**Cursor asks for consent again.** When Cursor's stored sign-in has expired,
+UsageSwitch runs `cursor-agent status` once so cursor-agent can renew its own
+sign-in — something the earlier consent text didn't mention. The text now says
+so, and the earlier consent no longer counts: **after updating, the Cursor
+connection is off until you turn it on again** in **⚙︎ › Usage Connections**. A
+sign-in that is still expired after that isn't retried on every read.
+
+**API spend and budgets.**
+- Anthropic billing admin keys are sent in the `x-api-key` header, as Anthropic's
+  documentation requires.
+- The "Actual spend, last 7 days" figure no longer counts only the current
+  month's days during the first six days of a month.
+- A read that fails temporarily is tried again on the next refresh instead of 30
+  minutes later, and removing a billing key clears its figures at once.
+- The time of the read follows the app's language, and shows the date when the
+  reading is not from today.
+- For Anthropic, a monthly budget that resets on day 1 is compared with the
+  month's actual spend; for a balance, or a quota that resets on another day, a
+  note says why no amount left is worked out. Google and xAI have no spend
+  figure to count a budget against, so the budget field is hidden there; a saved
+  value is kept.
+- When a provider's API use started less than seven days ago, the estimated
+  daily rate divides by the days since it started, not by seven, so a budget
+  isn't shown lasting longer than it will.
+- Deleting an API key asks first, naming the provider, the nickname and the
+  key's last four characters. VoiceOver reads which key the **Reveal**, **Hide**
+  and **Delete** buttons act on.
+- The API tab's note is accurate: a regular key is never sent anywhere; a
+  billing admin key goes only to its own vendor's billing endpoint.
+- A budget amount far out of range no longer crashes the app.
+
+**Usage, alerts and the Guide.**
+- A saved Claude account linked to a CLI profile no longer repeats its usage
+  warning each time the app starts, and it appears under its own name — not
+  "Claude profile" — in **Menu Bar Usage** and in notifications. Usage
+  notifications name the provider before the account ("Codex · Work").
+- When the limit chosen for the menu bar can't be read, the bar shows no limit
+  instead of another one — only the current Claude account's name, if that
+  setting is on.
+- The Guide no longer suggests an account it had just set aside as running out
+  early: that verdict used to lapse for about ten minutes of every hour while
+  the account kept draining. Claude's "Sonnet only" limit is applied to Sonnet.
+- In the last minute before a reset, a limit's tooltip and VoiceOver reading say
+  "Resets within a minute" instead of "Resets in now".
+- Reopening a minimized or hidden window no longer leaves status checks running
+  every six seconds, and closing one window while the other is minimized no
+  longer removes the Dock icon.
+- Copilot asks `gh` for the github.com token by name, so a GitHub Enterprise
+  Server token can't be sent to github.com.
+- A signed-out Codex account's lock points to the Codex tab, and the Codex plan
+  reads "Pro Lite", not "Prolite".
+- Wording was tightened in the Korean, Japanese, Spanish and Chinese
+  translations.
+
+**Switching and updates.** Copies of a Claude sign-in that UsageSwitch sets
+aside are kept without Claude's token caches on two more paths: when an
+interrupted switch is finished later, and when a damaged switch record is set
+aside for manual recovery. Installing an update always asks first: Sparkle's
+option to install updates automatically is gone. The update feed is now signed
+as well, and the release script verifies it before publishing; this version
+does not yet require that signature.
+
+**`--cli usage`** adds `ageSeconds`, the age of the saved reading in seconds, to
+its output, and the README examples print only readings whose `state` is `"ok"`.
+
+**Behind the scenes:**
+- `scripts/vendor-drift.sh` also checks two more strings read from Antigravity's
+  screen, limits the Guide can't map to a model, and new fields in Claude's
+  usage report.
+- CI lints `Info.plist`, no longer lets a push cancel the weekly
+  thread-sanitizer run, and builds and tests with the release toolchain in a
+  second job that isn't required; Dependabot watches the Swift packages.
+  `scripts/test.sh` works with newer Swift toolchains, which build one test
+  bundle per test target.
+- Closed detail windows are released, and a usage read can no longer start
+  another vendor command while the app is quitting.
+- The translated READMEs describe Copilot, real spend and billing keys, and
+  PRIVACY.md lists reads it had missed, including Cursor's `cursor-agent status`.
+
 ## 2.4.0 — a Guide that shows its reasoning, bars in vendor colors, Codex limit resets
 
 **The Guide says why.** Under the suggestion, a folded **Why this suggestion**
