@@ -318,6 +318,11 @@ public final class Switcher: @unchecked Sendable {
             try fs.move(env.stagingDir, to: destination.appendingPathComponent("staging"))
         }
         try fs.move(env.journalFile, to: destination.appendingPathComponent("swap-journal.json"))
+        // Copies kept for manual recovery must not hold Claude's token caches either.
+        for kept in ["previous", "staging"] {
+            store.stripTokenCaches(inConfigAt: destination.appendingPathComponent(kept)
+                .appendingPathComponent(SnapshotItems.config))
+        }
         var notes: [String] = []
         let needsAttention = restoreSuspendedRelaunchers(notes: &notes)
         return (destination, notes, needsAttention)

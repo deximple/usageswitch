@@ -136,6 +136,26 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         return (try? decoder.decode(UsageSnapshot.self, from: data))?.masked()
     }
 
+    /// What `--cli usage` prints: the snapshot's own fields plus its age. The age is worked out when
+    /// it is printed and never written to the file, where it would be wrong a second later.
+    public struct Aged: Encodable, Sendable {
+        public let snapshot: UsageSnapshot
+        /// Whole seconds since `generatedAt`; 0 for a snapshot dated ahead of the clock.
+        public let ageSeconds: Int
+
+        private enum CodingKeys: String, CodingKey { case ageSeconds }
+
+        public func encode(to encoder: Encoder) throws {
+            try snapshot.encode(to: encoder)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(ageSeconds, forKey: .ageSeconds)
+        }
+    }
+
+    public func aged(now: Date) -> Aged {
+        Aged(snapshot: self, ageSeconds: max(0, Int(now.timeIntervalSince(generatedAt))))
+    }
+
     /// Snapshot built from identity presentations — each row keeps its collected
     /// usage data but labels resolve through the CURRENT registry name (masked),
     /// never a stale collected label. No email/owner/identityKey is serialized.

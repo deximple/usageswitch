@@ -15,8 +15,6 @@ struct AccountRow: View {
     var alwaysRevealed = false
     @State private var hovering = false
 
-    private var stateColor: Color { Theme.color(for: account.snapshot, active: account.isActive) }
-
     /// Named only by an id prefix: the rename button stays visible until it gets a name.
     private var needsName: Bool { SwitcherModel.needsName(account) }
 
@@ -40,8 +38,9 @@ struct AccountRow: View {
 
     private var chips: some View {
         HStack(spacing: 6) {
-            Chip(text: Theme.label(for: account.snapshot, active: account.isActive), color: stateColor, filled: account.isActive)
-            Text(L10n.t(.usageEnvApp)).font(.system(size: 10)).foregroundStyle(Theme.inkMuted).fixedSize()
+            Chip(text: Theme.label(for: account.snapshot, active: account.isActive),
+                 marker: .claude(account.snapshot, active: account.isActive))
+            Text(L10n.t(.usageEnvApp)).font(Theme.small).foregroundStyle(Theme.inkMuted).fixedSize()
         }
     }
 
@@ -109,7 +108,9 @@ struct AccountRow: View {
 
             }
             Spacer(minLength: 8)
-            trailing
+            // Fixed, so the stack sizes the button first and the name column gets the rest; a
+            // button that could shrink would cap that column at half the row.
+            trailing.fixedSize()
         }
         .padding(.horizontal, compact ? 10 : 14)
         .padding(.vertical, compact ? 8 : 12)
@@ -143,7 +144,7 @@ struct AccountRow: View {
             switch account.snapshot {
             case .ready:
                 Button(L10n.t(.uiSwitch), action: onSwitch)
-                    .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                    .buttonStyle(ActionButtonStyle())
                     .disabled(busy)
                     .accessibilityLabel(L10n.t(.uiSwitchAx, SwitcherModel.displayLabel(account)))
                     .help(L10n.t(.uiSwitchHelp))
@@ -209,8 +210,13 @@ struct ActiveHeader: View {
             }
             if !compact {
                 HStack(spacing: 14) {
-                    Label(status.claude.running ? L10n.t(.uiRunning) : L10n.t(.uiOff), systemImage: status.claude.running ? "circle.fill" : "circle")
-                        .foregroundStyle(status.claude.running ? Theme.ready : Theme.missing)
+                    // The dot carries the color and is filled or hollow; the word stays at body contrast.
+                    Label {
+                        Text(status.claude.running ? L10n.t(.uiRunning) : L10n.t(.uiOff)).foregroundStyle(Theme.ink)
+                    } icon: {
+                        Image(systemName: status.claude.running ? "circle.fill" : "circle")
+                            .foregroundStyle(status.claude.running ? Theme.ready : Theme.inkMuted)
+                    }
                     Label(L10n.t(.uiCodeSessions, status.claude.codeSessions), systemImage: "terminal")
                     if let v = status.claude.version { Label("v\(v)", systemImage: "shippingbox") }
                 }
@@ -281,7 +287,7 @@ struct EnrollmentCard: View {
             HStack(spacing: 10) {
                 if enrollment.detectedNewLogin {
                     Button(L10n.t(.uiCapture)) { model.saveEnrollmentLogin() }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.ready, prominent: true))
+                        .buttonStyle(ActionButtonStyle(filled: StatusPalette.confirmButton))
                         .disabled(model.isBusy)
                 }
                 if let previous {
@@ -418,6 +424,7 @@ struct MainView: View {
             }
         }
         .frame(minWidth: 660, idealWidth: 700, minHeight: 640, idealHeight: 760)
+        .modifier(WindowGlassChrome())
         .modifier(ConfirmationModifier(model: model))
         .modifier(RenameModifier(model: model))
         .modifier(CodexAlertsModifier(model: codex))
@@ -430,7 +437,7 @@ struct MainView: View {
                 ActiveHeader(status: status, revealed: model.isRevealed(SwitcherModel.headerEmailID),
                              onToggleEmail: { model.toggleEmail(SwitcherModel.headerEmailID) }, alwaysRevealed: model.showEmails)
                 VStack(alignment: .trailing, spacing: 6) {
-                    if model.isDemo { Chip(text: L10n.t(.uiDemo), color: Theme.alias, filled: true) }
+                    if model.isDemo { Chip(text: L10n.t(.uiDemo)) }
                     Button { model.refresh() } label: { Label(L10n.t(.uiRefresh), systemImage: "arrow.clockwise") }
                         .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
                         .keyboardShortcut("r", modifiers: .command)
@@ -442,81 +449,81 @@ struct MainView: View {
                 .shadow(color: .black.opacity(0.06), radius: 14, y: 6))
             .padding([.horizontal, .top], Theme.gapGroup)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.gapGroup) {
-                    // Results and progress first: with many accounts they would scroll out of view below the list.
-                    if !model.steps.isEmpty || model.banner != nil || !status.warnings.isEmpty {
-                        VStack(alignment: .leading, spacing: Theme.gapRow) {
-                            if let banner = model.banner { BannerView(banner: banner) }
-                            ForEach(status.warnings, id: \.self) { BannerView(banner: .init(kind: .info, text: $0)) }
-                            if status.journalUnreadable {
-                                Button(L10n.t(.uiSetAsideJournal)) {
-                                    let alert = NSAlert()
-                                    alert.messageText = L10n.t(.uiSetAsideJournalTitle)
-                                    alert.informativeText = L10n.t(.uiSetAsideJournalBody)
-                                    alert.alertStyle = .warning
-                                    alert.addButton(withTitle: L10n.t(.uiCancel)) // first = default (Cancel)
-                                    alert.addButton(withTitle: L10n.t(.uiSetAsideJournal))
-                                    if alert.runModal() == .alertSecondButtonReturn {
-                                        model.setAsidePendingJournal()
+            ActionBarLayout {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.gapGroup) {
+                        // Results and progress first: with many accounts they would scroll out of view below the list.
+                        if !model.steps.isEmpty || model.banner != nil || !status.warnings.isEmpty {
+                            VStack(alignment: .leading, spacing: Theme.gapRow) {
+                                if let banner = model.banner { BannerView(banner: banner) }
+                                ForEach(status.warnings, id: \.self) { BannerView(banner: .init(kind: .info, text: $0)) }
+                                if status.journalUnreadable {
+                                    Button(L10n.t(.uiSetAsideJournal)) {
+                                        let alert = NSAlert()
+                                        alert.messageText = L10n.t(.uiSetAsideJournalTitle)
+                                        alert.informativeText = L10n.t(.uiSetAsideJournalBody)
+                                        alert.alertStyle = .warning
+                                        alert.addButton(withTitle: L10n.t(.uiCancel)) // first = default (Cancel)
+                                        alert.addButton(withTitle: L10n.t(.uiSetAsideJournal))
+                                        if alert.runModal() == .alertSecondButtonReturn {
+                                            model.setAsidePendingJournal()
+                                        }
                                     }
+                                    .font(Theme.caption)
                                 }
-                                .font(Theme.caption)
+                                if !model.steps.isEmpty { StepsView(steps: model.steps, working: model.isBusy) }
                             }
-                            if !model.steps.isEmpty { StepsView(steps: model.steps, working: model.isBusy) }
                         }
-                    }
-                    if model.phase == .awaitingLogin, let enrollment = model.enrollment {
-                        EnrollmentCard(model: model, status: status, enrollment: enrollment)
-                    }
-                    VStack(alignment: .leading, spacing: Theme.gapRow) {
-                        Text(L10n.t(.uiAccounts))
-                            .font(Theme.eyebrow)
-                            .foregroundStyle(Theme.inkMuted)
-                        if status.accounts.isEmpty {
-                            Text(L10n.t(.uiNoAccounts))
-                                .font(Theme.body)
+                        if model.phase == .awaitingLogin, let enrollment = model.enrollment {
+                            EnrollmentCard(model: model, status: status, enrollment: enrollment)
+                        }
+                        VStack(alignment: .leading, spacing: Theme.gapRow) {
+                            Text(L10n.t(.uiAccounts))
+                                .font(Theme.eyebrow)
                                 .foregroundStyle(Theme.inkMuted)
-                                .padding(.vertical, 8)
+                            if status.accounts.isEmpty {
+                                Text(L10n.t(.uiNoAccounts))
+                                    .font(Theme.body)
+                                    .foregroundStyle(Theme.inkMuted)
+                                    .padding(.vertical, 8)
+                            }
+                            ForEach(status.accounts) { account in
+                                AccountRow(account: account, revealed: model.isRevealed(account.id), busy: model.isBusy,
+                                           onSwitch: { model.requestSwitch(account) }, onEnroll: { model.requestEnroll() },
+                                           onToggleEmail: { model.toggleEmail(account.id) },
+                                           onRename: { model.requestRename(account) },
+                                           onRemove: { model.requestRemove(account) }, alwaysRevealed: model.showEmails)
+                            }
                         }
-                        ForEach(status.accounts) { account in
-                            AccountRow(account: account, revealed: model.isRevealed(account.id), busy: model.isBusy,
-                                       onSwitch: { model.requestSwitch(account) }, onEnroll: { model.requestEnroll() },
-                                       onToggleEmail: { model.toggleEmail(account.id) },
-                                       onRename: { model.requestRename(account) },
-                                       onRemove: { model.requestRemove(account) }, alwaysRevealed: model.showEmails)
+                    }
+                    .padding(Theme.gapGroup)
+                }
+            } bar: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button(L10n.t(.uiCapture)) { model.requestCapture() }
+                            .buttonStyle(model.phase == .awaitingLogin
+                                ? ActionButtonStyle(filled: StatusPalette.confirmButton)
+                                : ActionButtonStyle(tint: Theme.ink, prominent: false))
+                            .disabled(model.isBusy || !status.claude.running)
+                            .help(L10n.t(.uiCaptureHelp))
+                        Button(L10n.t(.uiNewLogin)) { model.requestEnroll() }
+                            .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                            .disabled(model.isBusy)
+                            .help(L10n.t(.uiNewLoginHelp))
+                        Spacer()
+                        if let backup = status.originalBackup {
+                            Text(L10n.t(.uiBackupOK)).font(Theme.caption).foregroundStyle(Theme.inkMuted).help(backup)
+                        }
+                        if !status.relaunchers.isEmpty {
+                            Text(L10n.t(.uiRelaunchers, status.relaunchers.joined(separator: ", ")))
+                                .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                                .lineLimit(1).truncationMode(.middle)
+                                .help(L10n.t(.uiRelaunchersHelp))
                         }
                     }
                 }
-                .padding(Theme.gapGroup)
             }
-
-            Divider()
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Button(L10n.t(.uiCapture)) { model.requestCapture() }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.ready, prominent: model.phase == .awaitingLogin))
-                        .disabled(model.isBusy || !status.claude.running)
-                        .help(L10n.t(.uiCaptureHelp))
-                    Button(L10n.t(.uiNewLogin)) { model.requestEnroll() }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
-                        .disabled(model.isBusy)
-                        .help(L10n.t(.uiNewLoginHelp))
-                    Spacer()
-                    if let backup = status.originalBackup {
-                        Text(L10n.t(.uiBackupOK)).font(Theme.caption).foregroundStyle(Theme.inkMuted).help(backup)
-                    }
-                    if !status.relaunchers.isEmpty {
-                        Text(L10n.t(.uiRelaunchers, status.relaunchers.joined(separator: ", ")))
-                            .font(Theme.caption).foregroundStyle(Theme.inkMuted)
-                            .lineLimit(1).truncationMode(.middle)
-                            .help(L10n.t(.uiRelaunchersHelp))
-                    }
-                }
-            }
-            .padding(.horizontal, Theme.gapGroup)
-            .padding(.vertical, 12)
-            .background(Theme.surface.opacity(0.6))
         }
     }
 }
@@ -535,7 +542,7 @@ struct MenuView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The menu panel counts as a visible surface for the status-poll cadence (audit P3).
-    private func notePanelVisible(_ visible: Bool) { AppModel.noteSurface(open: visible) }
+    private func notePanelVisible(_ visible: Bool) { AppModel.noteSurface(.menuPanel, open: visible) }
 
     private var panelCap: CGFloat {
         let mouse = NSEvent.mouseLocation

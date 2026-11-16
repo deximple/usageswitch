@@ -12,6 +12,7 @@ struct APIContent: View {
     @State private var entries: [APIKeyEntry] = []
     @State private var revealedKeys: [String: String] = [:]
     @State private var keyMessage: String?
+    @State private var pendingDelete: APIKeyEntry?
 
     private var vault: KeychainAPIKeyVault { KeychainAPIKeyVault() }
 
@@ -79,10 +80,14 @@ struct APIContent: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 150)
                                 Button(L10n.t(.apiKeyHide)) { revealedKeys.removeValue(forKey: entry.id) }
+                                    .accessibilityLabel(APIKeyText.hideLabel(for: entry))
                             } else if !entry.isUnreadable {
                                 Button(L10n.t(.apiKeyReveal)) { revealKey(entry) }
+                                    .accessibilityLabel(APIKeyText.revealLabel(for: entry))
                             }
-                            Button(L10n.t(.apiKeyDelete), role: .destructive) { deleteKey(entry) }
+                            // Deleting can't be undone: ask first, naming the key, then authenticate.
+                            Button(L10n.t(.apiKeyDelete), role: .destructive) { pendingDelete = entry }
+                                .accessibilityLabel(APIKeyText.deleteLabel(for: entry))
                         }
                     }
                 }
@@ -95,6 +100,17 @@ struct APIContent: View {
         .onDisappear { revealedKeys.removeAll() }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.apiKeysShouldHideNotification)) { _ in
             revealedKeys.removeAll()
+        }
+        .alert(
+            pendingDelete.map { APIKeyText.deleteConfirmation(for: $0).title } ?? "",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            presenting: pendingDelete
+        ) { entry in
+            Button(L10n.t(.apiKeyDelete), role: .destructive) { deleteKey(entry) }
+            Button(L10n.t(.uiCancel), role: .cancel) { pendingDelete = nil }
+                .keyboardShortcut(.defaultAction)
+        } message: { entry in
+            Text(APIKeyText.deleteConfirmation(for: entry).detail)
         }
     }
 
@@ -110,7 +126,10 @@ struct APIContent: View {
         VStack(alignment: .leading, spacing: Theme.gapTight) {
             Text(vendorName(vendor))
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
-            APIBudgetRow(vendor: vendor, settings: settings, usage: usage)
+            // No spend figure to count a budget against: the row is hidden, a saved value is kept.
+            if vendor.budgetBasis != nil {
+                APIBudgetRow(vendor: vendor, settings: settings, usage: usage)
+            }
             if let budget = settings.apiBudget(for: vendor),
                let remaining = usage.apiBudgetRemaining(for: vendor) {
                 switch budget {
@@ -122,13 +141,28 @@ struct APIContent: View {
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
             }
+            if vendor.budgetBasis == .actualSpend, case .ok(let spend) = actual,
+               let budget = settings.apiBudget(for: vendor) {
+                switch APIBudgetMath.actualRemaining(budget, spend: spend, now: Date()) {
+                case .remaining(let remaining):
+                    Text(L10n.t(.apiQuotaRemaining, usd(remaining)))
+                        .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                case .notCalendarMonth:
+                    Text(L10n.t(.apiBudgetCalendarMonthOnly))
+                        .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                case nil:
+                    EmptyView()
+                }
+            }
             // A registered admin billing key replaces the log estimate with real figures.
             if case .ok(let spend) = actual {
                 Text(L10n.t(.apiAdminMonth, usd(spend.monthToDateUSD)))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 Text(L10n.t(.apiAdminActual, usd(spend.last7DaysUSD)))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
-                Text(L10n.t(.apiAdminAsOf, spend.asOf.formatted(date: .omitted, time: .shortened)))
+                Text(L10n.t(.apiAdminAsOf,
+                            UsageText.readTime(spend.asOf, now: Date(), language: settings.language)))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
             } else if actual == .keyRejected {
                 Text(L10n.t(.apiAdminKeyRejected))
@@ -166,7 +200,7 @@ struct APIContent: View {
             }
             if usage.hasSubscriptionRoom(for: vendor) {
                 Text(L10n.t(.apiSubscriptionRoom))
-                    .font(Theme.caption).foregroundStyle(Theme.active)
+                    .font(Theme.caption).foregroundStyle(Theme.ink)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,8 +245,10 @@ struct APIContent: View {
             revealedKeys = [:]
             return
         }
-        do { entries = try await vault.list() }
-        catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
+        do {
+            entries = try await vault.list()
+            usage.adminKeysDidChange(adminVendors: Set(entries.filter(\.isAdmin).map(\.vendor)))
+        } catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
     }
 
     private func revealKey(_ entry: APIKeyEntry) {

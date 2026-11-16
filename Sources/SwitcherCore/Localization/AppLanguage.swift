@@ -58,9 +58,10 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var usageWarnPercent: Int?
     /// Post a notification when a window crosses the warn percent (default on).
     public var usageAlertsEnabled: Bool?
-    /// Granted consent for the four new consent-required providers, stored as
-    /// provider rawValues. Missing/unknown entries never grant anything; Cursor's
-    /// consent stays solely in `cursorUsageEnabled`.
+    /// Granted consent for the consent-required providers, stored as provider rawValues
+    /// plus the marker of each re-described connect dialog (`cursor.v2` and the like).
+    /// Missing/unknown entries never grant anything. Cursor is switched by
+    /// `cursorUsageEnabled` and counts only while its marker is here.
     public var usageConnections: [String]?
     /// Explicit per-saved-account grants for reading usage from official Claude CLI profiles.
     public var claudeUsageProfiles: [ClaudeProfileBinding]?
@@ -170,7 +171,6 @@ public struct SwitcherSettings: Codable, Equatable, Sendable {
     public var effectiveMenuBarShowsUsage: Bool { menuBarShowsUsage ?? true }
     /// The chosen menu bar window; an empty saved key means automatic, like nil.
     public var effectiveMenuBarUsageKey: String? { menuBarUsageKey.flatMap { $0.isEmpty ? nil : $0 } }
-    public var effectiveCursorUsageEnabled: Bool { cursorUsageEnabled ?? false }
     /// Appearance stored as a raw string so unknown values decode to system without a migration.
     public var effectiveAppearance: AppAppearance { AppAppearance(rawValue: appearance ?? "") ?? .system }
     /// Kept to the sane range the settings menu offers; a hand-edited value outside it falls back.

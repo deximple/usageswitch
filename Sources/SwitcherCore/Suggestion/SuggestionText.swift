@@ -74,7 +74,7 @@ public enum SuggestionText {
             let base: String
             if pick.situation == .expiringHeadroom,
                let expiring = pick.expiringWindowKey.flatMap({ self.window(usage, $0) }),
-               let resetsAt = expiring.resetsAt {
+               let resetsAt = expiring.resetsAt, resetsAt.timeIntervalSince(now) >= 60 {
                 base = L10n.t(.suggestionSituationExpiring, UsageText.name(of: expiring),
                               UsageText.percentLeft(expiring.usedPercent) ?? 0,
                               UsageText.countdown(to: resetsAt, from: now))

@@ -126,9 +126,9 @@ Cada cuenta es un pequeño bloque: quién es y luego una línea por límite.
 |---|---|
 | **Personal** | El nombre visible de la cuenta. Cámbielo en **Detalles** → **Editar nombre**. |
 | <img src="https://img.shields.io/badge/CLI-0A84FF?style=flat-square" alt="CLI"> <img src="https://img.shields.io/badge/App-8E8E93?style=flat-square" alt="App"> | De dónde viene la lectura: un inicio de sesión de línea de comandos o una app de escritorio. **Azul** significa que es el inicio de sesión en uso ahora (la sesión de la CLI actual o la app abierta). |
-| Candado abierto, en su color de acento | Inicio verificado. |
-| Candado abierto, gris | Inicio guardado. |
-| Candado cerrado | Se requiere inicio. Sin candado, UsageSwitch no puede saberlo, así que no afirma nada. |
+| Candado abierto, en su color de acento | Sesión verificada. |
+| Candado abierto, gris | Sesión guardada. |
+| Candado cerrado | Sesión requerida. Sin candado, UsageSwitch no puede saberlo, así que no afirma nada. |
 | `Pro Lite`, `Plus`, `Team`… | El plan que informa el proveedor. |
 | `API` · *Clave API · facturación aparte* | Un perfil de clave de API. Se factura por uso y no tiene límite de suscripción, así que nunca cuenta como cuota restante. |
 | `al•••kim@example.com` | El correo oculto. Active **⚙︎ › Mostrar siempre los correos** para verlo completo. |
@@ -136,7 +136,7 @@ Cada cuenta es un pequeño bloque: quién es y luego una línea por límite.
 | `Cursor Models`, `Gemini Models`… | Un límite que aplica solo a algunos modelos, con el nombre que le da el proveedor. En el menú, un grupo de modelos con más de un límite (Antigravity) lleva una línea de título, y las filas debajo solo muestran *Semanal*, *Sesión*… |
 | *podría agotarse en 5h* | Al ritmo actual, este límite se vacía antes de reiniciarse. |
 | *Reinicios de límite: 2 · el primero vence en 18d 5h* | Reinicios de límite gratuitos que OpenAI dio a esta cuenta de Codex: cuántos hay y cuándo vence el primero. UsageSwitch solo los lee; use un reinicio en el propio Codex. |
-| **2 límites más** | El menú compacto muestra hasta tres límites por cuenta. El resto está en **Detalles**. |
+| **Más límites (2)** | El menú compacto muestra hasta tres límites por cuenta. El resto está en **Detalles**. |
 | **Detalles** | Abre una ventana con todos los límites, horas de reinicio, el origen de la lectura y la versión de la herramienta. |
 
 **Colores de la barra:** una barra con margen se rellena con el color del logotipo de la herramienta — terracota para Claude, azul para Gemini y Antigravity, negro (blanco en modo oscuro) para las demás; ámbar con un icono de aviso ha pasado su nivel de aviso (80% usado por defecto); un icono rojo y la barra vacía indican que está agotado; una barra gris difuminada es una lectura antigua esperando actualización — o, para una cuenta de Claude guardada o un inicio de Codex que no se puede leer ahora, su última lectura correcta con la hora en que se vio. Una ventana cuyo reinicio ya pasó no muestra número.
@@ -156,18 +156,18 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 | Mensaje | Por qué | Qué hacer |
 |---|---|---|
 | **Conexión de uso necesaria** | Esta herramienta opcional aún no se ha encendido. | Haga clic en **Conectar uso**, o use **⚙︎ › Conexiones de uso**. ¿No la usa? Haga clic en **Ocultar**. |
-| **No se encontró sesión: inicie sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
+| **No se encontró sesión: inicia sesión en *X* primero** | La herramienta está instalada pero sin sesión en este Mac. | Inicie sesión en esa herramienta una vez. |
 | **El perfil de CLI de esta cuenta no tiene la sesión iniciada — consulta Detalles** | El perfil de CLI enlazado a una cuenta de Claude guardada está desconectado, por lo que su última lectura queda atenuada. | En **Detalles**, copie el comando, ejecútelo en Terminal e inicie sesión con la misma cuenta. |
-| **Sesión caducada: ejecute *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login` u `opencode auth login`. |
-| **Sesión rechazada: ejecute *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
+| **Sesión caducada: ejecuta *`command`* una vez en Terminal** | Su inicio de sesión guardado ha caducado. | Ejecute el comando mostrado: `claude auth login`, `codex login`, `cursor-agent login`, `grok login`, `gemini`, `agy`, `devin auth login`, `opencode auth login` o `gh auth login`. |
+| **Sesión rechazada: ejecuta *`command`* una vez en Terminal** | El proveedor rechazó el inicio de sesión guardado — fue revocado, reemplazado por el de otra app, o pertenece a una cuenta que esta herramienta no sirve. | Ejecute el comando mostrado e inicie sesión con la cuenta que quiere ver. |
 | **No vinculada a la cuota CLI** | Una cuenta de Claude Desktop guardada no tiene perfil de Claude Code vinculado. | [Vincule un perfil](#3-dé-a-las-cuentas-de-claude-guardadas-sus-propios-números-opcional) en **Detalles**. |
 | **No informa uso** | La herramienta respondió sin número de uso: un perfil de clave API (sin límite de suscripción), una carpeta Codex sin sesión, o una cuenta sin límite de suscripción. | Nada que arreglar. Use la [pestaña API](#pestaña-api) para estimaciones de gasto (solo cuentas Codex con clave API). |
-| **Esta cuenta no tiene uso de *X*** | El proveedor dice que el plan de esta cuenta no tiene cuota que mostrar. | Nada que arreglar. |
+| **Esta cuenta no es apta para el uso de *X*** | El proveedor dice que el plan de esta cuenta no tiene cuota que mostrar. | Nada que arreglar. |
 | **Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)** | Google movió las cuentas individuales a Antigravity. | Active **Antigravity**; su límite *Gemini Models* muestra la misma cuota. |
 | **La lectura del uso fue rechazada** | El programa de línea de comandos de la herramienta se detuvo sin devolver un informe de uso. | Reintenta en la próxima actualización. Si sigue ocurriendo, abra la herramienta una vez en Terminal para comprobar que tiene sesión iniciada y funciona. |
 | **El uso llegó de otra cuenta, así que no se muestra** | El inicio de sesión cambió durante una lectura. UsageSwitch nunca muestra números de otra cuenta. | Espere a la próxima actualización. |
 | **No se pudo leer el uso — esta versión de *X* puede necesitar una actualización de UsageSwitch** | El formato de respuesta de la herramienta cambió. | Busque un UsageSwitch más nuevo, o [abra un issue](https://github.com/deximple/usageswitch/issues). |
-| **Tiempo de espera agotado al leer el uso** · **No se pudo contactar con el servicio** · **Límite de ritmo — inténtalo más tarde** | Un problema temporal de red o de servicio. | Reintenta en la próxima actualización. |
+| **Tiempo de espera agotado al leer el uso** · **No se pudo contactar con el servicio** · **Demasiadas solicitudes — inténtalo más tarde** | Un problema temporal de red o de servicio. | Reintenta en la próxima actualización. |
 | **No se encontró la herramienta de línea de comandos** | El programa de línea de comandos de la herramienta no está instalado o no está en su `PATH`. | Instálelo, o revise su `PATH`. |
 | **Ajustes gestionados — no se puede leer el uso** | Su organización gestiona los ajustes de Claude Code en este Mac. | Es de esperar. UsageSwitch no lee el uso ahí. |
 | **Reinicio pasado — se necesita actualizar** | El límite se ha reiniciado desde la última lectura. | Pulse ↻ o espere un momento. |
@@ -185,6 +185,7 @@ Una fila sin números siempre dice por qué. Esto es lo que significa cada mensa
 | **Antigravity** | Límites por grupo de modelos (por ejemplo *Gemini Models*) | La pantalla `/usage` de `agy`, más una API de cuota de solo lectura en cada actualización (también es el respaldo cuando no se puede leer la pantalla) | ⚙︎ › Conexiones de uso |
 | **Devin** | La cuota que informa el CLI de Devin | El estado de usuario del CLI de Devin | ⚙︎ › Conexiones de uso |
 | **OpenCode Go** | Límites rodantes de 5 horas, semanales y mensuales | El endpoint de uso de OpenCode Go | ⚙︎ › Conexiones de uso |
+| **GitHub Copilot** | Cuotas de chat, completados e interacciones premium, más la fecha de reinicio y el plan | El endpoint de cuota de Copilot de GitHub, con el inicio de sesión del CLI `gh` | ⚙︎ › Conexiones de uso |
 
 Una herramienta aparece cuando su programa de línea de comandos está en su `PATH` (o en `~/.local/bin`, las carpetas habituales de npm, bun y Volta, `/opt/homebrew/bin` o `/usr/local/bin`), o su app está en `/Applications` o `~/Applications`. Encontrar una herramienta nunca la ejecuta.
 
@@ -197,12 +198,13 @@ Cada conexión opcional lee el inicio de sesión local propio de la herramienta,
 
 | Herramienta | Inicio de sesión local que lee | Host que contacta | Notas |
 |---|---|---|---|
-| Cursor | La entrada de Cursor en el llavero, luego `~/.cursor/auth.json` | `api2.cursor.sh` | Una petición por actualización. Un token caducado no envía petición. Un `cursor-agent login` de navegador dura unos 60 días; un inicio de sesión con clave de API, una hora. Grok Bot y el gasto bajo demanda no se leen. |
+| Cursor | La entrada de Cursor en el llavero, luego `~/.cursor/auth.json` | `api2.cursor.sh` | Una petición por actualización. Si el token guardado ha caducado, UsageSwitch ejecuta primero `cursor-agent status` una vez para que cursor-agent renueve su propio inicio de sesión; un token que sigue caducado no envía petición. Un `cursor-agent login` de navegador dura unos 60 días; un inicio de sesión con clave de API, una hora. Grok Bot y el gasto bajo demanda no se leen. |
 | Grok | El archivo de inicio de sesión del CLI de Grok | `cli-chat-proxy.grok.com` | Experimental. |
 | Gemini | El ítem del llavero del CLI de Gemini, luego `~/.gemini/oauth_creds.json` | `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` | Si el token de acceso caducó, UsageSwitch usa el token de actualización guardado con el propio cliente de inicio de sesión del CLI de Gemini instalado para obtener un token temporal solo en memoria. Nunca escribe nada. Hasta tres peticiones por actualización. |
 | Antigravity | El propio `agy`, ejecutado en un terminal oculto desde su carpeta personal (como máximo cada 9 minutos); el ítem de agy en el llavero (o `~/.gemini/jetski-standalone-oauth-token` si el llavero no tiene ninguno) se lee en cada actualización | `oauth2.googleapis.com`, `cloudcode-pa.googleapis.com` | `agy` arranca con sus ajustes normales, incluidos los servidores MCP que configure. UsageSwitch nunca responde a los avisos de agy. macOS puede pedir una vez permiso de acceso al llavero. |
 | Devin | Las credenciales y la versión del CLI de Devin | `server.codeium.com` | Requiere una versión compatible del CLI de Devin. |
 | OpenCode Go | La entrada `opencode-go` en el `auth.json` de OpenCode | `opencode.ai` | Solo el plan Go, no otro uso de OpenCode. |
+| GitHub Copilot | `gh auth token` en el binario `gh` detectado — el inicio de sesión propio del CLI de GitHub | `api.github.com` | Una petición de solo lectura por actualización al endpoint no oficial `/copilot_internal/user`; el token se queda en memoria y `gh` nunca hace la llamada a la API. El endpoint no está documentado y puede cambiar sin aviso. |
 
 Son endpoints privados, no APIs públicas estables. Una actualización del proveedor puede romper una lectura hasta que se actualice UsageSwitch — la fila entonces lo dice en lugar de mostrar números incorrectos.
 La lista completa de archivos leídos y escritos está en [PRIVACY.md](PRIVACY.md) (en inglés).
@@ -274,7 +276,8 @@ Para cuentas que usan una clave de API en lugar de una suscripción:
 
 - **Presupuestos** — establezca un saldo prepagado o una cuota mensual (con su día de reinicio) para Anthropic, OpenAI, Google o xAI.
 - **Estimaciones** — gasto de los últimos 7 días, la tasa diaria media y aproximadamente cuántos días dura su presupuesto. Se estiman solo a partir de los registros CLI locales de cuentas con clave de API, nunca del proveedor.
-- **Almacén de claves API** — la app pide Touch ID o su contraseña al añadir, mostrar o borrar una clave. Las claves se guardan en el llavero de inicio de sesión y siguen sus reglas de acceso. Las claves nunca se envían a ningún sitio.
+- **Gasto real** — registre una **clave admin de facturación** (Anthropic `sk-ant-admin-*`, o una clave admin de OpenAI / una clave con el permiso `api.usage.read`) y el endpoint de costos de la organización del propio proveedor sustituye las estimaciones por cifras reales: el gasto de este mes y el de los últimos 7 días, con la hora de la lectura. Una consulta de facturación de solo lectura por proveedor cada 30 minutos; una clave de API normal nunca se envía a ningún sitio.
+- **Almacén de claves API** — la app pide Touch ID o su contraseña al añadir, mostrar o borrar una clave. Las claves se guardan en el llavero de inicio de sesión y siguen sus reglas de acceso. Las claves de API normales nunca se envían a ningún sitio; una clave admin de facturación solo va al endpoint de facturación de su propio proveedor.
 
 ## Ajustes
 
@@ -302,7 +305,7 @@ Todo está en el menú **⚙︎**.
 flowchart LR
     A["Buscar herramientas<br/>instaladas en este Mac"] --> B{"¿Herramienta<br/>opcional?"}
     B -- "Claude Code, Codex" --> D
-    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode" --> C["Usted la activa<br/>(⚙︎ › Conexiones de uso)"]
+    B -- "Cursor, Grok, Gemini,<br/>Antigravity, Devin, OpenCode, Copilot" --> C["Usted la activa<br/>(⚙︎ › Conexiones de uso)"]
     C --> D["Petición de uso de solo lectura<br/>a través del inicio de sesión de la herramienta"]
     D --> E["Conservar solo límites y plan<br/>ocultar correos, descartar respuestas"]
     E --> F["Menú · Detalles<br/>--cli usage"]
@@ -382,15 +385,16 @@ APP=/Applications/UsageSwitch.app/Contents/MacOS/UsageSwitch
         "windows" : []
       }
     ],
+    "ageSeconds" : 42,
     "generatedAt" : "2026-11-09T05:10:00Z"
   }
 }
 ```
 
-`state` es `ok`, `notReporting`, `unavailable` o `failed`; `problem` indica la razón. Los IDs de cuenta son opacos y cambian de orden con la lista.
+`state` es `ok`, `notReporting`, `unavailable` o `failed`; `problem` indica la razón. Los IDs de cuenta son opacos y cambian de orden con la lista. `ageSeconds` indica cuántos segundos hace que la app guardó esta lectura; si es un valor grande, las cifras son antiguas.
 
 ```bash
-"$APP" --cli usage | jq -r '.result.accounts[]
+"$APP" --cli usage | jq -r '.result.accounts[] | select(.state == "ok")
   | "\(.provider)\t\(.label)\t\([.windows[] | "\(.scope // .kind) \(.leftPercent | floor)% left"] | join(", "))"'
 ```
 
@@ -418,7 +422,7 @@ No. UsageSwitch no envía peticiones a modelos. Pide a cada herramienta su uso m
 <details>
 <summary><b>Una herramienta que uso no está en la lista.</b></summary>
 
-UsageSwitch solo lista una herramienta cuando encuentra su programa de línea de comandos en su `PATH` (o en las carpetas habituales de npm, bun y Volta), o su app en `/Applications` o `~/Applications`. Cursor, Grok, Gemini, Antigravity, Devin y OpenCode además necesitan **⚙︎ › Conexiones de uso**.
+UsageSwitch solo lista una herramienta cuando encuentra su programa de línea de comandos en su `PATH` (o en las carpetas habituales de npm, bun y Volta), o su app en `/Applications` o `~/Applications`. Cursor, Grok, Gemini, Antigravity, Devin, OpenCode y GitHub Copilot además necesitan **⚙︎ › Conexiones de uso**.
 
 </details>
 
@@ -432,7 +436,7 @@ Los inicios de sesión de Claude Desktop no exponen el uso. Vincule un perfil de
 <details>
 <summary><b>Cursor sigue diciendo que la sesión caducó.</b></summary>
 
-UsageSwitch usa el inicio de sesión que `cursor-agent` guarda y nunca lo renueva por sí mismo. Un `cursor-agent login` de navegador dura unos 60 días; un inicio de sesión con clave de API, una hora. Ejecute `cursor-agent login` y elija el inicio de sesión del navegador.
+UsageSwitch usa el inicio de sesión que `cursor-agent` guarda. Nunca renueva el token por sí mismo; cuando el guardado ha caducado, ejecuta `cursor-agent status` una vez para que cursor-agent renueve su propio inicio de sesión. Un `cursor-agent login` de navegador dura unos 60 días; un inicio de sesión con clave de API, una hora. Ejecute `cursor-agent login` y elija el inicio de sesión del navegador.
 
 </details>
 
@@ -463,7 +467,7 @@ No. Es un proyecto independiente de código abierto y no está afiliado ni avala
 - Un inicio de sesión de Claude guardado puede caducar o ser revocado. Su fila la mostrará como **Caducada**.
 - Las carpetas de Codex que guardan su sesión en el llavero (`cli_auth_credentials_store = "keyring"`) pueden aparecer como sin sesión.
 - Las conexiones opcionales usan endpoints privados que pueden cambiar sin aviso.
-- UsageSwitch muestra los límites que informa cada proveedor. No muestra saldos ni facturas del proveedor; la pestaña API muestra solo estimaciones locales.
+- UsageSwitch muestra los límites que informa cada proveedor. Los saldos y facturas del proveedor no aparecen en la pestaña API salvo que se registre una clave admin de facturación — entonces el gasto real de Anthropic u OpenAI sustituye a las estimaciones locales.
 
 ## Desinstalación
 
@@ -497,7 +501,7 @@ Los issues y pull requests son bienvenidos. Los cambios están en [CHANGELOG.md]
 
 ## Agradecimientos
 
-Proyecto independiente de código abierto — no afiliado ni avalado por Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin) o SST (OpenCode). Los nombres de productos pertenecen a sus propietarios.
+Proyecto independiente de código abierto — no afiliado ni avalado por Anthropic, OpenAI, Anysphere (Cursor), xAI, Google, Cognition (Devin), GitHub o SST (OpenCode). Los nombres de productos pertenecen a sus propietarios.
 Proyectos comunitarios relacionados: [CodexBar](https://github.com/steipete/CodexBar), [claudepot-app](https://github.com/xiaolai/claudepot-app), [claude-desktop-accounts](https://github.com/5eanxlee/claude-desktop-accounts), [Swivel](https://github.com/jspanji/Swivel), [claude-graft](https://github.com/aaditya-v-more/claude-graft).
 
 ## Licencia

@@ -449,3 +449,239 @@ extension CursorUsageTests {
         #expect(runner.requests.filter { $0.executable == agent }.count == 1)
     }
 }
+
+/// `cursor-agent status` runs once for an expired token. A sign-in it cannot renew (an API key)
+/// must not run it again on every refresh.
+extension CursorUsageTests {
+    /// The Keychain answer: a test replaces it between refreshes, and the fake
+    /// `cursor-agent status` replaces it with `afterStatus` when one is set.
+    final class StoredToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var token: String
+        private var afterStatus: String?
+
+        init(_ token: String, afterStatus: String? = nil) {
+            self.token = token
+            self.afterStatus = afterStatus
+        }
+
+        var value: String { lock.lock(); defer { lock.unlock() }; return token }
+
+        func set(_ token: String, afterStatus: String? = nil) {
+            lock.lock()
+            self.token = token
+            self.afterStatus = afterStatus
+            lock.unlock()
+        }
+
+        func statusRan() {
+            lock.lock()
+            if let afterStatus { token = afterStatus }
+            afterStatus = nil
+            lock.unlock()
+        }
+    }
+
+    private static let clock: TimeInterval = 1_780_000_000
+
+    private func agentRunner(_ stored: StoredToken) -> FakeUsageRunner {
+        let runner = FakeUsageRunner()
+        runner.respond = { request in
+            if request.executable.lastPathComponent == "cursor-agent" {
+                stored.statusRan()
+                return UsageProcessResult(lines: ["logged in"], outcome: .exited(0))
+            }
+            return UsageProcessResult(lines: [stored.value], outcome: .exited(0))
+        }
+        return runner
+    }
+
+    /// The app builds a collector per refresh; only the cache outlives it.
+    private func agentCollector(home: URL, runner: FakeUsageRunner, http: FakeUsageHTTP,
+                                at seconds: TimeInterval = clock,
+                                renewalAttempts: CursorRenewalAttemptCache) -> CursorUsageCollector {
+        CursorUsageCollector(enabled: true, runner: runner, http: http, home: home, endpoint: endpoint,
+                             now: { Date(timeIntervalSince1970: seconds) },
+                             cursorAgent: home.appendingPathComponent("cursor-agent"),
+                             renewalAttempts: renewalAttempts)
+    }
+
+    private func statusRuns(_ runner: FakeUsageRunner) -> Int {
+        runner.requests.filter { $0.executable.lastPathComponent == "cursor-agent" }.count
+    }
+
+    @Test("an expired token that status left in place is not tried again on the next refresh")
+    func refreshNotRepeatedForTheSameToken() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = agentRunner(StoredToken(try jwt(["exp": Self.clock - 1000])))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+
+        let first = agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+            .collect().first?.state
+        let second = agentCollector(home: home, runner: runner, http: http, at: Self.clock + 300,
+                                    renewalAttempts: attempts).collect().first?.state
+
+        #expect(first == .unavailable(.signInExpired))
+        #expect(second == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 1)
+        #expect(http.calls.isEmpty)
+    }
+
+    @Test("a status run that did not finish cleanly is no verdict: the same token is tried again",
+          arguments: [UsageProcessResult.Outcome.timedOut, .failedToStart, .exited(1)])
+    func aFailedStatusRunIsTriedAgain(_ outcome: UsageProcessResult.Outcome) throws {
+        // Offline or a hung CLI must not leave a renewable browser sign-in marked expired for good.
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stored = StoredToken(try jwt(["exp": Self.clock - 1000]))
+        let runner = FakeUsageRunner()
+        runner.respond = { request in
+            if request.executable.lastPathComponent == "cursor-agent" {
+                return UsageProcessResult(lines: [], outcome: outcome)
+            }
+            return UsageProcessResult(lines: [stored.value], outcome: .exited(0))
+        }
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+
+        let first = agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+            .collect().first?.state
+        let second = agentCollector(home: home, runner: runner, http: http, at: Self.clock + 300,
+                                    renewalAttempts: attempts).collect().first?.state
+
+        #expect(first == .unavailable(.signInExpired))
+        #expect(second == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 2)
+    }
+
+    @Test("one collector asked twice runs status once")
+    func refreshNotRepeatedByTheSameCollector() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = agentRunner(StoredToken(try jwt(["exp": Self.clock - 1000])))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let collector = CursorUsageCollector(enabled: true, runner: runner, http: http, home: home,
+                                             endpoint: endpoint,
+                                             now: { Date(timeIntervalSince1970: Self.clock) },
+                                             cursorAgent: home.appendingPathComponent("cursor-agent"))
+        #expect(collector.collect().first?.state == .unavailable(.signInExpired))
+        #expect(collector.collect().first?.state == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 1)
+    }
+
+    @Test("a different expired token gets its own try; a valid one is used as usual")
+    func refreshTriedAgainForANewToken() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stored = StoredToken(try jwt(["exp": Self.clock - 1000]))
+        let runner = agentRunner(stored)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+        func collect() -> UsageState? {
+            agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+                .collect().first?.state
+        }
+
+        #expect(collect() == .unavailable(.signInExpired))
+        #expect(collect() == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 1)
+
+        // Another sign-in that has also expired (a new API-key login an hour later).
+        stored.set(try jwt(["exp": Self.clock - 500]))
+        #expect(collect() == .unavailable(.signInExpired))
+        #expect(collect() == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 2)
+
+        // `cursor-agent login`: a valid token needs no status run.
+        stored.set(try jwt(["exp": Self.clock + 600]))
+        #expect(collect() == .ok)
+        #expect(statusRuns(runner) == 2)
+        #expect(http.calls.count == 1)
+    }
+
+    @Test("a renewed sign-in leaves nothing remembered")
+    func renewalIsNotHeldBack() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let expired = try jwt(["exp": Self.clock - 1000])
+        let renewed = try jwt(["exp": Self.clock + 600])
+        let stored = StoredToken(expired, afterStatus: renewed)
+        let runner = agentRunner(stored)
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+        func collect() -> UsageState? {
+            agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+                .collect().first?.state
+        }
+
+        #expect(collect() == .ok)
+        #expect(statusRuns(runner) == 1)
+        // The token status renewed is not held against it if it is ever seen expired again.
+        stored.set(expired, afterStatus: renewed)
+        #expect(collect() == .ok)
+        #expect(statusRuns(runner) == 2)
+        #expect(http.calls.count == 2)
+    }
+
+    @Test("a token tried inside its last minute is tried once more after it has expired")
+    func nearExpiryTryIsNotTheLastOne() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = agentRunner(StoredToken(try jwt(["exp": Self.clock + 30])))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+        func collect(at seconds: TimeInterval) -> UsageState? {
+            agentCollector(home: home, runner: runner, http: http, at: seconds, renewalAttempts: attempts)
+                .collect().first?.state
+        }
+
+        // cursor-agent may not renew a token that has not expired yet.
+        #expect(collect(at: Self.clock) == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 1)
+        #expect(collect(at: Self.clock + 300) == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 2)
+        #expect(collect(at: Self.clock + 600) == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 2)
+        #expect(http.calls.isEmpty)
+    }
+
+    @Test("clearing the cache (consent withdrawn) forgets the token")
+    func clearedCacheTriesAgain() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = agentRunner(StoredToken(try jwt(["exp": Self.clock - 1000])))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+        func collect() -> UsageState? {
+            agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+                .collect().first?.state
+        }
+
+        #expect(collect() == .unavailable(.signInExpired))
+        attempts.clear()
+        #expect(collect() == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 2)
+    }
+
+    @Test("without cursor-agent nothing is remembered, so installing it later still gets a try")
+    func noAgentRemembersNothing() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runner = agentRunner(StoredToken(try jwt(["exp": Self.clock - 1000])))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        let attempts = CursorRenewalAttemptCache()
+        let withoutAgent = CursorUsageCollector(enabled: true, runner: runner, http: http, home: home,
+                                                endpoint: endpoint,
+                                                now: { Date(timeIntervalSince1970: Self.clock) },
+                                                renewalAttempts: attempts)
+
+        #expect(withoutAgent.collect().first?.state == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 0)
+        let state = agentCollector(home: home, runner: runner, http: http, renewalAttempts: attempts)
+            .collect().first?.state
+        #expect(state == .unavailable(.signInExpired))
+        #expect(statusRuns(runner) == 1)
+    }
+}

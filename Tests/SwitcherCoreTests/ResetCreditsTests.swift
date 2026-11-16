@@ -227,6 +227,13 @@ struct ResetCreditsTests {
             == L10n.t(.usageResetCreditsExpiry, 2, UsageText.countdown(to: expiry, from: now)))
     }
 
+    @Test("a ticket expiring within the minute shows the count alone, never \"expires in now\"")
+    func rowTextNearExpiry() {
+        let now = Self.readAt
+        let credits = UsageResetCredits(available: 2, expiries: [now.addingTimeInterval(30)])
+        #expect(UsageText.resetCredits(credits, now: now) == L10n.t(.usageResetCredits, 2))
+    }
+
     @Test("the snapshot carries the count and next expiry, and older files without them still load")
     func snapshot() throws {
         let expiry = Self.readAt.addingTimeInterval(86_400)

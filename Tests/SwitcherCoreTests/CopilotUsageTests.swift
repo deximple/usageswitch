@@ -62,7 +62,9 @@ struct CopilotUsageTests {
         #expect(rows.first?.state == .ok)
         let request = runner.requests.first
         #expect(request?.executable == gh)
-        #expect(request?.arguments == ["auth", "token"])
+        // Always github.com: gh's default host can be an enterprise server, whose token must
+        // never be sent to api.github.com.
+        #expect(request?.arguments == ["auth", "token", "--hostname", "github.com"])
         #expect(request?.stdinLines == nil)
     }
 

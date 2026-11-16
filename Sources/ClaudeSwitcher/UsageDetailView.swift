@@ -295,7 +295,7 @@ struct UsageDetailView: View {
                     .textFieldStyle(.roundedBorder).disabled(busy)
                     .accessibilityLabel(L10n.t(.usageNameField))
                 if let saveError {
-                    Text(saveError).font(.system(size: 11)).foregroundStyle(.red)
+                    UsageNote(text: saveError, tone: .failure)
                 }
             }
         } else {

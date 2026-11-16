@@ -107,14 +107,6 @@ struct CodexRow: View {
     var focused = false
     @State private var hovering = false
 
-    private var stateColor: Color {
-        switch account.state {
-        case .running: return Theme.active
-        case .signedIn: return Theme.ready
-        case .signedOut: return Theme.relogin
-        }
-    }
-
     private var stateText: String {
         switch account.state {
         case .running: return L10n.t(.codexStateRunning)
@@ -159,9 +151,9 @@ struct CodexRow: View {
     /// locale never starves it) and the App source marker. Billing moves to its own line.
     private var chips: some View {
         HStack(spacing: 6) {
-            Chip(text: stateText, color: stateColor, filled: account.state == .running)
+            Chip(text: stateText, marker: .codex(account.state))
                 .layoutPriority(1).fixedSize()
-            Text(L10n.t(.usageEnvApp)).font(.system(size: 10)).foregroundStyle(Theme.inkMuted).fixedSize()
+            Text(L10n.t(.usageEnvApp)).font(Theme.small).foregroundStyle(Theme.inkMuted).fixedSize()
         }
     }
 
@@ -175,7 +167,8 @@ struct CodexRow: View {
             guard let plan = account.identity?.plan, !plan.isEmpty else {
                 return L10n.t(.usageAuthSubscription)
             }
-            return L10n.t(.usageAuthSubscription) + " · " + plan.capitalized
+            // The same display name the Usage tab shows ("Pro Lite", not "Prolite").
+            return L10n.t(.usageAuthSubscription) + " · " + (UsageText.planName(plan) ?? plan)
         case .unknown, .none:
             return nil
         }
@@ -220,7 +213,9 @@ struct CodexRow: View {
 
             }
             Spacer(minLength: 8)
-            trailing
+            // Fixed, so the stack sizes the button first and the name column gets the rest; a
+            // button that could shrink would cap that column at half the row.
+            trailing.fixedSize()
         }
         .padding(.horizontal, compact ? 10 : 14)
         .padding(.vertical, compact ? 8 : 12)
@@ -254,7 +249,7 @@ struct CodexRow: View {
                 .help(L10n.t(.codexOpenHelp))
         case .signedIn:
             Button(L10n.t(.codexOpen), action: onOpen)
-                .buttonStyle(ActionButtonStyle(tint: Theme.active))
+                .buttonStyle(ActionButtonStyle())
                 .disabled(busy)
                 .help(L10n.t(.codexOpenHelp))
         case .signedOut:
@@ -386,7 +381,7 @@ struct CodexMainContent: View {
                 HStack(alignment: .top) {
                     CodexHeader(status: status)
                     VStack(alignment: .trailing, spacing: 6) {
-                        if model.isDemo { Chip(text: L10n.t(.uiDemo), color: Theme.alias, filled: true) }
+                        if model.isDemo { Chip(text: L10n.t(.uiDemo)) }
                         Button { model.refresh() } label: { Label(L10n.t(.uiRefresh), systemImage: "arrow.clockwise") }
                             .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
                             .keyboardShortcut("r", modifiers: .command)
@@ -397,51 +392,49 @@ struct CodexMainContent: View {
                 .background(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).fill(Theme.surface))
                 .padding([.horizontal, .top], Theme.gapGroup)
 
-                ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Theme.gapGroup) {
-                        if case .signingIn = model.phase { CodexSignInProgress(model: model) }
-                        if let banner = model.banner { BannerView(banner: banner) }
-                        if status.registryUnreadable {
-                            BannerView(banner: SwitcherModel.Banner(kind: .error, text: L10n.t(.codexRegistryUnreadable)))
-                        }
-                        VStack(alignment: .leading, spacing: Theme.gapRow) {
-                            Text(L10n.t(.uiAccounts)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
-                            ForEach(status.accounts) { account in
-                                CodexRow(account: account, model: model, alwaysReveal: settings.showEmails,
-                                         focused: model.focusedAccountID == account.id)
-                                    .id(account.id)
+                ActionBarLayout {
+                    ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: Theme.gapGroup) {
+                            if case .signingIn = model.phase { CodexSignInProgress(model: model) }
+                            if let banner = model.banner { BannerView(banner: banner) }
+                            if status.registryUnreadable {
+                                BannerView(banner: SwitcherModel.Banner(kind: .error, text: L10n.t(.codexRegistryUnreadable)))
                             }
-                        }
-                        if !status.found.isEmpty {
                             VStack(alignment: .leading, spacing: Theme.gapRow) {
-                                Text(L10n.t(.codexFoundTitle)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
-                                Text(L10n.t(.codexFoundHint)).font(Theme.caption).foregroundStyle(Theme.inkMuted)
-                                ForEach(status.found) { found in
-                                    CodexFoundRow(found: found, model: model, alwaysRevealed: settings.showEmails)
+                                Text(L10n.t(.uiAccounts)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+                                ForEach(status.accounts) { account in
+                                    CodexRow(account: account, model: model, alwaysReveal: settings.showEmails,
+                                             focused: model.focusedAccountID == account.id)
+                                        .id(account.id)
+                                }
+                            }
+                            if !status.found.isEmpty {
+                                VStack(alignment: .leading, spacing: Theme.gapRow) {
+                                    Text(L10n.t(.codexFoundTitle)).font(Theme.eyebrow).foregroundStyle(Theme.inkMuted)
+                                    Text(L10n.t(.codexFoundHint)).font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                                    ForEach(status.found) { found in
+                                        CodexFoundRow(found: found, model: model, alwaysRevealed: settings.showEmails)
+                                    }
                                 }
                             }
                         }
+                        .padding(Theme.gapGroup)
                     }
-                    .padding(Theme.gapGroup)
-                }
-                .onAppear { scrollToFocus(proxy) }
-                .onChange(of: model.focusedAccountID) { _, _ in scrollToFocus(proxy) }
-                }
-
-                Divider()
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Button(L10n.t(.codexAdd)) { model.add() }
-                            .buttonStyle(ActionButtonStyle(tint: Theme.alias))
-                            .disabled(model.isBusy || !status.installed)
-                            .help(L10n.t(.codexAddHelp))
-                        Spacer()
+                    .onAppear { scrollToFocus(proxy) }
+                    .onChange(of: model.focusedAccountID) { _, _ in scrollToFocus(proxy) }
+                    }
+                } bar: {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Button(L10n.t(.codexAdd)) { model.add() }
+                                .buttonStyle(ActionButtonStyle(filled: StatusPalette.neutralButton))
+                                .disabled(model.isBusy || !status.installed)
+                                .help(L10n.t(.codexAddHelp))
+                            Spacer()
+                        }
                     }
                 }
-                .padding(.horizontal, Theme.gapGroup)
-                .padding(.vertical, 12)
-                .background(Theme.surface.opacity(0.6))
             }
         } else {
             ProgressView(L10n.t(.uiLoading)).foregroundStyle(Theme.inkMuted).frame(maxWidth: .infinity, maxHeight: .infinity)

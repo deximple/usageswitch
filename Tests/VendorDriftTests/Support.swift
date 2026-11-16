@@ -72,12 +72,54 @@ enum Sample {
         String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
     }
 
-    static func claudeStream(_ panel: String) -> [String] {
+    /// `usageReport` nil leaves `usage_report` off the assistant line, as an older CLI does.
+    static func claudeStream(_ panel: String, usageReport: [String: Any]? = Sample.usageReport()) -> [String] {
         let result: [String: Any] = ["type": "result", "subtype": "success", "is_error": false,
                                      "num_turns": 0, "total_cost_usd": 0, "result": panel]
         let initLine = #"{"type":"system","subtype":"init","account":"\#(email)"}"#
-        let assistant = #"{"type":"assistant","message":{"model":"<synthetic>"}}"#
-        return [initLine, assistant, line(result)]
+        let message: [String: Any] = ["model": "<synthetic>"]
+        var assistant: [String: Any] = ["type": "assistant", "message": message]
+        if let usageReport { assistant["usage_report"] = usageReport }
+        return [initLine, line(assistant), line(result)]
+    }
+
+    /// One weekly limit of the structured report: all models, or the one named.
+    static func usageLimit(scopedTo model: String? = nil) -> [String: Any] {
+        var limit: [String: Any] = [:]
+        limit["kind"] = model == nil ? "weekly_all" : "weekly_scoped"
+        limit["group"] = "weekly"
+        limit["percent"] = model == nil ? 33 : 53
+        limit["resets_at"] = "2026-11-20T14:00:00.205721+00:00"
+        limit["scope"] = NSNull()
+        limit["severity"] = "normal"
+        limit["is_active"] = model != nil
+        if let model {
+            let named: [String: Any] = ["display_name": model]
+            let scope: [String: Any] = ["model": named, "surface": NSNull()]
+            limit["scope"] = scope
+        }
+        return limit
+    }
+
+    /// `usage_report.rate_limits` the way CLI 2.1.325 sends it.
+    static var rateLimits: [String: Any] {
+        var extra: [String: Any] = [:]
+        extra["is_enabled"] = false
+        for key in ["monthly_limit", "used_credits", "utilization", "currency"] { extra[key] = NSNull() }
+        let limits: [[String: Any]] = [usageLimit(), usageLimit(scopedTo: "Fable")]
+        return ["limits": limits, "extra_usage": extra]
+    }
+
+    /// The structured report on the stream's assistant line. `rateLimits` nil leaves it out.
+    static func usageReport(rateLimits: [String: Any]? = Sample.rateLimits) -> [String: Any] {
+        var session: [String: Any] = [:]
+        for key in ["total_cost_usd", "total_api_duration_ms", "total_duration_ms",
+                    "total_lines_added", "total_lines_removed"] { session[key] = 0 }
+        let byModel: [String: Any] = [:]
+        session["model_usage"] = byModel
+        var report: [String: Any] = ["session": session]
+        if let rateLimits { report["rate_limits"] = rateLimits }
+        return report
     }
 
     static let claudePanel = """

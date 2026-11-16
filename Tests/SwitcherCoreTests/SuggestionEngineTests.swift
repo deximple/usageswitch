@@ -290,6 +290,50 @@ struct SuggestionEngineTests {
         #expect(choice.limitingWindowKey == UsagePriority.key(account, fable))
     }
 
+    @Test("Claude's \"Sonnet only\" weekly limit holds back the Sonnet model and no other")
+    func sonnetOnlyScope() throws {
+        let sonnet = TestModel(vendor: "claude", model: "claude-sonnet-5-5",
+                               name: "Claude Sonnet 5.5", efforts: ["medium"])
+        let fable = TestModel(vendor: "claude", model: "claude-fable-5-1",
+                              name: "Claude Fable 5.1", efforts: ["medium"])
+        let common = UsageWindow(durationMinutes: 300, usedPercent: 20,
+                                 resetsAt: now.addingTimeInterval(3600))
+        let sonnetOnly = UsageWindow(scope: "Sonnet only", durationMinutes: 10080,
+                                     usedPercent: 100, resetsAt: now.addingTimeInterval(86400))
+        let account = usage("claude:account", provider: .claude, windows: [common, sonnetOnly])
+
+        // Sonnet is the only model: its used-up limit leaves nothing to suggest.
+        let sonnetCatalog = try makeCatalog(models: [sonnet], entries: [
+            TestEntry(modelKey: sonnet.key, effort: "medium", tier: "mid", simple: 1, reasoning: 1),
+        ])
+        let mapped = try #require(SuggestionHarnessMap.standard
+            .candidateModels(for: .claude, catalog: sonnetCatalog).first)
+        #expect(SuggestionHarnessMap.standard.spentWindows(in: account, for: mapped)
+                == [common, sonnetOnly])
+        #expect(run(.balanced, catalog: sonnetCatalog, usages: [account]) == .none(.excluded))
+
+        // Beside a better-ranked Sonnet, Fable is still offered: the limit is not Fable's.
+        let bothCatalog = try makeCatalog(models: [sonnet, fable], entries: [
+            TestEntry(modelKey: sonnet.key, effort: "medium", tier: "mid", simple: 1, reasoning: 1),
+            TestEntry(modelKey: fable.key, effort: "medium", tier: "mid", simple: 9, reasoning: 9),
+        ])
+        let fableMapped = try #require(SuggestionHarnessMap.standard
+            .candidateModels(for: .claude, catalog: bothCatalog).first { $0.model.key == fable.key })
+        #expect(SuggestionHarnessMap.standard.spentWindows(in: account, for: fableMapped) == [common])
+        #expect(selected(run(.balanced, catalog: bothCatalog, usages: [account]))?.modelKey == fable.key)
+    }
+
+    @Test("the bundled catalog carries the model the \"Sonnet only\" limit is mapped to")
+    func sonnetOnlyScopeInTheBundledCatalog() throws {
+        let sonnetOnly = UsageWindow(scope: "Sonnet only", durationMinutes: 10080,
+                                     usedPercent: 100, resetsAt: now.addingTimeInterval(86400))
+        let account = usage("claude:account", provider: .claude, windows: [sonnetOnly])
+        let map = SuggestionHarnessMap.standard
+        let claimed = map.candidateModels(for: .claude, catalog: try SuggestionCatalog.bundled())
+            .filter { !map.spentWindows(in: account, for: $0).isEmpty }
+        #expect(claimed.map(\.model.key) == ["claude/claude-sonnet-5-5"])
+    }
+
     @Test("Gemini scopes match full normalized IDs, not shared family words")
     func geminiScopedModelIdentity() throws {
         let model = TestModel(vendor: "google", model: "gemini-3.5-flash-lite",

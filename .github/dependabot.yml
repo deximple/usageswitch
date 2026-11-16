@@ -4,3 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Sparkle is pinned to an exact version in Package.swift: without this its releases go unnoticed.
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly

@@ -35,14 +35,28 @@ struct MenuBarChoiceTests {
         #expect(selected == b.windows[0])
     }
 
-    @Test("a chosen window that isn't read right now falls back to pins, then automatic")
+    @Test("a chosen window that isn't read right now selects nothing — never another account's limit")
     func chosenMissing() {
         let a = usage("codex:a", [UsageWindow(durationMinutes: 10080, usedPercent: 40, resetsAt: reset)])
         let b = usage("codex:b", [UsageWindow(durationMinutes: 10080, usedPercent: 80, resetsAt: reset)])
         let gone = "codex:z/weekly/"
-        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [], chosen: gone)?.usedPercent == 80)
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [], chosen: gone) == nil)
         let pinned = UsagePriority.key(a, a.windows[0])
-        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [pinned], chosen: gone)?.usedPercent == 40)
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [pinned], chosen: gone) == nil)
+        // The chosen account answered, but without the chosen window (stale or dropped).
+        let other = usage("codex:z", [UsageWindow(durationMinutes: 300, usedPercent: 10, resetsAt: reset)])
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(other)], pins: [], chosen: gone) == nil)
+    }
+
+    @Test("without a choice, pins and the automatic pick work as before")
+    func noChoice() {
+        let a = usage("codex:a", [UsageWindow(durationMinutes: 10080, usedPercent: 40, resetsAt: reset)])
+        let b = usage("codex:b", [UsageWindow(durationMinutes: 10080, usedPercent: 80, resetsAt: reset)])
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [], chosen: nil)?.usedPercent == 80)
+        let pinned = UsagePriority.key(a, a.windows[0])
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [pinned], chosen: nil)?.usedPercent == 40)
+        // An empty key is how "automatic" is saved: it is no choice either.
+        #expect(MenuBarTitle.selectWindow(accounts: [keyed(a), keyed(b)], pins: [], chosen: "")?.usedPercent == 80)
     }
 
     @Test("the setting round-trips, and an empty saved key means automatic")

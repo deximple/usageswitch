@@ -67,6 +67,8 @@ struct APITests {
         #expect(APIBudgetMath.daysLeft(remainingUSD: 25, dailyRateUSD: 5) == 5)
         #expect(APIBudgetMath.daysLeft(remainingUSD: 25, dailyRateUSD: 0) == nil)
         #expect(APIBudgetMath.daysLeft(remainingUSD: 25, dailyRateUSD: nil) == nil)
+        // A day count too large to show is no estimate, and must not trap converting to Int.
+        #expect(APIBudgetMath.daysLeft(remainingUSD: 1e300, dailyRateUSD: 2) == nil)
         #expect(APIBudgetMath.remaining(.balance(amountUSD: 25,
             asOf: now.addingTimeInterval(60)), spending: [], now: now) == nil)
 
@@ -111,15 +113,87 @@ struct APITests {
             record(daysAgo: 1, usd: 7), record(daysAgo: 2, usd: 7)],
             apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(2))
         #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 7) < 0.01)
-        // Covered zero-spend days count: $14 today after six covered days without spend.
+        // Days before the first spend record don't count, however far back the logs are covered.
         e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14)],
             apiKeyAccounts: [key], catalog: catalog, now: now, coverageStartDay: day(13))
-        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01)
-        // Unknown coverage keeps the full 7-day window.
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 14) < 0.01)
+        // Spend on the window's first day makes it the full seven days.
         e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
             record(daysAgo: 6, usd: 14)],
             apiKeyAccounts: [key], catalog: catalog, now: now)
         #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 4) < 0.01)
+        // An account that rested for weeks is not a new one: spend anywhere in the retained
+        // history before the window makes it the full seven days.
+        for daysAgo in [7, 14, 20, 34] {
+            e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14),
+                record(daysAgo: daysAgo, usd: 5)],
+                apiKeyAccounts: [key], catalog: catalog, now: now)
+            #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01, "spend \(daysAgo) days ago")
+        }
+        // Earlier use counts even when its price is unknown: the account was in use either way.
+        let unpriced = SuggestionLogUsage(day: day(20), provider: .claude, accountRef: key.accountKey,
+            model: "no-such-model", effort: "high", turns: 1, inputTokens: 1_000,
+            cachedInputTokens: 0, cachedCreationTokens: 0,
+            outputTokens: 0, reasoningTokens: 0, toolVersion: nil)
+        e = APIUsageEstimator.estimate(records: [record(daysAgo: 0, usd: 14), unpriced],
+            apiKeyAccounts: [key], catalog: catalog, now: now)
+        #expect(abs((e[.anthropic]?.dailyRateUSD ?? 0) - 2) < 0.01)
+    }
+
+    /// A priced Codex API-key record worth `usd`, on the UTC day `daysAgo` days before `now`.
+    private func spend(_ usd: Double, daysAgo: Int, key: APIKeyAccountKey,
+                       catalog: SuggestionCatalog) throws -> SuggestionLogUsage {
+        func inputPrice(_ model: SuggestionCatalog.Model) -> Double? {
+            model.values.first { $0.code == "inputPricePerMTok" }?.number
+        }
+        let model = try #require(catalog.models.first { $0.vendorId == "openai" && (inputPrice($0) ?? 0) > 0 })
+        let price = try #require(inputPrice(model))
+        return SuggestionLogUsage(
+            day: SuggestionRetention.utcDay(now.addingTimeInterval(-86_400 * Double(daysAgo))),
+            provider: .codex, accountRef: key.accountKey, model: model.model, effort: "high", turns: 1,
+            inputTokens: Int64(usd * 1_000_000 / price), cachedInputTokens: 0, outputTokens: 0,
+            reasoningTokens: 0, toolVersion: nil)
+    }
+
+    @Test func theFirstDayOfSpendIsNotSpreadOverAWeek() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let key = APIKeyAccountKey(provider: .codex, accountKey: "acct-first-day")
+        // What the app passes on an account's first day: coverage reaches 13 days behind the first pass.
+        let coverage = SuggestionLogPass.coverageStartDay(firstPassDay: SuggestionRetention.utcDay(now))
+        let estimate = try #require(APIUsageEstimator.estimate(
+            records: [try spend(14, daysAgo: 0, key: key, catalog: catalog)], apiKeyAccounts: [key],
+            catalog: catalog, now: now, coverageStartDay: coverage)[.openai])
+        #expect(abs(try #require(estimate.spendLast7DaysUSD) - 14) < 0.01)
+        #expect(abs(try #require(estimate.dailyRateUSD) - 14) < 0.01)
+        // $100 entered this morning: the $86 left lasts about a week at $14 a day, not 43 days at $2.
+        let balance = APIBudget.balance(amountUSD: 100, asOf: utc.startOfDay(for: now))
+        let remaining = try #require(APIBudgetMath.remaining(
+            balance, spending: estimate.dailySpend, now: now, coverageStartDay: estimate.coverageStartDay))
+        #expect(abs(remaining - 86) < 0.01)
+        #expect(APIBudgetMath.daysLeft(remainingUSD: remaining, dailyRateUSD: estimate.dailyRateUSD) == 7)
+    }
+
+    @Test func theDailyRateCountsFromTheFirstSpendInsideTheWindow() throws {
+        let catalog = try SuggestionCatalog.bundled()
+        let key = APIKeyAccountKey(provider: .codex, accountKey: "acct-window")
+        let coverage = SuggestionLogPass.coverageStartDay(firstPassDay: SuggestionRetention.utcDay(now))
+        func rate(_ spent: [(usd: Double, daysAgo: Int)]) throws -> Double {
+            let records = try spent.map { try spend($0.usd, daysAgo: $0.daysAgo, key: key, catalog: catalog) }
+            let estimates = APIUsageEstimator.estimate(records: records, apiKeyAccounts: [key], catalog: catalog,
+                                                       now: now, coverageStartDay: coverage)
+            return try #require(estimates[.openai]?.dailyRateUSD)
+        }
+        // First spend three days ago and nothing since: four days, the quiet ones included.
+        #expect(abs(try rate([(12, 3)]) - 3) < 0.01)
+        // Spend on the window's first day: the full seven days.
+        #expect(abs(try rate([(14, 6), (14, 0)]) - 4) < 0.01)
+        // Spend on every day of the window, and before it: still seven.
+        #expect(abs(try rate((0..<10).map { (usd: 7.0, daysAgo: $0) }) - 7) < 0.01)
+        // Spend before the window means the account was already in use throughout it: the quiet
+        // days count, so 10 days ago and today is a seven-day average, not one day's.
+        #expect(abs(try rate([(50, 10), (14, 0)]) - 2) < 0.01)
+        // No spend inside the window: nothing a day.
+        #expect(try rate([(50, 10)]) == 0)
     }
 
     @Test func vendorsWithoutALogReaderAreMarkedNotEstimable() throws {
@@ -173,8 +247,8 @@ struct APITests {
         let anthropic = try #require(estimates[.anthropic])
         #expect(anthropic.hasAPIKeyAccounts)
         #expect(abs(try #require(anthropic.spendLast7DaysUSD) - expected) < 0.000_001)
-        // Coverage unknown here: the full 7-day window.
-        #expect(abs(try #require(anthropic.dailyRateUSD) - expected / 7) < 0.000_001)
+        // The only spend is today's: one day.
+        #expect(abs(try #require(anthropic.dailyRateUSD) - expected) < 0.000_001)
         #expect(estimates[.openai]?.hasAPIKeyAccounts == false)
 
         let noPrice = SuggestionLogUsage(day: day, provider: .claude, accountRef: key.accountKey,

@@ -47,7 +47,7 @@ UUID_VALUE = re.compile(
 FORBIDDEN_KEYS = {"identityKey", "token", "accessToken", "refreshToken", "apiKey", "key",
                   "cookie", "email", "authorization", "body", "tokenAccountId"}
 KNOWN_PROVIDERS = {"claude", "codex", "cursor", "grok", "gemini", "antigravity",
-                   "devin", "opencode"}
+                   "devin", "opencode", "copilot"}
 MAX_AGE_SECONDS = 600
 
 

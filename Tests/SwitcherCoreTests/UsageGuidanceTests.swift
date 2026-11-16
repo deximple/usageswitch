@@ -89,6 +89,29 @@ struct UsagePaceTests {
                                 identityKey: "id1") == .unknown)
     }
 
+    @Test func aSteadyDrainStaysDepletingWhenItsAnchorIsRetired() {
+        // Reads every 320 s, +2 points each, for well over an hour. Once the slope is proven it must
+        // not lapse while the hour-old anchor is swapped for a newer one — the Guide would offer an
+        // account it had just ruled out as running dry.
+        let reset = epoch.addingTimeInterval(3 * 86400)
+        var previous: UsagePace.Sample?
+        var depleting: [Bool] = []
+        for step in 0..<16 {
+            let now = epoch.addingTimeInterval(Double(step) * 320)
+            let used = 20 + Double(step) * 2
+            let window = fresh(now, used, reset: reset)
+            if case .depleting = UsagePace.reading(window, previous: previous, now: now, identityKey: "id1") {
+                depleting.append(true)
+            } else {
+                depleting.append(false)
+            }
+            let anchor = UsagePace.anchor(for: window, previous: previous, now: now, identityKey: "id1")
+            previous = UsagePace.Sample(at: now, usedPercent: used, identityKey: "id1", resetsAt: reset,
+                                        durationMinutes: 300, anchorAt: anchor?.at, anchorPercent: anchor?.percent)
+        }
+        #expect(depleting == [false, false] + Array(repeating: true, count: 14))
+    }
+
     @Test func theAnchorIsKeptWhileRisingButCappedAtAnHour() {
         let prev = UsagePace.Sample(at: epoch.addingTimeInterval(-400), usedPercent: 30,
                                     identityKey: "id1",
@@ -103,7 +126,7 @@ struct UsagePaceTests {
         let flat = UsagePace.anchor(for: fresh(epoch, 30), previous: prev,
                                     now: epoch, identityKey: "id1")
         #expect(flat?.at == epoch)
-        // past 60 min the anchor is dropped even when rising
+        // past 60 min a rising streak's anchor slides to the previous sample
         let ancient = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 30,
                                        identityKey: "id1",
                                        resetsAt: epoch.addingTimeInterval(3 * 86400),
@@ -111,7 +134,8 @@ struct UsagePaceTests {
                                        anchorAt: epoch.addingTimeInterval(-3601), anchorPercent: 10)
         let dropped = UsagePace.anchor(for: fresh(epoch, 31), previous: ancient,
                                        now: epoch, identityKey: "id1")
-        #expect(dropped?.at == epoch)
+        #expect(dropped?.at == epoch.addingTimeInterval(-300))
+        #expect(dropped?.percent == 30)
     }
 
     @Test("flat or falling use is steady")
@@ -130,10 +154,11 @@ struct UsagePaceTests {
     }
 
     @Test func anAnchorOlderThanAnHourIsNotEvidence() {
-        // The streak's anchor is 61 minutes old: `anchor(for:)` would drop it, so no projection from it.
+        // `anchor(for:)` retires an anchor on the first read past the hour, so one older than the
+        // hour plus a read gap (here 71 minutes) can only be stale: no projection from it.
         let old = UsagePace.Sample(at: epoch.addingTimeInterval(-300), usedPercent: 31, identityKey: "id1",
                                    resetsAt: epoch.addingTimeInterval(3 * 86400), durationMinutes: 300,
-                                   anchorAt: epoch.addingTimeInterval(-3660), anchorPercent: 10)
+                                   anchorAt: epoch.addingTimeInterval(-4260), anchorPercent: 10)
         #expect(UsagePace.reading(fresh(epoch, 32), previous: old, now: epoch, identityKey: "id1") == .unknown)
     }
 
@@ -465,6 +490,29 @@ struct UsageAlertTests {
         let other = UsageAlerts.update(usages: [usage([], id: "codex:ab", state: .failed(.network))], threshold: 80,
                                        alerted: ["codex:a/weekly/": .init()], now: epoch)
         #expect(other.alerted.isEmpty)
+    }
+
+    @Test func marksOfAccountsNotReadThisRoundSurviveIt() {
+        // The first refresh after launch runs before Claude's status is known, so connected Claude
+        // accounts are missing from it. Their marks must stay, or every launch alerts again.
+        let alerted: [String: UsageAlerts.Mark] = ["claude:app:A/weekly/": .init(resetsAt: future),
+                                                   "codex:gone/weekly/": .init()]
+        let first = UsageAlerts.update(usages: [], threshold: 80, alerted: alerted, now: epoch,
+                                       unreadPrefix: "claude:app:")
+        #expect(first.alerted == ["claude:app:A/weekly/": .init(resetsAt: future)])
+
+        let read = usage([window(10080, used: 90, resetsAt: future)], id: "claude:app:A")
+        let second = UsageAlerts.update(usages: [read], threshold: 80, alerted: first.alerted, now: epoch)
+        #expect(second.alerts.isEmpty)
+    }
+
+    @Test func theUnreadPrefixNeverKeepsAMarkForAnAccountThatWasRead() {
+        // Read this round and well below the line: its mark is released as usual, prefix or not.
+        let alerted: [String: UsageAlerts.Mark] = ["claude:app:A/weekly/": .init(resetsAt: future)]
+        let read = usage([window(10080, used: 10, resetsAt: future)], id: "claude:app:A")
+        let result = UsageAlerts.update(usages: [read], threshold: 80, alerted: alerted, now: epoch,
+                                        unreadPrefix: "claude:app:")
+        #expect(result.alerted.isEmpty)
     }
 
     @Test func aNewWindowAfterTheResetAlertsAgain() {

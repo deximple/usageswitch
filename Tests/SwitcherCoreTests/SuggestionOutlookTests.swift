@@ -150,4 +150,18 @@ struct SuggestionOutlookTests {
         #expect(text.situation == string(.suggestionSituationExpiring, UsageText.name(of: weekly), 60,
             UsageText.countdown(to: now.addingTimeInterval(3 * 3600), from: now)))
     }
+
+    @Test("a limit resetting within the minute never reads \"resets in now\"")
+    func expiringSituationLineNearTheReset() throws {
+        let weekly = Support.window(10080, used: 40, resetsIn: 30)
+        let account = Support.usage("a", label: "Work", windows: [weekly])
+        let catalog = try Support.singleModelCatalog()
+        let report = SuggestionEngine.report(mode: .balanced, task: 0.5, catalog: catalog,
+                                             usages: [account], pace: [:], now: now)
+        let text = SuggestionText.explanation(for: report, usages: [account], catalog: catalog,
+                                              now: now, label: { $0.label })
+        #expect(text.situation != nil)
+        #expect(text.situation != string(.suggestionSituationExpiring, UsageText.name(of: weekly), 60,
+                                         string(.usageNow)))
+    }
 }

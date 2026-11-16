@@ -81,6 +81,47 @@ struct UsageConnectionDisclosureTests {
         #expect(SwitcherSettings(usageConnections: ["gemini.v2", "antigravity"]).enabledUsageProviders.isEmpty)
     }
 
+    /// Cursor was re-described when its dialog began naming the `cursor-agent status` run. Its
+    /// on/off flag stays the switch; the marker says the flag was set under the current wording.
+    @Test func aCursorGrantFromBeforeTheNewDisclosureIsNotEnough() {
+        let old = SwitcherSettings(cursorUsageEnabled: true)
+        #expect(old.enabledUsageProviders.isEmpty)
+        // Not hidden either: the row offers Connect usage again.
+        #expect(old.hiddenUsageProviders.isEmpty)
+        #expect(SwitcherSettings(cursorUsageEnabled: true, usageConnections: ["cursor"])
+            .enabledUsageProviders.isEmpty)
+        #expect(SwitcherSettings(cursorUsageEnabled: true, usageConnections: ["cursor.v2"])
+            .enabledUsageProviders == [.cursor])
+    }
+
+    @Test func theCursorMarkerNeverTurnsCursorOn() {
+        #expect(SwitcherSettings(usageConnections: ["cursor", "cursor.v2"]).enabledUsageProviders.isEmpty)
+        #expect(SwitcherSettings(cursorUsageEnabled: false, usageConnections: ["cursor", "cursor.v2"])
+            .enabledUsageProviders.isEmpty)
+    }
+
+    @Test func savingACursorGrantWritesItsMarker() {
+        let saved = SwitcherSettings.usageConnectionsValue(providers: [.cursor, .grok], geminiTokenRefresh: false)
+        #expect(saved == ["cursor", "cursor.v2", "grok"])
+        // What is saved is granted when read back, and turning Cursor off drops the marker with it.
+        #expect(SwitcherSettings(cursorUsageEnabled: true, usageConnections: saved).enabledUsageProviders
+            == [.cursor, .grok])
+        #expect(SwitcherSettings.usageConnectionsValue(providers: [.grok], geminiTokenRefresh: false) == ["grok"])
+    }
+
+    /// `cursor-agent status` runs once for an expired token, not on each refresh.
+    @Test func theCursorDisclosureDoesNotPromiseAStatusRunPerRefresh() {
+        let perRefresh: [AppLanguage: String] = [
+            .en: "once per refresh", .ko: "갱신할 때마다 `cursor-agent status`",
+            .ja: "更新のたびに `cursor-agent status`", .es: "una vez por actualización",
+            .zhHans: "每次刷新时运行一次",
+        ]
+        for language in AppLanguage.allCases {
+            let body = L10n.string(.usageCursorAlertBody, language: language)
+            #expect(perRefresh[language].map { body.contains($0) } == false, "\(language)")
+        }
+    }
+
     @Test func providersWhoseBehaviourDidNotChangeKeepTheirGrant() {
         let settings = SwitcherSettings(usageConnections: ["grok", "devin", "opencode"])
         #expect(settings.enabledUsageProviders == [.grok, .devin, .opencode])
@@ -100,7 +141,8 @@ struct UsageConnectionDisclosureTests {
 
     @Test func everyConsentProviderHasItsOwnDisclosureNamingWhereRequestsGo() {
         let hosts: [UsageProvider: [String]] = [
-            .cursor: ["api2.cursor.sh"], .grok: ["cli-chat-proxy.grok.com", "~/.grok/auth.json"],
+            .cursor: ["api2.cursor.sh", "cursor-agent status"],
+            .grok: ["cli-chat-proxy.grok.com", "~/.grok/auth.json"],
             .gemini: ["cloudcode-pa.googleapis.com", "oauth2.googleapis.com", "~/.gemini/oauth_creds.json"],
             .antigravity: ["cloudcode-pa.googleapis.com", "oauth2.googleapis.com"],
             .devin: ["server.codeium.com", "devin --version", "credentials.toml"],

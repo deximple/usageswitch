@@ -16,13 +16,21 @@ private struct EmptyTable: ProcessTable {
     func environmentValues(pid: pid_t, keys: Set<String>) -> [String: String] { [:] }
 }
 
+/// A clock stopped at one instant; the CLI reads it for the age of the usage snapshot.
+private struct StoppedClock: Clock {
+    let date: Date
+    func now() -> Date { date }
+    func uptime() -> TimeInterval { 0 }
+    func sleep(_ seconds: TimeInterval) {}
+}
+
 @Suite("CLI exit codes (audit B-13)")
 struct CLITests {
     /// CLI.run with a sandboxed switcher + codex manager; returns (exit, stdout, stderr).
     /// The process table is an empty fake — the sandbox env must never see the host's Claude.
-    private func run(_ sb: Sandbox, _ args: [String]) -> (Int32, String, String) {
+    private func run(_ sb: Sandbox, _ args: [String], clock: Clock = SystemClock()) -> (Int32, String, String) {
         let out = StringSink(), err = StringSink()
-        let switcher = Switcher(env: sb.env, table: EmptyTable())
+        let switcher = Switcher(env: sb.env, table: EmptyTable(), clock: clock)
         let codex = CodexManager(env: sb.env, table: EmptyTable())
         let code = CLI.run(args: args, switcher: switcher, codex: codex,
                            out: { out.text += $0 }, err: { err.text += $0 })
@@ -52,6 +60,42 @@ struct CLITests {
         let (code, out, _) = run(sb, ["usage"])
         #expect(code == 1)
         #expect(out.contains("no_usage"))
+    }
+
+    @Test func usageAddsTheSnapshotAgeAndLeavesTheFileAlone() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try sb.fs.createDirectory(sb.env.storeDir)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        let reading = AccountUsage(
+            id: "codex:a", provider: .codex, accountRef: "a", label: "Work", plan: nil,
+            windows: [UsageWindow(durationMinutes: 10080, usedPercent: 31, resetsAt: written.addingTimeInterval(3600))],
+            state: .ok, readAt: written, toolVersion: nil)
+        try UsageSnapshot(usages: [reading], generatedAt: written, showEmails: false).write(env: sb.env, fs: sb.fs)
+        let file = try Data(contentsOf: sb.env.usageSnapshotFile)
+        func result(_ out: String) throws -> [String: Any] {
+            let envelope = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any]
+            return try #require(envelope?["result"] as? [String: Any])
+        }
+        func canonical(_ object: Any) throws -> String {
+            String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }
+
+        // Three days on, the snapshot still says "ok"; only the age tells it is old.
+        let later = run(sb, ["usage"], clock: StoppedClock(date: written.addingTimeInterval(3 * 86_400 + 0.9)))
+        #expect(later.0 == 0)
+        var printed = try result(later.1)
+        #expect(printed["ageSeconds"] as? Int == 259_200)
+        // Every other field is the file's, name for name.
+        printed["ageSeconds"] = nil
+        #expect(try canonical(printed) == canonical(try JSONSerialization.jsonObject(with: file)))
+
+        // A snapshot dated ahead of the clock is 0 seconds old, not a negative age.
+        let earlier = run(sb, ["usage"], clock: StoppedClock(date: written.addingTimeInterval(-60)))
+        #expect(try result(earlier.1)["ageSeconds"] as? Int == 0)
+
+        // The age exists at print time only.
+        #expect(try Data(contentsOf: sb.env.usageSnapshotFile) == file)
+        #expect(!String(decoding: file, as: UTF8.self).contains("ageSeconds"))
     }
 
     @Test func statusAndRecoverReport0() throws {

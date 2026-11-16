@@ -64,12 +64,28 @@ struct StringContractsTests {
         #expect(CodexRateLimitsParser.failure(for: ["message": "authentication required"]) == .noSignIn)
     }
 
-    @Test("the Antigravity contract is the title the app's screen reader looks for")
-    func antigravityMatchesScreenReader() {
-        for label in labels(StringContracts.antigravity) {
-            #expect(AntigravityUsageScreen.containsQuotaTitle(Data("\(label)\r\n".utf8)))
-        }
+    @Test("each Antigravity contract is wording the app's screen reader acts on")
+    func antigravityMatchesScreenReader() throws {
+        let labels = labels(StringContracts.antigravity)
+        #expect(labels == ["Models & Quota", "? for shortcuts", "Refreshes in"])
+
+        // The quota screen is found by its title.
+        #expect(AntigravityUsageScreen.containsQuotaTitle(Data("Models & Quota\r\n".utf8)))
         #expect(!AntigravityUsageScreen.containsQuotaTitle(Data("Something else\r\n".utf8)))
+
+        // /usage is typed and submitted only at the prompt that shows the shortcuts hint.
+        var prompt = AntigravityVTScreenBuffer()
+        prompt.feed(Data("> /usage\r\n? for shortcuts\r\n".utf8))
+        #expect(prompt.canSubmitUsage)
+        var other = AntigravityVTScreenBuffer()
+        other.feed(Data("> /usage\r\nSomething else\r\n".utf8))
+        #expect(!other.canSubmitUsage)
+
+        // Each limit's reset time is read from the "Refreshes in" line.
+        let now = Date(timeIntervalSince1970: 1_794_584_700)
+        let screen = "Models & Quota\nGEMINI MODELS\nWeekly Limit Remaining\n[██] 50%\nRefreshes in 2h 5m\n"
+        let windows = try #require(AntigravityUsageScreen.parse(Data(screen.utf8), now: now))
+        #expect(windows.first?.resetsAt == now.addingTimeInterval(2 * 3600 + 5 * 60))
     }
 
     // MARK: - Searching a file
