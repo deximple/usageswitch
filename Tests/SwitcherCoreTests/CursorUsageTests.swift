@@ -317,6 +317,22 @@ struct CursorUsageTests {
         usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
         #expect(usage?.state == .failed(.network))
     }
+
+    /// Cursor answered, so this is not "couldn't reach the service" — and not a read to repeat
+    /// early after the Mac wakes.
+    @Test("HTTP 429 is a rate limit, not a network failure")
+    func rateLimited() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let fake = fakeHTTP(usage: UsageFixture.cursorSplit, status: 429)
+        let usage = collector(home: home, runner: fakeRunner(keychainToken: "tok"), http: fake).collect().first
+        #expect(usage?.state == .failed(.rateLimited))
+        #expect(usage?.windows.isEmpty == true)
+        let woke = Date()
+        let recovery = UsageWakeRecovery().waking(at: woke, usages: [])
+        let regular = woke.addingTimeInterval(300)
+        #expect(recovery.nextRead(scheduled: regular, usages: [try #require(usage)], now: woke).at == regular)
+    }
 }
 
 @Suite("Cursor pin key migration")

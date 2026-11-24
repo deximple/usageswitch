@@ -108,15 +108,19 @@ public struct UsageWakeRecovery: Equatable, Sendable {
     }
 
     /// Whether a row looks like the network wasn't back yet: a read that got no answer, or a row
-    /// that had numbers when the Mac woke and came back without them (a vendor CLI offline can end
-    /// as "not reporting" or "unavailable" rather than as a failure). A failure the vendor answered
-    /// with — rate limit, rejected sign-in, another account — is never a reason to ask again early,
-    /// and neither is a connection the user just turned off.
+    /// that had numbers when the Mac woke and came back without them the way a vendor CLI does
+    /// offline (it can end as "not reporting", refused or unreadable rather than as a failure).
+    /// Every other state is the vendor's or this Mac's own answer — a rate limit, a rejected or
+    /// expired sign-in, another account, no CLI, a connection turned off — and never a reason to
+    /// ask again early.
     private func wantsReread(_ usage: AccountUsage) -> Bool {
         switch usage.state {
-        case .ok, .unavailable(.connectionRequired): return false
-        case .failed(let problem): return problem == .network || problem == .timeout || problem == .refused
-        case .unavailable, .notReporting: return readableBeforeWaking.contains(usage.id)
+        case .failed(let problem):
+            return problem == .network || problem == .timeout || problem == .refused
+        case .notReporting, .unavailable(.refused), .unavailable(.schemaChanged):
+            return readableBeforeWaking.contains(usage.id)
+        case .ok, .unavailable:
+            return false
         }
     }
 }

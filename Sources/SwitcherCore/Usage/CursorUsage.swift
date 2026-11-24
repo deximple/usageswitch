@@ -182,6 +182,8 @@ public struct CursorUsageCollector: Sendable {
             return [finish(.failed(.network))]
         }
         if response.status == 401 || response.status == 403 { return [finish(.failed(.signInRejected))] }
+        // Cursor answered: asking again soon would only add to the limit.
+        if response.status == 429 { return [finish(.failed(.rateLimited))] }
         guard response.status == 200 else { return [finish(.failed(.network))] }
         guard let windows = CursorUsageParser.windows(usage: response.body) else {
             // A percentage outside 0...100 is a changed response, not "no usage" (audit B-11).

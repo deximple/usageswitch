@@ -66,9 +66,19 @@ struct UsageWakeRecoveryTests {
           arguments: [UsageState.failed(.rateLimited), .failed(.signInRejected), .failed(.accountMismatch),
                       .failed(.schemaChanged), .failed(.signInExpired), .failed(.notEligible),
                       .unavailable(.noSignIn), .unavailable(.cliMissing), .unavailable(.managed),
-                      .unavailable(.connectionRequired), .notReporting])
+                      .unavailable(.signInExpired), .unavailable(.connectionRequired), .notReporting])
     func answeredFailure(state: UsageState) {
         #expect(next(awake(), [row(state)], after: 5).wait == interval)
+    }
+
+    @Test("a row that had numbers when the Mac woke is not read again early for an answer of its own",
+          arguments: [UsageState.failed(.rateLimited), .failed(.signInRejected), .unavailable(.signInExpired),
+                      .unavailable(.noSignIn), .unavailable(.cliMissing), .unavailable(.notEligible),
+                      .unavailable(.connectionRequired)])
+    func answeredAfterBeingReadable(state: UsageState) {
+        // A sign-in that ran out during the sleep, or a connection turned off after waking.
+        let recovery = awake([row(.ok, id: "gemini:current")])
+        #expect(next(recovery, [row(state, id: "gemini:current")], after: 5).wait == interval)
     }
 
     @Test("a row that had numbers when the Mac woke and has none after is read again",
@@ -78,11 +88,6 @@ struct UsageWakeRecoveryTests {
         #expect(next(recovery, [row(state, id: "claude:cli")], after: 5).wait == 30)
         // The same state on a row that was already without numbers is its normal state.
         #expect(next(recovery, [row(state, id: "codex:a")], after: 5).wait == interval)
-        // Even for a row that had numbers, an answered failure is not worth an early read —
-        // nor is a connection the user turned off after waking.
-        #expect(next(recovery, [row(.failed(.rateLimited), id: "claude:cli")], after: 5).wait == interval)
-        #expect(next(recovery, [row(.unavailable(.connectionRequired), id: "claude:cli")], after: 5).wait
-                == interval)
     }
 
     @Test("only reads that end within ten minutes of waking count")
