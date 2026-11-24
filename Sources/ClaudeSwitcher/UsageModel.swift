@@ -72,6 +72,8 @@ final class UsageModel: ObservableObject {
     private let geminiClientFinder = GeminiOAuthClientFinder()
     private let antigravityScreenCache = AntigravityUsageScreenCache()
     private let cursorRenewalAttempts = CursorRenewalAttemptCache()
+    /// Short re-reads after the Mac wakes with the network still down; the rules are the core's.
+    private var wakeRecovery = UsageWakeRecovery()
 
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
@@ -85,6 +87,11 @@ final class UsageModel: ObservableObject {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: Self.tick, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickNow() }
+        }
+        // The model lives as long as the app, so the observer is never removed.
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDidWake() }
         }
     }
 
@@ -428,34 +435,17 @@ final class UsageModel: ObservableObject {
                           uniquingKeysWith: { first, _ in first })
     }
 
-    /// Only ok, fresh windows can feed the menu bar — a stale or failed read is never shown as current.
-    private func menuBarCandidates(now: Date) -> [[(key: String, window: UsageWindow)]] {
-        usages.map { usage -> [(key: String, window: UsageWindow)] in
-            guard usage.state == .ok,
-                  (0...600).contains(now.timeIntervalSince(usage.readAt)) else { return [] }
-            return usage.windows.filter {
-                !($0.isStale(now: now)) && $0.usedPercent.isFinite
-            }.map { window in
-                (key: UsagePriority.key(usage, window), window: window)
-            }
-        }
-    }
-
     /// The window the menu bar shows when usage is on: the one chosen in ⚙︎ › Menu Bar Usage — nothing
     /// while that one can't be read — or, with no choice, a pinned one, else the least left that
-    /// isn't used up.
+    /// isn't used up. Which readings are current enough to show is `MenuBarTitle.candidates`' call.
     var menuBarTitle: String? {
-        guard let window = MenuBarTitle.selectWindow(accounts: menuBarCandidates(now: Date()), pins: pins,
-                                                     chosen: settings.menuBarUsageKey),
-              UsageText.percentLeft(window.usedPercent) != nil else { return nil }
-        return MenuBarTitle.usage(windowName: UsageText.name(of: window, scoped: false),
-                                usedPercent: window.usedPercent)
+        MenuBarTitle.usageTitle(usages: usages, pins: pins, chosen: settings.menuBarUsageKey, now: Date())
     }
 
     /// The windows ⚙︎ › Menu Bar Usage offers, in list order: "Codex · Work · Weekly".
     var menuBarChoices: [(key: String, title: String)] {
         let names = displayNames()
-        return menuBarCandidates(now: Date()).enumerated().flatMap { index, windows in
+        return MenuBarTitle.candidates(usages, now: Date()).enumerated().flatMap { index, windows in
             windows.map { item in
                 let usage = usages[index]
                 let title = [UsageText.providerName(usage.provider), names[usage.id] ?? label(of: usage),
@@ -505,6 +495,22 @@ final class UsageModel: ObservableObject {
                                     lastReadStartedAt: lastReadStartedAt, usages: usages) {
             refresh()
         }
+    }
+
+    /// The Mac woke. A read still running plans the next one when it ends; with none running, the
+    /// rows on screen may already be the failed read of a moment ago.
+    private func systemDidWake() {
+        let now = Date()
+        wakeRecovery = wakeRecovery.waking(at: now, usages: usages)
+        if !isRefreshing { planNextRefresh(scheduled: nextRefresh, now: now) }
+    }
+
+    /// `scheduled`, or sooner when the Mac just woke and the last read looks like the network
+    /// wasn't back yet — `UsageWakeRecovery` decides; the tick starts the read.
+    private func planNextRefresh(scheduled: Date, now: Date) {
+        let next = wakeRecovery.nextRead(scheduled: scheduled, usages: usages, now: now)
+        if next.at != nextRefresh { nextRefresh = next.at }
+        wakeRecovery = next.recovery
     }
 
     func refresh() {
@@ -659,16 +665,8 @@ final class UsageModel: ObservableObject {
     func applyConsent(_ enabled: Set<UsageProvider>, hidden: Set<UsageProvider> = []) {
         if isDemo {
             // memory-only substitution from the original fixture rows, never a real read
-            var out: [AccountUsage] = []
-            for fixture in demoRows {
-                if fixture.provider.requiresConsent && !enabled.contains(fixture.provider) {
-                    if hidden.contains(fixture.provider) { continue }
-                    out.append(UsageCollection.connectionRequired(fixture.provider))
-                } else {
-                    out.append(fixture)
-                }
-            }
-            usages = out
+            usages = UsageCollection.substitutingConsent(in: demoRows, enabledProviders: enabled,
+                                                         hiddenProviders: hidden)
             return
         }
         abandonCurrentRefresh()
@@ -676,19 +674,16 @@ final class UsageModel: ObservableObject {
         suggestionLogTask?.cancel()
         logReadGate.invalidate()
         suggestionStore?.invalidateBefore(generation)
-        if !enabled.contains(.antigravity) { antigravityTokenCache.clear() }
-        if !enabled.contains(.gemini) { geminiTokenCache.clear() }
-        if !enabled.contains(.cursor) { cursorRenewalAttempts.clear() }
-        // revoked providers drop their rows now — installed ones leave a neutral
-        // placeholder, absent or turned-off ones disappear entirely
-        for provider in UsageProvider.allCases where provider.requiresConsent
-            && !enabled.contains(provider) {
-            let rows = installations.contains(where: { $0.provider == provider })
-                && !hidden.contains(provider)
-                ? [UsageCollection.connectionRequired(provider)] : []
-            usages = UsageCollection.replacing(provider: provider, readings: rows, in: usages, now: Date())
-            clearPace(provider)
-        }
+        // Which providers are revoked, what their rows become and what they leave in memory are
+        // `UsageCollection`'s rules: installed ones leave a neutral placeholder, absent or
+        // turned-off ones disappear entirely.
+        let revoked = UsageCollection.revokedProviders(enabledProviders: enabled)
+        UsageCollection.forgetSignIns(of: revoked, antigravity: antigravityTokenCache,
+                                      gemini: geminiTokenCache, cursor: cursorRenewalAttempts)
+        usages = UsageCollection.applyingConsent(
+            to: usages, enabledProviders: enabled, hiddenProviders: hidden,
+            installedProviders: Set(installations.map(\.provider)), now: Date())
+        revoked.forEach { clearPace($0) }
         // Persist the swapped rows at once — a crash between the swap and the next refresh
         // must not resurrect a revoked provider's data (audit B-11). Before the first status
         // arrives the full snapshot can't be rebuilt, so the revoked rows are cut from the file.
@@ -696,9 +691,8 @@ final class UsageModel: ObservableObject {
             writeUsageSnapshotFile(now: Date())
         } else {
             let env = SwitcherEnvironment.live()
-            let revoked = Set(UsageProvider.allCases.filter { $0.requiresConsent && !enabled.contains($0) })
             if let previous = UsageSnapshot.load(env: env) {
-                try? previous.removing(providers: revoked).write(env: env, fs: SafeFS(env: env))
+                try? previous.removing(providers: Set(revoked)).write(env: env, fs: SafeFS(env: env))
             }
         }
         refresh()
@@ -801,10 +795,14 @@ final class UsageModel: ObservableObject {
         deliverAlerts(now: now)
         isRefreshing = false
         refreshStartedAt = nil
-        nextRefresh = now.addingTimeInterval(Self.interval)
+        let regular = now.addingTimeInterval(Self.interval)
         if pendingRefresh {
+            // The read asked for meanwhile starts now; the one after it is planned when it ends.
+            nextRefresh = regular
             pendingRefresh = false
             refresh()
+        } else {
+            planNextRefresh(scheduled: regular, now: now)
         }
     }
 

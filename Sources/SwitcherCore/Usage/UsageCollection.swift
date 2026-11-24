@@ -95,6 +95,52 @@ public enum UsageCollection {
                             readAt: Date(), toolVersion: nil)
     }
 
+    /// Consent-required providers without a grant in `enabledProviders`, in `allCases` order.
+    /// Nothing of theirs may stay on screen, in memory or in the snapshot file.
+    public static func revokedProviders(enabledProviders: Set<UsageProvider>) -> [UsageProvider] {
+        UsageProvider.allCases.filter { $0.requiresConsent && !enabledProviders.contains($0) }
+    }
+
+    /// The list right after a consent change, before the next read: every revoked provider's
+    /// readings leave at once. One that is installed and not turned off (`hiddenProviders`) keeps
+    /// the Connect usage placeholder; an absent or turned-off one leaves no row. Rows of granted
+    /// and consent-free providers are untouched — the next read refreshes them.
+    public static func applyingConsent(to usages: [AccountUsage],
+                                       enabledProviders: Set<UsageProvider>,
+                                       hiddenProviders: Set<UsageProvider>,
+                                       installedProviders: Set<UsageProvider>,
+                                       now: Date) -> [AccountUsage] {
+        revokedProviders(enabledProviders: enabledProviders).reduce(usages) { rows, provider in
+            let placeholder = installedProviders.contains(provider) && !hiddenProviders.contains(provider)
+                ? [connectionRequired(provider)] : []
+            return replacing(provider: provider, readings: placeholder, in: rows, now: now)
+        }
+    }
+
+    /// A demo's consent change, worked out from its original fixture rows and never from a read:
+    /// a revoked provider's row becomes the Connect usage placeholder in place, or goes when the
+    /// provider is turned off; every other row is the fixture itself, so granting again restores it.
+    public static func substitutingConsent(in fixtures: [AccountUsage],
+                                           enabledProviders: Set<UsageProvider>,
+                                           hiddenProviders: Set<UsageProvider>) -> [AccountUsage] {
+        let revoked = Set(revokedProviders(enabledProviders: enabledProviders))
+        return fixtures.compactMap { fixture -> AccountUsage? in
+            guard revoked.contains(fixture.provider) else { return fixture }
+            return hiddenProviders.contains(fixture.provider) ? nil : connectionRequired(fixture.provider)
+        }
+    }
+
+    /// Drops what the collectors of `revoked` providers kept in memory between reads (access
+    /// tokens, Cursor's renewal mark): a withdrawn consent leaves nothing behind to reuse.
+    public static func forgetSignIns(of revoked: [UsageProvider],
+                                     antigravity: AntigravityAccessTokenCache,
+                                     gemini: GeminiAccessTokenCache,
+                                     cursor: CursorRenewalAttemptCache) {
+        if revoked.contains(.antigravity) { antigravity.clear() }
+        if revoked.contains(.gemini) { gemini.clear() }
+        if revoked.contains(.cursor) { cursor.clear() }
+    }
+
     /// Pure merge for partial results: the provider's incoming rows keep
     /// retained windows from the rows they replace (same-login only, decided by
     /// `retainingWindows`), then land in fixed provider order so the visible

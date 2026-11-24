@@ -1,3 +1,5 @@
+import Foundation
+
 /// The short account name next to the menu bar icon.
 public enum MenuBarTitle {
     public static let limit = 14
@@ -54,6 +56,30 @@ public enum MenuBarTitle {
             }
         }
         return livePinned ?? exhaustedPinned ?? live ?? exhausted
+    }
+
+    /// The windows that may feed the bar, one list per account in `usages` order (an account with
+    /// nothing to offer keeps its place with an empty list). Only a reading that is ok and no older
+    /// than `UsagePresentations.verifiedAgeLimit` counts, and of it only the windows whose reset is
+    /// still ahead and whose number is real — a stale or failed read is never shown as current.
+    public static func candidates(_ usages: [AccountUsage],
+                                  now: Date) -> [[(key: String, window: UsageWindow)]] {
+        usages.map { usage -> [(key: String, window: UsageWindow)] in
+            guard usage.state == .ok,
+                  (0...UsagePresentations.verifiedAgeLimit).contains(now.timeIntervalSince(usage.readAt))
+            else { return [] }
+            return usage.windows.filter { !$0.isStale(now: now) && $0.usedPercent.isFinite }
+                .map { window in (key: UsagePriority.key(usage, window), window: window) }
+        }
+    }
+
+    /// The bar's usage title for these readings: the window `selectWindow` picks among
+    /// `candidates`, nil when there is none or its number can't be shown as a share left.
+    public static func usageTitle(usages: [AccountUsage], pins: Set<String>, chosen: String?,
+                                  now: Date) -> String? {
+        guard let window = selectWindow(accounts: candidates(usages, now: now), pins: pins, chosen: chosen),
+              UsageText.percentLeft(window.usedPercent) != nil else { return nil }
+        return usage(windowName: UsageText.name(of: window, scoped: false), usedPercent: window.usedPercent)
     }
 
     /// nil when the name is turned off. Emails are masked (the bar is visible when sharing screens) unless the user
