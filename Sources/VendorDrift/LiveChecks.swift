@@ -57,6 +57,25 @@ extension DriftRun {
         if let panel { shape = PanelSkeleton.shape(of: panel) }
         let windowLines: [String] = shape?.windowLines ?? []
         let lines: [String] = windowLines.map { (line: String) -> String in "`\(line)`" }
+        var panelWasRead = false
+        if let panel, case .success = ClaudeUsageText.windows(panel, readAt: now()) { panelWasRead = true }
+        // What the app's reader made of the structured limits, whose numbers it uses ahead of the panel's.
+        let answer: [String] = run?.result.lines ?? []
+        let limits: ClaudeUsageLimits.Reading = ClaudeUsageLimits.reading(in: answer)
+        var rows: [UsageWindow] = []
+        var rowsAreComplete = true
+        if case .windows(let windows, let complete) = limits {
+            rows = windows
+            rowsAreComplete = complete
+        }
+        // Lost: rows the app can't read, or rows on a line it doesn't look at.
+        var limitsWereLost = false
+        switch limits {
+        case .windows: break
+        case .unreadable: limitsWereLost = true
+        case .absent: limitsWereLost = ClaudeUsageReport.carriesLimits(in: answer)
+        }
+        let limitShape: [String] = ClaudeUsageReport.limitShape(in: answer).map { (key: String) -> String in "`\(key)`" }
         let unreadFields: DriftFinding? = run.flatMap { (run: RecordingRunner.Run) -> DriftFinding? in
             Self.unreadClaudeFields(in: run.result.lines, wasRead: usage.state == .ok)
         }
@@ -69,16 +88,49 @@ extension DriftRun {
         switch usage.state {
         case .ok:
             let count: String = Self.count(usage.windows.count, "usage window")
-            let unmapped: [String] = Self.linesTheGuideCannotPlace(usage, lines: lines)
+            guard !limitsWereLost else {
+                let summary = "The answer carries structured limits the app can no longer read, so it fell "
+                    + "back to the panel text (\(count)). Reset times there move by a minute from run to "
+                    + "run, which breaks the run-out forecast. Shape seen:"
+                return read(.drift, summary, details: limitShape)
+            }
+            // One line per window, in the app's order: the panel's, or the rows when there is no panel line.
+            let shown: [String] = panelWasRead ? lines : usage.windows.map(Self.described)
+            let unmapped: [String] = Self.linesTheGuideCannotPlace(usage, lines: shown)
             guard unmapped.isEmpty else {
                 let limits: String = Self.count(unmapped.count, "model limit")
-                let summary = "The app's parser read \(count), but the Guide maps \(limits) to no model, "
+                let summary = "The app read \(count), but the Guide maps \(limits) to no model, "
                     + "so a model whose limit is used up is still suggested. The name is left out here; "
                     + "`/usage` in Claude Code shows it."
                 return read(.drift, summary, details: unmapped)
             }
-            return read(.ok, "The app's parser read \(count).", details: lines)
+            guard panelWasRead else {
+                let summary = "No panel line starts with `Current `; the app read \(count) from the answer's "
+                    + "structured limits alone."
+                return read(.attention, summary, details: shown)
+            }
+            guard !rows.isEmpty else { return read(.ok, "The app read \(count) from the panel text.", details: lines) }
+            // A panel line without a row keeps the panel's reset time, which moves from run to run.
+            let unmatched: [Bool] = usage.windows.map { (window: UsageWindow) -> Bool in
+                ClaudeUsageLimits.row(for: window, in: rows) == nil
+            }
+            let matched: Int = unmatched.filter { (isUnmatched: Bool) -> Bool in !isUnmatched }.count
+            var summary = "The app read \(count); \(matched) with the numbers of the answer's structured limits."
+            // A kind the vendor added: nothing the app shows changed, but it may be a limit worth showing.
+            if !rowsAreComplete { summary += " A structured limit of a kind the app doesn't know was left out." }
+            guard matched < usage.windows.count else {
+                return read(rowsAreComplete ? .ok : .attention, summary, details: lines)
+            }
+            let marked: [String] = zip(lines, unmatched).map { (line: String, isUnmatched: Bool) -> String in
+                isUnmatched ? "\(line) — no structured limit for it, so its reset time is the panel's" : line
+            }
+            return read(.attention, summary, details: marked)
         case .notReporting:
+            if limitsWereLost {
+                let summary = "The answer carries structured limits, but not where the app reads them, and "
+                    + "no panel line starts with `Current `; the app shows nothing. Shape seen:"
+                return read(.drift, summary, details: limitShape)
+            }
             if shape?.mentionsUsedOutsideWindows == true {
                 return read(.drift,
                             "The panel reports usage, but no line starts with `Current `; the app shows nothing.")
@@ -87,7 +139,13 @@ extension DriftRun {
                 + "or the panel wording changed (see the CLI text check)."
             return read(.attention, summary)
         case .unavailable(.schemaChanged):
-            return read(.drift, "A `Current ` line no longer matches the pattern the app reads.", details: lines)
+            guard !lines.isEmpty else {
+                let summary = "The answer's structured limits are not all in a shape the app reads, and "
+                    + "the panel has no `Current ` line to fall back on. Shape seen:"
+                return read(.drift, summary, details: limitShape)
+            }
+            return read(.drift, "A `Current ` line no longer matches the pattern the app reads.",
+                        details: limitsWereLost ? lines + limitShape : lines)
         case .unavailable(.managed):
             return read(.skipped, "Managed Claude Code settings are present, so the app doesn't run it either.")
         case .unavailable(.cliMissing):
@@ -110,9 +168,16 @@ extension DriftRun {
         }
     }
 
+    /// A window the app read from the structured limits alone, without its numbers or its name.
+    static func described(_ window: UsageWindow) -> String {
+        let scoped: String = window.scope == nil ? "" : " (…)"
+        return "`\(window.kind.rawValue) limit\(scoped)`"
+    }
+
     /// The lines of the model limits no Guide candidate claims. The app's own map and bundled
     /// catalog are asked the way `SuggestionEngine` asks them, so no list of names lives here.
-    /// `lines` are the panel's `Current …` lines, one per window and in the parser's order.
+    /// `lines` stand for the windows, one each and in the app's order: the panel's `Current …`
+    /// lines, or the windows as `described`.
     static func linesTheGuideCannotPlace(_ usage: AccountUsage, lines: [String]) -> [String] {
         // Without a catalog the app's Guide is off, and there is no mapping to check.
         guard let catalog = try? SuggestionCatalog.bundled() else { return [] }
@@ -130,9 +195,9 @@ extension DriftRun {
     }
 
     /// What the answer's `usage_report` holds beyond the shape in `ClaudeUsageReport`; nil when
-    /// nothing. The app reads none of it, so this is never drift: a new key is worth a look,
-    /// since it may be what the app needs to show Claude's limit resets. Only its name is shown.
-    /// `wasRead` is whether the app's parser read the panel, which is when the report is expected.
+    /// nothing. The app reads no key it doesn't know, so this is never drift: a new key is worth
+    /// a look, since it may be what the app needs to show Claude's limit resets. Only its name is
+    /// shown. `wasRead` is whether the app read the answer, which is when the report is expected.
     static func unreadClaudeFields(in lines: [String], wasRead: Bool) -> DriftFinding? {
         let check = "Claude `/usage` fields the app does not read (live)"
         let difference: ClaudeUsageReport.Difference? = ClaudeUsageReport.difference(in: lines)
@@ -141,8 +206,8 @@ extension DriftRun {
             let fields: String = Self.count(added.count, "field")
             let resets: Int = added.filter { (key: ClaudeUsageReport.Added) -> Bool in key.namesAReset }.count
             var summary = "The answer's `usage_report` has \(fields) this tool has not seen before; the app "
-                + "reads none of it. It may be the limit resets an account holds, which the app can't show "
-                + "for Claude yet."
+                + "does not read \(added.count == 1 ? "it" : "them"). It may be the limit resets an account "
+                + "holds, which the app can't show for Claude yet."
             if resets > 0 { summary += " Named like a limit reset: \(resets)." }
             let details: [String] = added.map { (key: ClaudeUsageReport.Added) -> String in
                 let mark: String = key.namesAReset ? "**named like a limit reset** — " : ""
@@ -153,8 +218,8 @@ extension DriftRun {
         // A read that settled nothing says so in its own finding.
         guard wasRead, difference?.sawRateLimits != true else { return nil }
         let summary = "The answer carries no `usage_report.rate_limits` to compare, so a new field there "
-            + "(the limit resets an account holds, say) would go unnoticed. The app reads the panel text "
-            + "and is not affected."
+            + "(the limit resets an account holds, say) would go unnoticed. The app read the panel text "
+            + "instead, where a reset time can move by a minute from run to run."
         return DriftFinding(.live, check, .attention, summary)
     }
 

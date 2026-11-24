@@ -104,7 +104,9 @@ public struct GrokUsageCollector: Sendable {
         guard let period = config["currentPeriod"] as? [String: Any],
               let type = UsageJSON.string(period["type"]),
               ["USAGE_PERIOD_TYPE_WEEKLY", "USAGE_PERIOD_TYPE_MONTHLY"].contains(type)
-        else { return [finish(.notReporting)] } // no explicit period: cannot invent a window
+        // A percentage with no period, or one of a kind this build doesn't know, is usage the vendor
+        // reports and the app can't place: a changed format, not "no usage" (audit B2-U-01).
+        else { return [finish(.unavailable(.schemaChanged))] }
         // an explicit period whose fields are present but malformed is a schema break
         let start = period["start"].flatMap { UsageJSON.resetDateISO($0) }
         let end = period["end"].flatMap { UsageJSON.resetDateISO($0) }

@@ -91,7 +91,9 @@ public struct OpenCodeUsageCollector: Sendable {
             windows.append(UsageWindow(scope: nil, durationMinutes: minutes,
                                        usedPercent: percent, resetsAt: reset))
         }
-        return windows.isEmpty ? [finish(.notReporting)]
-                               : [success(windows)]
+        guard windows.isEmpty else { return [success(windows)] }
+        // Usage listed under names this build doesn't know is a changed format, not "no usage"
+        // (audit B2-U-01).
+        return [finish(usage.isEmpty ? .notReporting : .unavailable(.schemaChanged))]
     }
 }
