@@ -567,9 +567,44 @@ extension CursorUsageTests {
         let second = agentCollector(home: home, runner: runner, http: http, at: Self.clock + 300,
                                     renewalAttempts: attempts).collect().first?.state
 
-        #expect(first == .unavailable(.signInExpired))
-        #expect(second == .unavailable(.signInExpired))
+        // A run that timed out is a read that got no answer; any other ending leaves the token
+        // as it is, expired.
+        let expected: UsageState = outcome == .timedOut ? .failed(.timeout) : .unavailable(.signInExpired)
+        #expect(first == expected)
+        #expect(second == expected)
         #expect(statusRuns(runner) == 2)
+    }
+
+    @Test("after waking, a renewal that timed out is read again soon; a token status left expired is not")
+    func renewalAfterWaking() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stored = StoredToken(try jwt(["exp": Self.clock - 1000]))
+        let http = fakeHTTP(usage: UsageFixture.cursorSplit)
+        func row(status outcome: UsageProcessResult.Outcome) throws -> AccountUsage {
+            let runner = FakeUsageRunner()
+            runner.respond = { request in
+                request.executable.lastPathComponent == "cursor-agent"
+                    ? UsageProcessResult(lines: [], outcome: outcome)
+                    : UsageProcessResult(lines: [stored.value], outcome: .exited(0))
+            }
+            return try #require(agentCollector(home: home, runner: runner, http: http,
+                                               renewalAttempts: CursorRenewalAttemptCache()).collect().first)
+        }
+        // The Cursor row had numbers when the Mac woke; the token ran out during the sleep.
+        let woke = Date(timeIntervalSince1970: Self.clock)
+        let before = AccountUsage(id: CursorUsageCollector.rowID, provider: .cursor,
+                                  accountRef: CursorUsageCollector.rowAccountRef, label: "Cursor", plan: nil,
+                                  windows: [], state: .ok, readAt: woke, toolVersion: nil)
+        let recovery = UsageWakeRecovery().waking(at: woke, usages: [before])
+        let regular = woke.addingTimeInterval(300)
+        let offline = try row(status: .timedOut)
+        let expired = try row(status: .exited(0))
+        #expect(offline.state == .failed(.timeout))
+        #expect(expired.state == .unavailable(.signInExpired))
+        #expect(recovery.nextRead(scheduled: regular, usages: [offline], now: woke).at
+                == woke.addingTimeInterval(30))
+        #expect(recovery.nextRead(scheduled: regular, usages: [expired], now: woke).at == regular)
     }
 
     @Test("one collector asked twice runs status once")
