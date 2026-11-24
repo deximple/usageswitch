@@ -1,9 +1,10 @@
 import Foundation
 
 /// The key names of the structured report `claude -p /usage` sends beside its panel text:
-/// `usage_report` on the stream's assistant line, as CLI 2.1.325 sends it. The app reads none
-/// of it. The names are kept so that a field the vendor adds there — the limit resets an
-/// account holds, which the panel doesn't print — is noticed.
+/// `usage_report` on the stream's assistant line, as CLI 2.1.325 sends it. The app reads each
+/// limit's kind, percent, reset and scope name from it (`ClaudeUsageLimits`) and nothing
+/// else. The names are kept so that a field the vendor adds there — the limit resets an
+/// account holds, which neither the report nor the panel carries — is noticed.
 enum ClaudeUsageReport {
     private static let root = "usage_report"
     private static let rateLimits = "\(root).rate_limits"
@@ -61,6 +62,37 @@ enum ClaudeUsageReport {
             return first.path < second.path
         }
         return Difference(added: ordered, sawRateLimits: seen[rateLimits] != nil)
+    }
+
+    /// Whether the stream carries limit rows on any line, including one the app doesn't read.
+    static func carriesLimits(in lines: [String]) -> Bool {
+        guard let rateLimits = report(in: lines)?["rate_limits"] as? [String: Any],
+              let rows = rateLimits["limits"] as? [Any]
+        else { return false }
+        return !rows.isEmpty
+    }
+
+    /// The key names and JSON types of the limit rows, for showing a shape the app no longer
+    /// reads. Never a value, and a key this tool doesn't know is shown as `*`.
+    static func limitShape(in lines: [String]) -> [String] {
+        guard let report = report(in: lines) else { return [] }
+        var names = Set<String>()
+        for keys in known.values { names.formUnion(keys) }
+        guard let rateLimits = report["rate_limits"] as? [String: Any] else {
+            let whole: [String: Any] = ["rate_limits": report["rate_limits"] ?? NSNull()]
+            return JSONShape.keys(of: whole, depth: 1, known: names)
+        }
+        guard let rows = rateLimits["limits"] as? [Any] else {
+            let limits: [String: Any] = ["limits": rateLimits["limits"] ?? NSNull()]
+            return JSONShape.keys(of: limits, depth: 1, known: names)
+        }
+        var found = Set<String>()
+        for row in rows {
+            guard row is [String: Any] else { found.insert("limits[]: not an object"); continue }
+            let keys: [String] = JSONShape.keys(of: row, depth: 3, known: names)
+            for key in keys { found.insert("limits[].\(key)") }
+        }
+        return found.sorted()
     }
 
     private static func report(in lines: [String]) -> [String: Any]? {

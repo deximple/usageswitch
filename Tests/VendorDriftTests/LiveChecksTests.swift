@@ -53,18 +53,78 @@ struct LiveClaudeChecksTests {
         return rig.run(runner).claudeUsage(rig.cli("claude"))
     }
 
+    private let panelLines: [String] = [
+        "`Current session: N% used · resets N:Npm (Zone)`",
+        "`Current week (all models): N% used · resets Mon N at N:Npm (Zone)`",
+        "`Current week (…): N% used · resets Mon N at N:Npm (Zone)`",
+    ]
+
+    private func stream(_ panel: String, limits: [[String: Any]]) -> [String] {
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = limits
+        return Sample.claudeStream(panel, usageReport: Sample.usageReport(rateLimits: rateLimits))
+    }
+
+    @Test("a panel whose every limit has a structured row is ok, shown without a single value")
+    func readableLimits() {
+        let finding = read(Sample.claudeStream(Sample.claudePanel)).finding
+        #expect(finding.status == .ok)
+        #expect(finding.summary == "The app read 3 usage windows; 3 with the numbers of the answer's structured limits.")
+        #expect(finding.details == panelLines)
+        // A row the panel doesn't print is not shown by the app, and is not a finding.
+        let hidden = stream(Sample.claudePanel, limits: [Sample.sessionLimit, Sample.usageLimit(),
+                                                         Sample.usageLimit(scopedTo: "Fable"),
+                                                         Sample.usageLimit(scopedTo: "Nimbus preview")])
+        #expect(read(hidden).finding == finding)
+    }
+
+    @Test("a panel limit without a structured row is worth a look: its reset time stays the panel's")
+    func limitWithoutARow() {
+        let finding = read(stream(Sample.claudePanel, limits: [Sample.usageLimit(), Sample.usageLimit(scopedTo: "Fable")])).finding
+        #expect(finding.status == .attention)
+        #expect(finding.summary == "The app read 3 usage windows; 2 with the numbers of the answer's structured limits.")
+        #expect(finding.details == [
+            "\(panelLines[0]) — no structured limit for it, so its reset time is the panel's",
+            panelLines[1], panelLines[2],
+        ])
+    }
+
+    @Test("a structured limit of a kind the app doesn't know is worth a look")
+    func limitOfAnUnknownKind() {
+        var added: [String: Any] = Sample.usageLimit()
+        added["kind"] = "private-kind"
+        let limits: [[String: Any]] = [Sample.sessionLimit, Sample.usageLimit(), Sample.usageLimit(scopedTo: "Fable"), added]
+        let finding = read(stream(Sample.claudePanel, limits: limits)).finding
+        #expect(finding.status == .attention)
+        let summary: String = "The app read 3 usage windows; 3 with the numbers of the answer's structured limits. "
+            + "A structured limit of a kind the app doesn't know was left out."
+        #expect(finding.summary == summary)
+        #expect(finding.details == panelLines)
+        #expect(!text(of: finding).contains("private"))
+    }
+
+    @Test("a Current line that stopped matching is drift whatever the rows say; no line at all is a look")
+    func limitsAlone() {
+        let changed = read(Sample.claudeStream("Current week: 75% used, resets soon")).finding
+        #expect(changed.status == .drift)
+        #expect(changed.summary == "A `Current ` line no longer matches the pattern the app reads.")
+        #expect(changed.details == ["`Current week: N% used, resets …`"])
+        let none = read(Sample.claudeStream("You are currently using your subscription")).finding
+        #expect(none.status == .attention)
+        #expect(none.summary == "No panel line starts with `Current `; the app read 3 usage windows from the "
+            + "answer's structured limits alone.")
+        #expect(none.details == ["`session limit`", "`weekly limit`", "`weekly limit (…)`"])
+    }
+
     @Test("a panel the app's parser reads is ok, shown without a single value")
     func readablePanel() throws {
-        let runner = FakeRunner { _ in UsageProcessResult(lines: Sample.claudeStream(Sample.claudePanel), outcome: .stopped) }
+        let lines: [String] = Sample.claudeStream(Sample.claudePanel, usageReport: nil)
+        let runner = FakeRunner { _ in UsageProcessResult(lines: lines, outcome: .stopped) }
         let cli = rig.cli("claude")
         let read = rig.run(runner).claudeUsage(cli)
         #expect(read.finding.status == .ok)
-        #expect(read.finding.summary == "The app's parser read 3 usage windows.")
-        #expect(read.finding.details == [
-            "`Current session: N% used · resets N:Npm (Zone)`",
-            "`Current week (all models): N% used · resets Mon N at N:Npm (Zone)`",
-            "`Current week (…): N% used · resets Mon N at N:Npm (Zone)`",
-        ])
+        #expect(read.finding.summary == "The app read 3 usage windows from the panel text.")
+        #expect(read.finding.details == panelLines)
         // The request is the one the app's collector builds, not a copy of it.
         let request = try #require(read.request)
         #expect(request.executable == cli)
@@ -83,11 +143,22 @@ struct LiveClaudeChecksTests {
             Current week (Sonnet only): 100% used · resets Nov 6 at 12:59pm (Asia/Seoul)
             Current week (Nimbus preview): 12% used · resets Nov 6 at 1pm (Asia/Seoul)
             """
-        let finding = read(Sample.claudeStream(panel)).finding
+        let finding = read(Sample.claudeStream(panel, usageReport: nil)).finding
         #expect(finding.status == .drift)
-        #expect(finding.summary.hasPrefix("The app's parser read 4 usage windows, but the Guide maps 1 model limit to no model"))
+        #expect(finding.summary.hasPrefix("The app read 4 usage windows, but the Guide maps 1 model limit to no model"))
         // Only the line the Guide can't place; the limits it maps are not listed.
         #expect(finding.details == ["`Current week (…): N% used · resets Mon N at Npm (Zone)`"])
+        #expect(!text(of: finding).contains("Nimbus"))
+    }
+
+    @Test("so is one the app read from the structured limits alone")
+    func unmappedStructuredModelLimit() {
+        let limits: [[String: Any]] = [Sample.usageLimit(), Sample.usageLimit(scopedTo: "Fable"),
+                                       Sample.usageLimit(scopedTo: "Nimbus preview")]
+        let finding = read(stream("You are currently using your subscription", limits: limits)).finding
+        #expect(finding.status == .drift)
+        #expect(finding.summary.hasPrefix("The app read 3 usage windows, but the Guide maps 1 model limit to no model"))
+        #expect(finding.details == ["`weekly limit (…)`"])
         #expect(!text(of: finding).contains("Nimbus"))
     }
 
@@ -98,24 +169,100 @@ struct LiveClaudeChecksTests {
             Current week (Fable): 3% used · resets Nov 6 at 12:59pm (Asia/Seoul)
             Current week (Sonnet only): 100% used · resets Nov 6 at 12:59pm (Asia/Seoul)
             """
-        let finding = read(Sample.claudeStream(panel)).finding
+        let finding = read(Sample.claudeStream(panel, usageReport: nil)).finding
         #expect(finding.status == .ok)
-        #expect(finding.summary == "The app's parser read 3 usage windows.")
+        #expect(finding.summary == "The app read 3 usage windows from the panel text.")
     }
 
     @Test("a Current line the parser no longer matches is drift")
     func changedLine() {
-        let read = read(Sample.claudeStream("Current week: 75% used, resets soon"))
+        let read = read(Sample.claudeStream("Current week: 75% used, resets soon", usageReport: nil))
         #expect(read.finding.status == .drift)
         #expect(read.finding.details == ["`Current week: N% used, resets …`"])
     }
 
     @Test("no Current line is only drift when the panel still reports usage elsewhere")
     func noCurrentLine() {
-        #expect(read(Sample.claudeStream("You are not signed in")).finding.status == .attention)
-        let renamed = read(Sample.claudeStream("Weekly limit: 40% used · resets Nov 6"))
+        #expect(read(Sample.claudeStream("You are not signed in", usageReport: nil)).finding.status == .attention)
+        let renamed = read(Sample.claudeStream("Weekly limit: 40% used · resets Nov 6", usageReport: nil))
         #expect(renamed.finding.status == .drift)
         #expect(renamed.finding.details.isEmpty)
+    }
+
+    // MARK: - Structured limits the app can't use
+
+    /// A limit of a kind the app knows whose percent is no longer a number.
+    private var renamedLimits: [String: Any] {
+        var limit: [String: Any] = Sample.usageLimit(scopedTo: "Fable")
+        limit["percent"] = "private-value"
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = [Sample.usageLimit(), limit]
+        return Sample.usageReport(rateLimits: rateLimits)
+    }
+
+    @Test("structured limits the app can no longer read are drift, even though the panel was read")
+    func unreadableLimits() {
+        let finding = read(Sample.claudeStream(Sample.claudePanel, usageReport: renamedLimits)).finding
+        #expect(finding.status == .drift)
+        let summary: String = "The answer carries structured limits the app can no longer read, so it fell "
+            + "back to the panel text (3 usage windows). Reset times there move by a minute from run to run, "
+            + "which breaks the run-out forecast. Shape seen:"
+        #expect(finding.summary == summary)
+        #expect(finding.details == [
+            "`limits[].group: string`", "`limits[].is_active: boolean`", "`limits[].kind: string`",
+            "`limits[].percent: number`", "`limits[].percent: string`", "`limits[].resets_at: string`",
+            "`limits[].scope.model.display_name: string`",
+            "`limits[].scope.model: object`", "`limits[].scope.surface: null`", "`limits[].scope: null`",
+            "`limits[].scope: object`", "`limits[].severity: string`",
+        ])
+        for secret in ["private", "Fable", "2026-11-20", "53", "33"] {
+            #expect(!text(of: finding).contains(secret))
+        }
+    }
+
+    @Test("limits the app can't read with no panel line to fall back on are drift")
+    func unreadableLimitsWithoutPanel() {
+        let finding = read(Sample.claudeStream("You are currently using your subscription", usageReport: renamedLimits)).finding
+        #expect(finding.status == .drift)
+        #expect(finding.summary.hasPrefix("The answer's structured limits are not all in a shape the app reads, and"))
+        #expect(finding.details.contains("`limits[].percent: string`"))
+        var rateLimits: [String: Any] = Sample.rateLimits
+        rateLimits["limits"] = "private-value"
+        let notAList = read(Sample.claudeStream("x", usageReport: Sample.usageReport(rateLimits: rateLimits))).finding
+        #expect(notAList.status == .drift)
+        #expect(notAList.details == ["`limits: string`"])
+        var report: [String: Any] = Sample.usageReport()
+        report["rate_limits"] = "private-value"
+        let notAnObject = read(Sample.claudeStream("x", usageReport: report)).finding
+        #expect(notAnObject.status == .drift)
+        #expect(notAnObject.details == ["`rate_limits: string`"])
+        // With no panel line, a kind the app doesn't know may be the one limit that is used up.
+        var added: [String: Any] = Sample.usageLimit()
+        added["kind"] = "private-kind"
+        let incomplete = read(stream("x", limits: [Sample.usageLimit(scopedTo: "Fable"), added])).finding
+        #expect(incomplete.status == .drift)
+        #expect(incomplete.summary.hasPrefix("The answer's structured limits are not all in a shape the app reads, and"))
+        #expect(!text(of: incomplete).contains("private"))
+    }
+
+    @Test("limits on a line the app doesn't read are drift")
+    func limitsOnAnotherLine() {
+        // The report moved off the assistant line and onto the result.
+        var lines: [String] = Sample.claudeStream(Sample.claudePanel, usageReport: nil)
+        let result: [String: Any] = ["type": "result", "subtype": "success", "is_error": false, "num_turns": 0,
+                                     "total_cost_usd": 0, "result": Sample.claudePanel,
+                                     "usage_report": Sample.usageReport()]
+        lines[2] = String(decoding: try! JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+        let moved = read(lines).finding
+        #expect(moved.status == .drift)
+        #expect(moved.summary.hasPrefix("The answer carries structured limits the app can no longer read"))
+        // With no panel line either, the app shows nothing at all.
+        var silent: [String: Any] = result
+        silent["result"] = "You are currently using your subscription"
+        lines[2] = String(decoding: try! JSONSerialization.data(withJSONObject: silent), as: UTF8.self)
+        let nothing = read(lines).finding
+        #expect(nothing.status == .drift)
+        #expect(nothing.summary.hasPrefix("The answer carries structured limits, but not where the app reads them"))
     }
 
     @Test("a run that did work is drift; a missing result line is worth a look")
@@ -187,7 +334,7 @@ struct LiveClaudeChecksTests {
         #expect(finding.check == unreadCheck)
         #expect(finding.status == .attention)
         let summary: String = "The answer's `usage_report` has 2 fields this tool has not seen before; "
-            + "the app reads none of it. It may be the limit resets an account holds, which the app can't "
+            + "the app does not read them. It may be the limit resets an account holds, which the app can't "
             + "show for Claude yet. Named like a limit reset: 1."
         #expect(finding.summary == summary)
         #expect(finding.details == [
@@ -205,7 +352,7 @@ struct LiveClaudeChecksTests {
         let finding = try #require(unreadFields(rateLimits: rateLimits))
         #expect(finding.status == .attention)
         let summary: String = "The answer's `usage_report` has 1 field this tool has not seen before; "
-            + "the app reads none of it. It may be the limit resets an account holds, which the app can't "
+            + "the app does not read it. It may be the limit resets an account holds, which the app can't "
             + "show for Claude yet."
         #expect(finding.summary == summary)
         #expect(finding.details == ["added `usage_report.rate_limits.limits[].window_minutes`"])
@@ -263,7 +410,7 @@ struct LiveClaudeChecksTests {
         }
     }
 
-    @Test("a known key that is absent adds no finding: several are optional, and the app reads none")
+    @Test("a known key that is absent adds no finding: several are optional")
     func absentReportKeys() throws {
         var limit: [String: Any] = Sample.usageLimit()
         limit["scope"] = nil
@@ -286,8 +433,8 @@ struct LiveClaudeChecksTests {
         #expect(finding.check == unreadCheck)
         #expect(finding.status == .attention)
         let summary: String = "The answer carries no `usage_report.rate_limits` to compare, so a new field "
-            + "there (the limit resets an account holds, say) would go unnoticed. The app reads the panel text "
-            + "and is not affected."
+            + "there (the limit resets an account holds, say) would go unnoticed. The app read the panel text "
+            + "instead, where a reset time can move by a minute from run to run."
         #expect(finding.summary == summary)
         #expect(finding.details.isEmpty)
         #expect(unreadFields(rateLimits: nil) == finding)

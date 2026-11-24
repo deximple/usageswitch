@@ -41,7 +41,8 @@ public struct ClaudeManagedSettings: Sendable, Equatable {
 }
 
 /// The stream-json output of `claude -p /usage` (`--output-format stream-json --verbose`). Only the
-/// answer's text and the stop markers are read; the init line's account fields are never looked at.
+/// answer's text, its structured limits (`ClaudeUsageLimits`) and the stop markers are read; the init
+/// line's account fields are never looked at.
 public enum ClaudeUsageOutput {
     public enum Failure: Error, Equatable {
         /// A hook event, a model turn, turns or cost was seen; the output is discarded.
@@ -87,10 +88,16 @@ public enum ClaudeUsageOutput {
         case "system":
             return (object["subtype"] as? String).flatMap { hookEvents.contains($0) ? .stopped : nil }
         case "assistant":
-            return (object["message"] as? [String: Any])?["model"] as? String != localModel ? .stopped : nil
+            return isLocalAnswer(object) ? nil : .stopped
         default:
             return nil
         }
+    }
+
+    /// Whether a line is `/usage` answering for itself — the assistant line no model wrote.
+    static func isLocalAnswer(_ object: [String: Any]) -> Bool {
+        object["type"] as? String == "assistant"
+            && (object["message"] as? [String: Any])?["model"] as? String == localModel
     }
 
     static func object(_ line: String) -> [String: Any]? {

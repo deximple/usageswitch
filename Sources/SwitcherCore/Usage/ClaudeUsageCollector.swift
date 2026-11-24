@@ -2,7 +2,7 @@ import Foundation
 
 /// Reads the default `claude` CLI sign-in's usage by running `claude -p /usage`. The CLI self-updates
 /// into `~/.local/share/claude/versions/`, so the binary and its version are rediscovered on every read.
-/// The vendor binary uses its own sign-in; UsageSwitch only sees the answer text.
+/// The vendor binary uses its own sign-in; UsageSwitch only sees what it answers.
 public struct ClaudeUsageCollector: Sendable {
     /// The fixed invocation: no project settings, no MCP config, no hooks, no session persistence.
     public static let arguments = [
@@ -79,13 +79,31 @@ public struct ClaudeUsageCollector: Sendable {
             case .failure:
                 return (.unavailable(.refused), [])
             case .success(let text):
-                switch ClaudeUsageText.windows(text, readAt: now()) {
-                case .success(let windows): return (.ok, windows)
-                case .failure(.notReporting): return (.notReporting, [])
-                case .failure(.unreadable): return (.unavailable(.schemaChanged), [])
+                return windows(panel: text, limits: ClaudeUsageLimits.reading(in: result.lines), readAt: now())
             }
         }
     }
+
+    /// The reading out of an accepted answer. The panel says which limits there are; the
+    /// structured rows give their numbers, whose resets are exact. The rows stand alone only when
+    /// the panel prints no limit at all and every row is of a kind this build knows, so a limit
+    /// is never dropped. An older CLI sends the panel only.
+    static func windows(panel text: String, limits: ClaudeUsageLimits.Reading,
+                        readAt: Date) -> (state: UsageState, windows: [UsageWindow]) {
+        switch ClaudeUsageText.windows(text, readAt: readAt) {
+        case .success(let panel):
+            guard case .windows(let rows, _) = limits else { return (.ok, panel) }
+            return (.ok, ClaudeUsageLimits.refining(panel, with: rows))
+        case .failure(.notReporting):
+            switch limits {
+            case .absent: return (.notReporting, [])
+            case .windows(let rows, complete: true): return (.ok, rows)
+            // Limits this build can't read are a changed format, not an account that reports none.
+            case .windows, .unreadable: return (.unavailable(.schemaChanged), [])
+            }
+        case .failure(.unreadable):
+            return (.unavailable(.schemaChanged), [])
+        }
     }
 
     static func isDirectory(_ url: URL) -> Bool {

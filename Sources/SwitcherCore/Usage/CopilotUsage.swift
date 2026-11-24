@@ -109,7 +109,12 @@ public struct CopilotUsageCollector: Sendable {
                 .map { String(format: "%02x", $0) }.joined()
         }
         let plan = UsageJSON.string(root["copilot_plan"])
-        if windows.isEmpty { return finish(.notReporting, []) }
+        if windows.isEmpty {
+            // Snapshots under names this build doesn't know are a changed format, not "no usage"
+            // (audit B2-U-01).
+            let knowsOne = Self.quotaScopes.contains { snapshots[$0] != nil }
+            return finish(knowsOne ? .notReporting : .unavailable(.schemaChanged), [])
+        }
         let row = finish(.ok, windows)
         return AccountUsage(id: row.id, provider: row.provider, accountRef: row.accountRef,
                             label: row.label, plan: plan, windows: windows, state: .ok,

@@ -43,6 +43,17 @@ enum UsageFixture {
         {"type":"result","subtype":"success","is_error":false,"num_turns":0,"total_cost_usd":0,"result":"You are currently using your subscription to power your Claude Code usage\n\nCurrent week (all models): 75% used · resets Nov 6 at 12:59pm (Asia/Seoul)\nCurrent week (Fable): 3% used · resets Nov 6 at 12:59pm (Asia/Seoul)\n\nWhat's contributing to your usage?\nApproximate · sessions on this machine only · shares overlap\n\nLast 24h · 3152 requests · 45 sessions\n  89%  Start fresh when you switch tasks · run /clear\n  72%  Save max effort for hard tasks\n\nLast 7d · 37550 requests · 753 sessions\n  87%  Start fresh when you switch tasks · run /clear\n  46%  Give \"general-purpose\" subagents a cheaper model"}
         """##
 
+    /// claude 2.1.330 `claude -p /usage` stream-json (live capture reduced to the fields relied on):
+    /// the assistant line now carries `usage_report.rate_limits.limits[]`, which `ClaudeUsageLimits`
+    /// reads: kind, percent, resets_at (microseconds, a fraction of a second off the hour) and
+    /// scope.model.display_name. The panel text prints the same reset cut to the minute ("12:59pm").
+    /// Session totals, ids and account fields dropped; the percentages and the reset day are made up.
+    static let claude_2_1_330 = ##"""
+        {"type":"system","subtype":"init"}
+        {"type":"assistant","message":{"model":"<synthetic>"},"usage_report":{"session":{"total_cost_usd":0},"rate_limits":{"limits":[{"kind":"weekly_all","group":"weekly","percent":42,"resets_at":"2026-11-13T03:59:59.632640+00:00","scope":null,"severity":"normal","is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":7,"resets_at":"2026-11-13T03:59:59.632777+00:00","scope":{"model":{"display_name":"Fable"},"surface":null},"severity":"normal","is_active":false}],"extra_usage":{"is_enabled":false,"monthly_limit":null,"used_credits":null,"utilization":null,"currency":null}}}}
+        {"type":"result","subtype":"success","is_error":false,"num_turns":0,"total_cost_usd":0,"result":"You are currently using your subscription to power your Claude Code usage\n\nCurrent week (all models): 42% used · resets Nov 13 at 12:59pm (Asia/Seoul)\nCurrent week (Fable): 7% used · resets Nov 13 at 12:59pm (Asia/Seoul)"}
+        """##
+
     /// GetCurrentPeriodUsage with split pools: relies on billingCycleStart/billingCycleEnd as string
     /// int64 ms, planUsage.autoPercentUsed/apiPercentUsed (scopes "Auto"/"API"), totalPercentUsed.
     static let cursorSplit = """

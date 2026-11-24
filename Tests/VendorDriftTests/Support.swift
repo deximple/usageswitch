@@ -101,12 +101,22 @@ enum Sample {
         return limit
     }
 
-    /// `usage_report.rate_limits` the way CLI 2.1.325 sends it.
+    /// The session limit of the structured report.
+    static var sessionLimit: [String: Any] {
+        var limit: [String: Any] = usageLimit()
+        limit["kind"] = "session"
+        limit["group"] = "session"
+        limit["percent"] = 40
+        limit["resets_at"] = "2026-11-04T10:39:59.871204+00:00"
+        return limit
+    }
+
+    /// `usage_report.rate_limits` the way CLI 2.1.325 sends it: a row for each line of `claudePanel`.
     static var rateLimits: [String: Any] {
         var extra: [String: Any] = [:]
         extra["is_enabled"] = false
         for key in ["monthly_limit", "used_credits", "utilization", "currency"] { extra[key] = NSNull() }
-        let limits: [[String: Any]] = [usageLimit(), usageLimit(scopedTo: "Fable")]
+        let limits: [[String: Any]] = [sessionLimit, usageLimit(), usageLimit(scopedTo: "Fable")]
         return ["limits": limits, "extra_usage": extra]
     }
 

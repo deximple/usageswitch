@@ -221,8 +221,11 @@ public struct DevinUsageCollector: Sendable {
                            resetKey: "weeklyQuotaResetAtUnix",
                            hideKey: "hideWeeklyQuota", duration: 10080),
             ].compactMap { $0 }
-            return windows.isEmpty ? [finish(.notReporting)]
-                                   : [finish(.ok, windows, plan: planLabel, toolVersion: version)]
+            guard windows.isEmpty else { return [finish(.ok, windows, plan: planLabel, toolVersion: version)] }
+            // A quota plan has a window unless it hides both; none at all means its keys changed,
+            // which is a failed read and not "no usage" (audit B2-U-01).
+            let hidesBoth = hidden("hideDailyQuota") && hidden("hideWeeklyQuota")
+            return [finish(isQuota && !hidesBoth ? .unavailable(.schemaChanged) : .notReporting)]
         } catch {
             return [finish(.unavailable(.schemaChanged))]
         }

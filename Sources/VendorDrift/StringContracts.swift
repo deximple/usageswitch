@@ -22,10 +22,12 @@ public struct StringContract: Equatable, Sendable {
 
 public enum StringContracts {
     /// The `claude -p /usage` panel lines `ClaudeUsageText` reads, the stream-json fields
-    /// `ClaudeUsageOutput` reads, and every flag and setting `ClaudeUsageCollector` passes.
+    /// `ClaudeUsageOutput` and `ClaudeUsageLimits` read, and every flag and setting
+    /// `ClaudeUsageCollector` passes.
     public static var claude: [StringContract] {
         let panel = "ClaudeUsageText reads the usage windows from this panel line"
         let stream = "ClaudeUsageOutput decides from it whether the answer is clean"
+        let limits = "ClaudeUsageLimits reads each limit's numbers under this key"
         let passed = "ClaudeUsageCollector passes it to keep the run quiet and local"
         var contracts: [StringContract] = [
             StringContract("Current session", reason: panel),
@@ -35,6 +37,9 @@ public enum StringContracts {
             StringContract("num_turns", reason: stream),
             StringContract("total_cost_usd", reason: stream),
             StringContract("is_error", reason: stream),
+            StringContract("usage_report", reason: limits),
+            StringContract("rate_limits", reason: limits),
+            StringContract("resets_at", reason: limits),
         ]
         for word in invocation(ClaudeUsageCollector.arguments) {
             contracts.append(StringContract(word, reason: passed))

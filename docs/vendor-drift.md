@@ -19,8 +19,8 @@ the check itself could not run. `--out <folder>` writes the report somewhere els
 |---|---|---|
 | Codex app-server protocol | The installed CLI writes its own schema (`codex app-server generate-json-schema`). The part UsageSwitch depends on is compared with the frozen copy in `scripts/vendor-drift/codex-protocol.snapshot.json`. Both the CLI the app runs (Codex.app's own, when installed) and a different `codex` on `PATH` are compared. | A request the app sends, or a field its parser reads, was removed or changed type, or a request type gained a required member. Everything else that changed is listed as information. |
 | Text the parsers depend on | The vendor binary is searched for the panel lines, stream fields, flags and error wording the app's parsers and collectors rely on. | One of them is gone from the binary. |
-| Claude `/usage` | The app's own `ClaudeUsageCollector` runs `claude -p /usage` with the app's arguments and environment. Each model limit it reads (`Current week (…)` with a name other than `all models`) is then put to the Guide's own map, `SuggestionHarnessMap`, with the bundled catalog. | A `Current …` line no longer matches, the panel reports usage without one, the run did more than answer, or the panel carries a model limit the Guide maps to no model. |
-| Claude `/usage` fields the app does not read | The same run's answer also carries a structured `usage_report`, which the app does not read. Its key names (`rate_limits`, each limit and its scope, `extra_usage`) are compared with the shape kept in `ClaudeUsageReport`. | Never. A key that is new is marked `look`: it may be the limit resets an account holds, which the app can't show for Claude yet. So is an answer with no `usage_report` to compare. |
+| Claude `/usage` | The app's own `ClaudeUsageCollector` runs `claude -p /usage` with the app's arguments and environment. The panel's `Current …` lines say which limits there are; each takes its numbers from its row in the answer's structured limits (`usage_report.rate_limits.limits[]`), and the rows are read alone when the panel has no such line. Each model limit the app reads is then put to the Guide's own map, `SuggestionHarnessMap`, with the bundled catalog. | The answer carries structured limits the app can't read (it falls back to the panel, or shows nothing), a `Current …` line no longer matches, the panel reports usage without one, the run did more than answer, or the app read a model limit the Guide maps to no model. A panel limit with no structured row is marked `look` (its reset time stays the panel's), and so is a structured limit of a kind the app doesn't know. |
+| Claude `/usage` fields the app does not read | The structured `usage_report` holds more than the limits the app reads. All its key names (`rate_limits`, each limit and its scope, `extra_usage`) are compared with the shape kept in `ClaudeUsageReport`. | Never. A key that is new is marked `look`: it may be the limit resets an account holds, which the app can't show for Claude yet. So is an answer with no `usage_report` to compare. |
 | Claude `auth status --json` | Run the way `ClaudeProfileUsageCollector` runs it; the app's parser says whether it still understands the shape. | The app's parser rejects the output. |
 | Codex `account/rateLimits/read` | The app's own `CodexUsageCollector` asks `codex app-server` in `~/.codex`, the way it does on an account's first read (with reset-credit details); the app's parser reads the answer. | The app's parser rejects the answer, the server no longer knows the method, or the answer carries reset credits the parser can't read. |
 | Gemini CLI sign-in client | The app's own finder looks for the client inside the installed CLI package. | It can't be found any more. |
@@ -60,6 +60,11 @@ only lists them as not checked.
    ```
 
    That takes the schema from the Codex CLI the app runs; `--codex <path>` takes it from another one.
+
+Structured Claude limits the app can't read are fixed in `ClaudeUsageLimits` (in
+`Sources/SwitcherCore/Usage/`). The report lists the key names and JSON types the limits now have;
+until the reader handles them the app shows the panel's numbers, whose reset times move by a minute
+from run to run, so the run-out forecast for Claude keeps starting over.
 
 A model limit the Guide maps to no model is not a parser problem: the app shows the limit, but the
 Guide ranks as if it weren't there, so a model whose limit is used up is still suggested. The report
