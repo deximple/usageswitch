@@ -6,7 +6,7 @@ DerivedData/
 .swiftpm/
 *.profraw
 
-# Private working files, never part of the public export (see docs/private/NOTES.ko.md)
+# Private working files, never part of the public export (see AGENTS.md)
 .goal-task/
 docs/evidence/
 docs/private/

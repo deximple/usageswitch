@@ -160,10 +160,22 @@ public enum SuggestionTaskChangeSource: String, Codable, Sendable {
 }
 
 public enum SuggestionQuietSignal {
+    /// The dot is off when the top suggestion is a combination already in use (audit G-05).
     public static func shouldShow(enabled: Bool, guideExpanded: Bool,
-                                  topCandidateID: String?, activeCandidateID: String?) -> Bool {
+                                  topCandidateID: String?, activeCandidateIDs: Set<String>) -> Bool {
         guard enabled, !guideExpanded, let topCandidateID else { return false }
-        return topCandidateID != activeCandidateID
+        return !activeCandidateIDs.contains(topCandidateID)
+    }
+
+    /// The rows in use right now: Claude's default row while a saved Claude account is signed in to
+    /// Claude Desktop, and the running Codex account's row. Both at once is the usual case.
+    public static func activeUsages(_ usages: [AccountUsage], claudeSignedIn: Bool,
+                                    runningCodexAccountID: String?) -> [AccountUsage] {
+        let claude = claudeSignedIn ? usages.first { $0.provider == .claude && $0.accountRef == "cli" } : nil
+        let codex = runningCodexAccountID.flatMap { id in
+            usages.first { $0.provider == .codex && $0.accountRef == id }
+        }
+        return [claude, codex].compactMap { $0 }
     }
 }
 

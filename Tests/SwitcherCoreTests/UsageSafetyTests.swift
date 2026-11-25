@@ -63,7 +63,9 @@ struct CodexIdentityTests {
         CodexUsageCollector(status: { CodexStatus(installed: true, version: "1.0",
                                                 accounts: accounts, found: [], hiddenCount: 0) },
                             runner: runner, codexCLI: URL(fileURLWithPath: "/usr/bin/true"),
-                            workingDirectory: FileManager.default.temporaryDirectory)
+                            workingDirectory: FileManager.default.temporaryDirectory,
+                            // Not the app's process-wide cache (audit T-5).
+                            resetCredits: CodexResetCreditCache())
     }
 
     private func account(_ id: String, _ mode: CodexIdentity.Mode,

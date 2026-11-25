@@ -61,6 +61,28 @@ public struct DriftReport: Equatable, Sendable {
 
     public var hasDrift: Bool { count(of: .drift) > 0 }
 
+    /// No check got as far as an answer: nothing installed, or every check was skipped or settled
+    /// nothing. Not a clean run (audit V-1).
+    public var comparedNothing: Bool {
+        !findings.contains { (finding: DriftFinding) -> Bool in
+            finding.status == .ok || finding.status == .drift || finding.status == .info
+        }
+    }
+
+    /// A Codex CLI is installed but its protocol was not compared with the snapshot.
+    var protocolNotCompared: Bool {
+        findings.contains { (finding: DriftFinding) -> Bool in
+            finding.section == .codexProtocol && finding.status == .attention
+        }
+    }
+
+    /// 0 no drift, 1 drift found, 3 the run could not compare what it is for. (2, the tool could
+    /// not run at all, is the executable's own.)
+    public var exitStatus: Int32 {
+        if hasDrift { return 1 }
+        return comparedNothing || protocolNotCompared ? 3 : 0
+    }
+
     private func count(of status: DriftStatus) -> Int {
         findings.filter { (finding: DriftFinding) -> Bool in finding.status == status }.count
     }
@@ -116,6 +138,8 @@ public struct DriftReport: Equatable, Sendable {
         let drift: Int = count(of: .drift)
         let look: Int = count(of: .attention)
         var text = "**No drift found.**"
+        if protocolNotCompared { text = "**No drift found, but the Codex protocol was not compared.**" }
+        if comparedNothing { text = "**Nothing was compared.**" }
         if drift == 1 { text = "**Drift found: 1 check needs a fix.**" }
         if drift > 1 { text = "**Drift found: \(drift) checks need a fix.**" }
         if look > 0 { text += " \(look) more worth a look." }

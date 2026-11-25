@@ -230,24 +230,19 @@ final class UsageModel: ObservableObject {
                                        model: candidate.model, effort: candidate.effort)
     }
 
-    func activeSuggestionCandidateIdentity() -> String? {
-        guard !isDemo else { return nil }
-        guard let usage = activeSuggestionUsage(),
-              let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
-        let hint = suggestionLogReader?.accountRefKey(for: usage.accountRef)
-            .flatMap { suggestionLogHints[$0] }
-        return Self.suggestionIdentity(provider: usage.provider, accountKey: accountKey,
-                                       model: hint?.model, effort: hint?.effort)
-    }
-
-    private func activeSuggestionUsage() -> AccountUsage? {
-        if settings.status?.activeAccount != nil {
-            return usages.first { $0.provider == .claude && $0.accountRef == "cli" }
-        }
-        if let active = AppModel.codex.status?.accounts.first(where: { $0.state == .running }) {
-            return usages.first { $0.provider == .codex && $0.accountRef == active.id }
-        }
-        return nil
+    /// Claude's and the running Codex account's combinations: either one in use mutes the dot (audit G-05).
+    func activeSuggestionCandidateIdentities() -> Set<String> {
+        guard !isDemo else { return [] }
+        let running = AppModel.codex.status?.accounts.first(where: { $0.state == .running })?.id
+        let active = SuggestionQuietSignal.activeUsages(usages, claudeSignedIn: settings.status?.activeAccount != nil,
+                                                        runningCodexAccountID: running)
+        return Set(active.compactMap { usage -> String? in
+            guard let accountKey = stateStore().accountKey(for: usage.accountRef) else { return nil }
+            let hint = suggestionLogReader?.accountRefKey(for: usage.accountRef)
+                .flatMap { suggestionLogHints[$0] }
+            return Self.suggestionIdentity(provider: usage.provider, accountKey: accountKey,
+                                           model: hint?.model, effort: hint?.effort)
+        })
     }
 
     private static func suggestionIdentity(provider: UsageProvider, accountKey: String,

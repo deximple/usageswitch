@@ -10,8 +10,10 @@ reads what the CLI prints. When a vendor changes that output, a row in the app t
 
 It builds the `usageswitch-drift` tool, runs it, prints a Markdown report and keeps a copy in
 `docs/private/vendor-drift/` (`latest.md` plus one file per run; the folder is gitignored, and from a
-worktree it is the main checkout's). It exits 0 when nothing drifted, 1 when something did, and 2 when
-the check itself could not run. `--out <folder>` writes the report somewhere else.
+worktree it is the main checkout's). It exits 0 when nothing drifted, 1 when something did, 2 when
+the check itself could not run, and 3 when it ran but could not compare what it is for: no tool it
+reads is installed or answered, or a Codex CLI could not write its schema, so the protocol was not
+compared. The report's first line says which. `--out <folder>` writes the report somewhere else.
 
 ## What it checks
 
@@ -26,7 +28,7 @@ the check itself could not run. `--out <folder>` writes the report somewhere els
 | Gemini CLI sign-in client | The app's own finder looks for the client inside the installed CLI package. | It can't be found any more. |
 
 A tool that isn't installed is left out. A read that settles nothing (signed out, timed out, offline)
-is marked `look` or `skipped` and does not fail the run.
+is marked `look` or `skipped` and does not fail the run, unless nothing at all was compared (exit 3).
 
 Cursor, Grok, Gemini, Antigravity, Devin, OpenCode and Copilot usage are **not** read. The app reads
 those with a stored sign-in token, after you connect them; this tool never opens a credential, so it
@@ -89,9 +91,11 @@ yours to decide:
 
 - **launchd**: a user agent in `~/Library/LaunchAgents/` with `ProgramArguments` set to the script's
   full path and a `StartCalendarInterval` (for example Monday 09:00). Read `latest.md` afterwards, or
-  have the agent notify you when the script exits 1.
+  have the agent notify you when the script exits with anything but 0.
 - **cron**: `0 9 * * 1 cd /path/to/usageswitch && ./scripts/vendor-drift.sh >/dev/null 2>&1`
-- **A scheduled Claude Code task** that runs the script and summarizes `latest.md` when it exits 1.
+- **A scheduled Claude Code task** that runs the script and summarizes `latest.md` when it exits 1 or 3.
+
+Treat 3 like 1: a run that compared nothing would otherwise pass every week without checking anything.
 
 Either way the run needs your login session: the CLIs read their own sign-ins from your Keychain.
 It can't run in CI, which has no vendor CLI and no sign-in.

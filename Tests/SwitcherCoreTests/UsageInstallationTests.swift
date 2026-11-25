@@ -279,7 +279,8 @@ struct InventoryPathOrderTests {
         #expect(rows.first { $0.provider == .gemini }?.cli == gemini)
     }
 
-    @Test("Antigravity CLI falls back to ~/.local/bin/agy")
+    /// `~/.local/bin` is on every search list, so this is the ordinary search (audit T-3).
+    @Test("Antigravity CLI in ~/.local/bin is found with only the system PATH")
     func antigravityFallback() throws {
         defer { cleanup() }
         let agy = try touch(".local/bin/agy")

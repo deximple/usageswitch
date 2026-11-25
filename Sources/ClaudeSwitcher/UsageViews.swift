@@ -47,7 +47,7 @@ struct UsageListHeader: View {
         SuggestionQuietSignal.shouldShow(enabled: settings.suggestionQuietSignal,
             guideExpanded: model.guideExpanded,
             topCandidateID: model.suggestionCandidateIdentity(),
-            activeCandidateID: model.activeSuggestionCandidateIdentity())
+            activeCandidateIDs: model.activeSuggestionCandidateIdentities())
     }
 
     var body: some View {

@@ -47,7 +47,9 @@ public struct DriftRun: Sendable {
         let installations: [UsageInstallation] = installations(bundled: bundledCodexCLI)
         let claudeCLI: URL? = Self.cli(.claude, in: installations)
         let codex: [CodexCLI] = codexCLIs(appChoice: Self.cli(.codex, in: installations))
-        let schemas: [SchemaResult?] = codex.map { (cli: CodexCLI) -> SchemaResult? in schemaResult(of: cli) }
+        let schemas: [SchemaResult?] = codex.enumerated().map { (index: Int, cli: CodexCLI) -> SchemaResult? in
+            schemaResult(of: cli, index: index)
+        }
         var claude: ClaudeRead?
         if let claudeCLI { claude = claudeUsage(claudeCLI) }
 
@@ -99,7 +101,7 @@ public struct DriftRun: Sendable {
         let appChoice: URL? = Self.cli(.codex, in: installations(bundled: bundledCodexCLI))
         guard let url = cli ?? appChoice else { return nil }
         let chosen = CodexCLI(label: "", url: url, version: version(of: url))
-        guard let schema = schemaResult(of: chosen), case .success(let snapshot) = schema else { return nil }
+        guard let schema = schemaResult(of: chosen, index: 0), case .success(let snapshot) = schema else { return nil }
         return snapshot
     }
 
@@ -150,16 +152,18 @@ public struct DriftRun: Sendable {
         return String(line[range])
     }
 
-    private func schemaDirectory(of cli: CodexCLI) -> URL {
+    /// One folder per CLI: two CLIs with the same or an unreadable version would otherwise read
+    /// each other's bundles (audit V-1).
+    private func schemaDirectory(of cli: CodexCLI, index: Int) -> URL {
         let version: String = cli.version ?? "unknown"
-        return workDirectory.appendingPathComponent("codex-schema-\(version)", isDirectory: true)
+        return workDirectory.appendingPathComponent("codex-schema-\(index)-\(version)", isDirectory: true)
     }
 
     private typealias SchemaResult = Result<CodexProtocolSnapshot, CodexProtocolSnapshot.ReadFailure>
 
     /// nil when the CLI could not generate its schema.
-    private func schemaResult(of cli: CodexCLI) -> SchemaResult? {
-        let directory: URL = schemaDirectory(of: cli)
+    private func schemaResult(of cli: CodexCLI, index: Int) -> SchemaResult? {
+        let directory: URL = schemaDirectory(of: cli, index: index)
         let request = UsageProcessRequest(executable: cli.url,
                                           arguments: ["app-server", "generate-json-schema", "--out", directory.path],
                                           environment: UsageChildEnvironment.make(for: cli.url, home: home),

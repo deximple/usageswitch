@@ -84,6 +84,8 @@ struct UsageProcessRunnerTests {
             home: FileManager.default.homeDirectoryForCurrentUser)
         #expect(env["ANTHROPIC_API_KEY"] == nil)
         #expect(env["OPENAI_API_KEY"] == nil)
+        // Holds whatever the test process happens to export (audit T-3).
+        #expect(Set(env.keys).isSubset(of: SystemClaudeAppControl.allowedLaunchKeys.union(["PATH"])))
     }
 
     @Test("stdin lines are written and stay open; the matching line stops the run")

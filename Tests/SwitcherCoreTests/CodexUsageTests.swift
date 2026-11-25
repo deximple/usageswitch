@@ -262,7 +262,7 @@ struct CodexUsageTests {
         let runner = fakeRunner(answering: [])
         let missing = workDir.appendingPathComponent("no-such-dir-\(UUID().uuidString)", isDirectory: true)
         let usages = CodexUsageCollector(status: { [self] in status([account("a1")]) }, runner: runner, codexCLI: cli,
-                                         workingDirectory: missing).collect()
+                                         workingDirectory: missing, resetCredits: CodexResetCreditCache()).collect()
         #expect(usages.map(\.state) == [.failed(.refused)])
         #expect(runner.requests.isEmpty)
     }

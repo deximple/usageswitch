@@ -22,7 +22,7 @@
 | `docs/private/` | 계획 문서, `handoff/`의 최신 핸드오프 | `.gitignore` |
 | `docs/evidence/` | 오딧·커버리지 근거 | `.gitignore` |
 | `_local/releases/` | 지난 릴리스 산출물, 릴리스 노트, appcast 작업본 | `.git/info/exclude` |
-| `_local/archive/` | 공개 전 저장소, 옛 로그와 오딧 실행 기록 | `.git/info/exclude` |
+| `_local/archive/` | 지난 작업 보관물 | `.git/info/exclude` |
 
 - `git clean -x`, `git clean -X`, `git clean -fdx`는 쓰지 않는다. 위 폴더가 통째로 지워진다.
   빌드 정리는 `rm -rf .build build`로 한다.

@@ -97,7 +97,10 @@ struct SuggestionLogReaderTests {
         #expect(!cursorText.contains(file.path))
         let cursorObject = try #require(JSONSerialization.jsonObject(with: Data(cursorText.utf8))
             as? [String: Any])
-        #expect(Set(cursorObject.keys) == ["cursors", "firstPassDay"])
+        #expect(Set(cursorObject.keys) == ["accounts", "cursors", "firstPassDay"])
+        // Accounts are kept only under the salted key the usage records use.
+        let accountKeys = try #require((cursorObject["accounts"] as? [String: Any])?.keys)
+        #expect(accountKeys.map { $0 } == ["claude:" + (try #require(logReader.accountRefKey(for: "jay.song@example.com")))])
         let cursorKeys = try #require((cursorObject["cursors"] as? [String: Any])?.keys)
         #expect(cursorKeys.count == 1)
         #expect(cursorKeys.first?.count == 64)
@@ -417,6 +420,21 @@ struct SuggestionLogReaderTests {
         #expect(logReader.recentRecords(now: now).map(\.inputTokens).sorted() == [10, 20])
     }
 
+    @Test func undoingAnAppendDoesNotFollowALink() throws {
+        // Audit S-3: the undo cut a path, so a link in the store would cut the file it points at.
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let env = environment(root)
+        let fs = SafeFS(env: env)
+        let directory = env.storeDir.appendingPathComponent("suggestion")
+        try fs.createDirectory(directory)
+        let target = directory.appendingPathComponent("log-cursors.json")
+        try fs.write(Data("{\"cursors\":{}}".utf8), to: target)
+        let link = directory.appendingPathComponent("log-usage-2027-01-01.jsonl")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        SuggestionStorage.rollBack([SuggestionStorage.Appended(file: link, previousSize: 0)], fs: fs)
+        #expect(try Data(contentsOf: target) == Data("{\"cursors\":{}}".utf8))
+    }
+
     @Test func filesOfPriorityAccountsAreReadFirst() throws {
         let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let claude = try claudeRoot(root)
@@ -468,6 +486,103 @@ struct SuggestionLogReaderTests {
         let second = small.read(roots: [logRoot], now: now)
         #expect(second.pendingBytes == 0)
         #expect(second.pendingAccounts.isEmpty)
+    }
+
+    @Test func aMessageCutByTheReadBudgetIsCountedOnce() throws {
+        // Audit G-07: a quiet file read only part way must not finalize the message at the cut.
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        let first = claudeLine(id: "split", input: 10) + "\n"
+        try write(first + claudeLine(id: "split", input: 20) + "\n",
+                  to: logRoot.directory.appendingPathComponent("projects/project/quiet.jsonl"),
+                  modifiedAt: now.addingTimeInterval(-11 * 60))
+        let env = environment(root)
+        let small = SuggestionLogReader(env: env, fs: SafeFS(env: env), catalog: nil,
+                                        readBudget: first.utf8.count)
+        _ = small.read(roots: [logRoot], now: now)
+        _ = small.read(roots: [logRoot], now: now)
+        let records = small.recentRecords(now: now)
+        #expect(records.reduce(0) { $0 + $1.turns } == 1)
+        #expect(records.reduce(Int64(0)) { $0 + $1.inputTokens } == 20)
+    }
+
+    // MARK: - Coverage of the spend estimate (audit G-02)
+
+    @Test func aPassAfterMoreThanFourteenDaysStartsCoverageAgain() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        _ = logReader.read(roots: [logRoot], now: now, priorityAccountRefs: ["cli"])
+        // Files changed while the app was off and now older than 14 days are never read.
+        let later = now.addingTimeInterval(20 * 86_400)
+        let pass = logReader.read(roots: [logRoot], now: later, priorityAccountRefs: ["cli"])
+        #expect(pass.firstPassDay == SuggestionRetention.utcDay(later))
+        // A gap of a few days loses nothing.
+        let soon = later.addingTimeInterval(3 * 86_400)
+        #expect(logReader.read(roots: [logRoot], now: soon, priorityAccountRefs: ["cli"]).firstPassDay
+            == SuggestionRetention.utcDay(later))
+    }
+
+    @Test func anAccountAddedLaterStartsItsOwnCoverage() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let claude = try claudeRoot(root)
+        try finishedSession(claude, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        let first = logReader.read(roots: [claude], now: now, priorityAccountRefs: ["cli"])
+        #expect(first.firstPassDay == SuggestionRetention.utcDay(now))
+
+        // A Codex home used with an API key for a month, added today: files older than 14 days
+        // are never read, so its spend is complete only from today's pass.
+        let codex = try codexRoot(root, accountRef: "api-key-home")
+        let rollout = """
+        {"type":"turn_context","payload":{"model":"gpt-5","effort":"high"}}
+        {"type":"event_msg","timestamp":"\(timestamp(now.addingTimeInterval(-20 * 86_400)))","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"output_tokens":40}}}}
+        """
+        try write(rollout + "\n", to: codex.directory.appendingPathComponent("sessions/2027/01/rollout-old.jsonl"),
+                  modifiedAt: now.addingTimeInterval(-15 * 86_400))
+        let added = now.addingTimeInterval(86_400)
+        let pass = logReader.read(roots: [claude, codex], now: added,
+                                  priorityAccountRefs: ["cli", "api-key-home"])
+        #expect(pass.firstPassDay == SuggestionRetention.utcDay(added))
+        // An added account that no spend estimate depends on moves nothing.
+        let profile = try claudeRoot(root.appendingPathComponent("profile"), accountRef: "profile")
+        let next = logReader.read(roots: [claude, profile], now: added.addingTimeInterval(86_400),
+                                  priorityAccountRefs: ["cli"])
+        #expect(next.firstPassDay == SuggestionRetention.utcDay(now))
+    }
+
+    @Test func accountsInACursorFileFromBeforeTheirCoverageKeepTheFirstPassDay() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10)
+        let logReader = reader(root)
+        _ = logReader.read(roots: [logRoot], now: now, priorityAccountRefs: ["cli"])
+        // Simulate a 2.5.0 cursor file: no per-account coverage.
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: cursorFile(root)))
+            as? [String: Any])
+        object.removeValue(forKey: "accounts")
+        try JSONSerialization.data(withJSONObject: object).write(to: cursorFile(root))
+
+        let nextDay = now.addingTimeInterval(86_400)
+        #expect(logReader.read(roots: [logRoot], now: nextDay, priorityAccountRefs: ["cli"]).firstPassDay
+            == SuggestionRetention.utcDay(now))
+    }
+
+    @Test func aBacklogThatOutlastsTheDayStartsCoverageWhenItIsDone() throws {
+        let root = scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let logRoot = try claudeRoot(root)
+        try finishedSession(logRoot, name: "one", id: "one", input: 10, modifiedAt: now.addingTimeInterval(-3600))
+        try finishedSession(logRoot, name: "two", id: "two", input: 20, modifiedAt: now.addingTimeInterval(-7200))
+        let lineBytes = (claudeLine(id: "one", input: 10) + "\n").utf8.count
+        let env = environment(root)
+        let small = SuggestionLogReader(env: env, fs: SafeFS(env: env), catalog: nil, readBudget: lineBytes)
+        #expect(small.read(roots: [logRoot], now: now, priorityAccountRefs: ["cli"]).pendingBytes > 0)
+        // Older files may have dropped out of the 14-day window before the backlog reached them.
+        let nextDay = now.addingTimeInterval(86_400)
+        let done = small.read(roots: [logRoot], now: nextDay, priorityAccountRefs: ["cli"])
+        #expect(done.pendingBytes == 0)
+        #expect(done.firstPassDay == SuggestionRetention.utcDay(nextDay))
     }
 
     @Test("total read budget is 32 MiB and files older than fourteen days are skipped")

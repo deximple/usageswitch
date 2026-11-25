@@ -322,17 +322,37 @@ struct SuggestionLifecycleTests {
     func quietSignalPredicate() {
         #expect(SwitcherSettings().effectiveSuggestionQuietSignal)
         #expect(SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: false,
-            topCandidateID: "candidate", activeCandidateID: "active"))
+            topCandidateID: "candidate", activeCandidateIDs: ["active"]))
         #expect(!SuggestionQuietSignal.shouldShow(enabled: false, guideExpanded: false,
-            topCandidateID: "candidate", activeCandidateID: "active"))
+            topCandidateID: "candidate", activeCandidateIDs: ["active"]))
         #expect(!SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: true,
-            topCandidateID: "candidate", activeCandidateID: "active"))
+            topCandidateID: "candidate", activeCandidateIDs: ["active"]))
         #expect(!SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: false,
-            topCandidateID: "active", activeCandidateID: "active"))
+            topCandidateID: "active", activeCandidateIDs: ["active"]))
         #expect(SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: false,
-            topCandidateID: "candidate", activeCandidateID: nil))
+            topCandidateID: "candidate", activeCandidateIDs: []))
         #expect(!SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: false,
-            topCandidateID: nil, activeCandidateID: nil))
+            topCandidateID: nil, activeCandidateIDs: []))
+        // Either combination in use counts (audit G-05).
+        #expect(!SuggestionQuietSignal.shouldShow(enabled: true, guideExpanded: false,
+            topCandidateID: "codex", activeCandidateIDs: ["claude", "codex"]))
+    }
+
+    @Test("with Claude signed in, the running Codex account is in use too (audit G-05)")
+    func activeRowsInUse() {
+        let claude = SuggestionTestSupport.usage("cli", provider: .claude, windows: [])
+        let profile = SuggestionTestSupport.usage("profile", provider: .claude, windows: [])
+        let work = SuggestionTestSupport.usage("work", windows: [])
+        let home = SuggestionTestSupport.usage("home", windows: [])
+        let usages = [claude, profile, work, home]
+        #expect(SuggestionQuietSignal.activeUsages(usages, claudeSignedIn: true, runningCodexAccountID: "work")
+            .map(\.id) == ["claude:cli", "codex:work"])
+        #expect(SuggestionQuietSignal.activeUsages(usages, claudeSignedIn: false, runningCodexAccountID: "work")
+            .map(\.id) == ["codex:work"])
+        #expect(SuggestionQuietSignal.activeUsages(usages, claudeSignedIn: true, runningCodexAccountID: nil)
+            .map(\.id) == ["claude:cli"])
+        #expect(SuggestionQuietSignal.activeUsages(usages, claudeSignedIn: false, runningCodexAccountID: "gone")
+            .isEmpty)
     }
 }
 

@@ -449,6 +449,49 @@ struct UsageAlertTests {
         #expect(again.alerts.count == 1)
     }
 
+    // MARK: - Exactly at each line (audit T-4): vendors that report whole percents land on it
+
+    @Test func exactlyAtTheThresholdAlerts() {
+        let at = UsageAlerts.update(usages: [usage([window(10080, used: 80, resetsAt: future)])],
+                                    threshold: 80, alerted: [:], now: epoch)
+        #expect(at.alerts.map(\.emptied) == [false])
+        let under = UsageAlerts.update(usages: [usage([window(10080, used: 79.9, resetsAt: future)])],
+                                       threshold: 80, alerted: [:], now: epoch)
+        #expect(under.alerts.isEmpty && under.alerted.isEmpty)
+    }
+
+    @Test func exactlyAtTheHysteresisLineStaysSpent() {
+        let alerted: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: future)]
+        let at = UsageAlerts.update(usages: [usage([window(10080, used: 75, resetsAt: future)])],
+                                    threshold: 80, alerted: alerted, now: epoch)
+        #expect(at.alerted == alerted)
+        let under = UsageAlerts.update(usages: [usage([window(10080, used: 74.9, resetsAt: future)])],
+                                       threshold: 80, alerted: alerted, now: epoch)
+        #expect(under.alerted.isEmpty)
+    }
+
+    @Test func exactlyAHundredIsEmptied() {
+        let full = UsageAlerts.update(usages: [usage([window(300, used: 100, resetsAt: future)])],
+                                      threshold: 80, alerted: [:], now: epoch)
+        #expect(full.alerts.map(\.emptied) == [true])
+        let almost = UsageAlerts.update(usages: [usage([window(300, used: 99.9, resetsAt: future)])],
+                                        threshold: 80, alerted: [:], now: epoch)
+        #expect(almost.alerts.map(\.emptied) == [false])
+    }
+
+    @Test func aResetExactlyTenMinutesOffIsTheSameCycle() {
+        let r = epoch.addingTimeInterval(86400)
+        let stored: [String: UsageAlerts.Mark] = ["codex:a/weekly/": .init(resetsAt: r)]
+        let same = UsageAlerts.update(
+            usages: [usage([window(10080, used: 90, resetsAt: r.addingTimeInterval(UsageAlerts.sameCycleTolerance))])],
+            threshold: 80, alerted: stored, now: epoch)
+        #expect(same.alerts.isEmpty)
+        let next = UsageAlerts.update(
+            usages: [usage([window(10080, used: 90, resetsAt: r.addingTimeInterval(UsageAlerts.sameCycleTolerance + 1))])],
+            threshold: 80, alerted: stored, now: epoch)
+        #expect(next.alerts.count == 1)
+    }
+
     @Test("stale and non-ok windows never alert")
     func neverStale() {
         let stale = usage([window(300, used: 95, resetsAt: epoch.addingTimeInterval(-60))])
