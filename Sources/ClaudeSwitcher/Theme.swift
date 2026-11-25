@@ -24,28 +24,33 @@ enum Theme {
     static let alias = Color(nsColor: .secondaryLabelColor)
     static let danger = Color(nsColor: .systemRed)
 
-    // Usage bars. The fill is the vendor's logo color; a warning or used-up window overrides it
-    // and a stale reading is grey. The hex pairs live in SwitcherCore's `UsageBarPalette`, where
-    // tests hold every fill to 3:1 against the canvas and the track in light and dark.
+    // Usage bars. The fill follows how much is left (ample, warning, critical), a used-up bar is
+    // empty and a stale reading is grey. The hex values live in SwitcherCore's `UsageBarPalette`,
+    // where tests hold the dark fills, the light borders and the markers to 3:1 against the canvas
+    // and the track, and keep neighboring levels apart for every kind of color vision.
     static let usageTrack = adaptive(UsageBarPalette.track)
-    static let usageWarn = adaptive(UsageBarPalette.warning)
-    static let usageExhausted = adaptive(UsageBarPalette.exhausted)
+    /// The warning glyph: a low limit, an early run-out, a Guide note that needs a look.
+    static let usageWarn = adaptive(UsageBarPalette.warning.marker)
+    /// The critical and used-up glyphs, and a failure note's.
+    static let usageCritical = adaptive(UsageBarPalette.critical.marker)
     static let usageStale = Color(nsColor: .tertiaryLabelColor)
-    private static let vendorFills = Dictionary(uniqueKeysWithValues: UsageProvider.allCases.map {
-        ($0, adaptive(UsageBarPalette.tint(for: $0)))
-    })
-
-    /// The vendor's logo color, readable in both appearances (black-and-white logos flip).
-    static func vendor(_ provider: UsageProvider) -> Color { vendorFills[provider] ?? ink }
-
-    static func usageFill(_ role: UsageBarPalette.Role, provider: UsageProvider) -> Color {
-        switch role {
-        case .stale: usageStale
-        case .exhausted: usageExhausted
-        case .warning: usageWarn
-        case .vendor: vendor(provider)
-        }
+    private struct UsageLook {
+        let fill: Color
+        let rim: Color
+        let marker: Color
     }
+    private static let usageLooks: [UsageBarPalette.Role: UsageLook] = Dictionary(
+        uniqueKeysWithValues: UsageBarPalette.Role.allCases.compactMap { role -> (UsageBarPalette.Role, UsageLook)? in
+            guard let look = UsageBarPalette.look(for: role) else { return nil }
+            return (role, UsageLook(fill: adaptive(look.fill), rim: Color(nsColor: nsColor(look.rim)),
+                                    marker: adaptive(look.marker)))
+        })
+
+    static func usageFill(_ role: UsageBarPalette.Role) -> Color { usageLooks[role]?.fill ?? usageStale }
+    /// The 1pt border a fill carries in light, where the border and not the fill reaches 3:1.
+    static func usageRim(_ role: UsageBarPalette.Role) -> Color? { usageLooks[role]?.rim }
+    /// The glyph beside the number: the border's tone in light, the fill in dark.
+    static func usageMarker(_ role: UsageBarPalette.Role) -> Color { usageLooks[role]?.marker ?? inkMuted }
 
     // State chips. The text is always `ink`; the marker beside it carries the color. The hex pairs
     // live in SwitcherCore's `StatusPalette`, where tests hold each marker to 3:1 on the well.

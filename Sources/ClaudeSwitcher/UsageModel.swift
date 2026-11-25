@@ -8,7 +8,14 @@ import SwitcherCore
 final class UsageModel: ObservableObject {
     enum Segment: String { case guide, all }
 
-    @Published private(set) var usages: [AccountUsage] = []
+    @Published private(set) var usages: [AccountUsage] = [] {
+        didSet {
+            barMarks = UsageBarMemory.update(barMarks, usages: usages,
+                                             warnAt: Double(settings.usageWarnPercent), now: Date())
+        }
+    }
+    /// What each bar showed at the last reading (`UsageBarMemory`); memory only.
+    private var barMarks: [String: UsageBarMemory.Mark] = [:]
     /// Which providers are on this Mac; empty until the first refresh finishes.
     @Published private(set) var installations: [UsageInstallation] = []
     @Published private(set) var isRefreshing = false
@@ -78,6 +85,12 @@ final class UsageModel: ObservableObject {
     static let interval: TimeInterval = 300
     static let tick: TimeInterval = 30
     private static let suggestionCatalog = try? SuggestionCatalog.bundled()
+
+    /// The level this window's bar showed at the last reading, when it still applies.
+    func heldBarRole(_ usage: AccountUsage, _ window: UsageWindow) -> UsageBarPalette.Role? {
+        UsageBarMemory.previous(for: window, key: UsagePriority.key(usage, window),
+                                warnAt: Double(settings.usageWarnPercent), in: barMarks)
+    }
 
     init(settings: SwitcherModel) {
         self.settings = settings

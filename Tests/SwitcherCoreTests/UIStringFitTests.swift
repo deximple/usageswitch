@@ -19,7 +19,8 @@ enum MenuLimitRow {
     static let percentStyle = TextStyle(size: 12, weight: .medium, monospacedDigits: true)
     static let markerStyle = TextStyle(size: 10)
     static let markerGap = 3.0
-    static let markers = ["exclamationmark.triangle.fill", "xmark.octagon.fill", "clock"]
+    /// Every level's glyph and the stale clock.
+    static let markers = UsageBarPalette.Role.allCases.compactMap(\.symbol) + ["clock"]
     static let reset = TextSlot(width: 52, style: TextStyle(size: 11, monospacedDigits: true), minimumScale: 0.8)
 }
 

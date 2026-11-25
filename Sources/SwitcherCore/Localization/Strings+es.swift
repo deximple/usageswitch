@@ -429,6 +429,7 @@ extension Strings {
         .usageUsedPercent: "%d%% usado",
         .usageListTitle: "Límite restante",
         .usageWarnA11y: "Queda poco",
+        .usageCriticalA11y: "Casi agotado",
         .usageExhaustedA11y: "Agotado",
         .usageClaudeSource: "Claude Code · CLI",
         .usageLeft: "%d%% restante",

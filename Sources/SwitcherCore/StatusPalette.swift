@@ -63,13 +63,14 @@ public enum StatusPalette {
     /// white label; dark is system green.
     public static let ready = UsageBarTint(light: 0x197A33, dark: 0x30D158)
 
-    /// The marker's color; nil for `.current`, which follows the user's accent color.
+    /// The marker's color; nil for `.current`, which follows the user's accent color. Sign in again
+    /// and damaged borrow the usage bar's warning and critical marker colors.
     public static func tint(for marker: StatusMarker) -> UsageBarTint? {
         switch marker {
         case .current: nil
         case .ready: ready
-        case .attention: UsageBarPalette.warning
-        case .damaged: UsageBarPalette.exhausted
+        case .attention: UsageBarPalette.warning.marker
+        case .damaged: UsageBarPalette.critical.marker
         }
     }
 

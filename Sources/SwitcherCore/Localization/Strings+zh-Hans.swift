@@ -429,6 +429,7 @@ extension Strings {
         .usageUsedPercent: "已使用 %d%%",
         .usageListTitle: "剩余限额",
         .usageWarnA11y: "余量偏低",
+        .usageCriticalA11y: "即将用完",
         .usageExhaustedA11y: "已用完",
         .usageClaudeSource: "Claude Code · CLI",
         .usageLeft: "剩余 %d%%",

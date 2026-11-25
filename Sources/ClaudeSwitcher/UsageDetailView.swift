@@ -131,7 +131,8 @@ struct UsageDetailView: View {
         ForEach(p.usage.windows, id: \.self) { w in
             UsageBarRow(usage: p.usage, window: w, settings: model, now: Date(),
                         compact: false, stacked: true,
-                        pace: usage.pace[UsagePriority.key(p.usage, w)])
+                        pace: usage.pace[UsagePriority.key(p.usage, w)],
+                        held: usage.heldBarRole(p.usage, w))
         }
         if p.usage.windows.isEmpty && !savedApp
             && !UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
