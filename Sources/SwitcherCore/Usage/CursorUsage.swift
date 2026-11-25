@@ -164,24 +164,30 @@ public struct CursorUsageCollector: Sendable {
         // `cursor-agent login` session (about 60 days) renews it whenever the CLI runs —
         // ask once, then read the token again. API-key sign-ins (~1 hour) have no session
         // to renew and stay expired, so a token the CLI left expired is not asked about again.
+        var renewalTimedOut = false
         if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60),
            !renewalAttempts.contains(token), let renewal = refreshedToken() {
             token = renewal.token
+            renewalTimedOut = renewal.outcome == .timedOut
             // Only once it has really expired: the CLI may leave a token alone inside its
             // last minute, and that one still gets its try after it expires. And only when the
             // CLI ran to a clean end: offline or hung, it gave no verdict on this token.
-            if renewal.statusCompleted, let expiry = UsageJSON.jwtExpiry(renewal.token), expiry <= now() {
+            if renewal.outcome == .exited(0), let expiry = UsageJSON.jwtExpiry(renewal.token), expiry <= now() {
                 renewalAttempts.record(renewal.token)
             }
         }
         if let expiry = UsageJSON.jwtExpiry(token), expiry <= now().addingTimeInterval(60) {
-            return [finish(.unavailable(.signInExpired))]
+            // A renewal run that timed out (offline, or the CLI hung) gave no verdict: this is a
+            // read that got no answer, not a sign-in known to have run out.
+            return [finish(renewalTimedOut ? .failed(.timeout) : .unavailable(.signInExpired))]
         }
         let usageURL = endpoint.appendingPathComponent("aiserver.v1.DashboardService/GetCurrentPeriodUsage")
         guard let response = http.post(url: usageURL, bearer: token, timeout: 10) else {
             return [finish(.failed(.network))]
         }
         if response.status == 401 || response.status == 403 { return [finish(.failed(.signInRejected))] }
+        // Cursor answered: asking again soon would only add to the limit.
+        if response.status == 429 { return [finish(.failed(.rateLimited))] }
         guard response.status == 200 else { return [finish(.failed(.network))] }
         guard let windows = CursorUsageParser.windows(usage: response.body) else {
             // A percentage outside 0...100 is a changed response, not "no usage" (audit B-11).
@@ -194,7 +200,7 @@ public struct CursorUsageCollector: Sendable {
     /// Runs `cursor-agent status` once so a live browser session can renew the stored
     /// Keychain token, then re-reads the token. Its output is discarded — only the
     /// side effect on the Keychain matters. nil when no agent is installed.
-    private func refreshedToken() -> (token: String, statusCompleted: Bool)? {
+    private func refreshedToken() -> (token: String, outcome: UsageProcessResult.Outcome)? {
         guard let cursorAgent, !Task.isCancelled else { return nil }
         let request = UsageProcessRequest(
             executable: cursorAgent,
@@ -205,7 +211,7 @@ public struct CursorUsageCollector: Sendable {
             timeout: 8)
         let outcome = runner.run(request).outcome
         guard !Task.isCancelled, let token = token() else { return nil }
-        return (token, outcome == .exited(0))
+        return (token, outcome)
     }
 
     /// The Cursor sign-in token: a bounded Keychain probe first, then the bounded
