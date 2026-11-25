@@ -7,9 +7,10 @@ import Foundation
 /// reset and scope name are looked at; the session totals beside them never are.
 public enum ClaudeUsageLimits {
     public enum Reading: Equatable, Sendable {
-        /// Nothing to read: an older CLI, no report on the line, or no limit listed.
+        /// Nothing to read: an older CLI, no (or a null) report on the line, or no limit listed.
         case absent
-        /// Rows are there and none can be used: a row of a known kind is malformed (one spoils the
+        /// The report or its containers are of another type, or rows are there and none can be
+        /// used: a row of a known kind is malformed (one spoils the
         /// report, so a limit that is used up is never dropped while the others are shown), or
         /// every row is of a kind this build doesn't know.
         case unreadable
@@ -32,8 +33,11 @@ public enum ClaudeUsageLimits {
 
     public static func reading(in lines: [String]) -> Reading {
         let answers: [[String: Any]] = lines.compactMap(ClaudeUsageOutput.object).filter(ClaudeUsageOutput.isLocalAnswer)
-        let reports: [[String: Any]] = answers.compactMap { $0[report] as? [String: Any] }
-        guard let found = reports.first, let rateLimits = present(found["rate_limits"]) else { return .absent }
+        // A report of another type is a changed format, not an older CLI that sends none.
+        let reports: [Any] = answers.compactMap { present($0[report]) }
+        guard let first = reports.first else { return .absent }
+        guard let found = first as? [String: Any] else { return .unreadable }
+        guard let rateLimits = present(found["rate_limits"]) else { return .absent }
         guard let rateLimits = rateLimits as? [String: Any] else { return .unreadable }
         guard let limits = present(rateLimits["limits"]) else { return .absent }
         guard let rows = limits as? [Any] else { return .unreadable }

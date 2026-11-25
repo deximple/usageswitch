@@ -119,6 +119,8 @@ public struct UsageWindow: Codable, Hashable, Sendable {
 /// can carry account identity, so their text is never surfaced.
 public enum UsageProblem: String, Codable, Sendable {
     case noSignIn, cliMissing, managed, refused, timeout, network, schemaChanged, rateLimited
+    /// The vendor CLI is there but couldn't be started — not the same as a missing one.
+    case cliFailedToStart
     /// The provider rejected the stored sign-in (HTTP 401/403): it was revoked, replaced by
     /// another sign-in, or belongs to an account the endpoint won't serve. The vendor CLI's
     /// own login fixes it.

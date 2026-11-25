@@ -760,7 +760,7 @@ public final class Switcher: @unchecked Sendable {
         warnings: inout [String], progress: @escaping (SwitchStep) -> Void
     ) throws {
         progress(.launching)
-        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() }, uptime: { [clock] in clock.uptime() })
         do {
             try app.launch(appURL: env.claudeAppURL)
             progress(.verifying)
@@ -776,6 +776,13 @@ public final class Switcher: @unchecked Sendable {
                     try swapper.commit(keepPreviousAt: keepPreviousAt)
                 } catch {
                     warnings.append(L10n.t(.warnCommitCleanupFailed, String(describing: error)))
+                    // The journal stays for a later retry, but the live files are the verified account's
+                    // whole set: nothing is mixed, so Claude's relaunchers come back now instead of staying
+                    // off until a recovery that only runs once Claude quits (audit A-4).
+                    if swapper.pendingJournal()?.state == "installed" {
+                        progress(.restoringRelaunchers)
+                        relaunchers.restoreAll()
+                    }
                 }
             case .failure(let reason, let needsRelogin):
                 if needsRelogin { store.markNeedsRelogin(target) }
@@ -796,14 +803,16 @@ public final class Switcher: @unchecked Sendable {
     }
 
     func waitForVerdict(cursor: ClaudeLog.Cursor, target: AccountIdentity) -> LaunchVerdict {
-        let start = clock.now()
-        let deadlineUptime = clock.uptime() + options.launchVerifyTimeout + options.settle
+        // Every wait here is measured on the monotonic clock: a wall clock moved during the settle
+        // must neither cut it short nor stretch it (audit A-2).
+        let startUptime = clock.uptime()
+        let deadlineUptime = startUptime + options.launchVerifyTimeout + options.settle
         while true {
             cursor.poll()
-            let now = clock.now()
+            let nowUptime = clock.uptime()
             let verdict = LaunchVerdict.evaluate(
                 lines: cursor.collected, targetAccount: target.accountUuid, targetOrg: target.orgUuid,
-                now: now, settle: options.settle)
+                now: clock.now(), settle: options.settle, nowUptime: nowUptime)
             switch verdict {
             case .success:
                 if let main = processes.mainProcess() {
@@ -827,12 +836,12 @@ public final class Switcher: @unchecked Sendable {
                 // interval after the launch-verify window ends.
                 let settling = cursor.collected
                     .first(where: { ClaudeLog.parseInit($0) != nil })
-                    .flatMap(\.observedAt)
+                    .flatMap(\.observedUptime)
                     .map { observed in
-                        observed <= start.addingTimeInterval(options.launchVerifyTimeout + options.pollInterval)
-                            && now < observed.addingTimeInterval(options.settle)
+                        observed <= startUptime + options.launchVerifyTimeout + options.pollInterval
+                            && nowUptime < observed + options.settle
                     } ?? false
-                if clock.uptime() >= deadlineUptime && !settling { return .pending }
+                if nowUptime >= deadlineUptime && !settling { return .pending }
                 clock.sleep(options.pollInterval)
             }
         }
@@ -852,7 +861,7 @@ public final class Switcher: @unchecked Sendable {
             } catch { return .failed }
         }
         do { try swapper.rollback() } catch { return .failed }
-        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() }, uptime: { [clock] in clock.uptime() })
         do { try app.launch(appURL: env.claudeAppURL) } catch { return .unverified }
         guard let previous else { return .unverified }
         progress(.verifying)
@@ -868,7 +877,7 @@ public final class Switcher: @unchecked Sendable {
             return QuitOutcome(clean: !processes.anyClaudeNamedProcess())
         }
         let tree = [main] + processes.descendants(of: main.pid, in: procs)
-        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() })
+        let cursor = ClaudeLog.Cursor(log: log, now: { [clock] in clock.now() }, uptime: { [clock] in clock.uptime() })
         let t0 = clock.uptime()
         _ = app.requestQuit(pid: main.pid)
         var sigtermSent = false

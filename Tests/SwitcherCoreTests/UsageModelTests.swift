@@ -320,6 +320,29 @@ struct UsageRefreshPolicyTests {
             oldAccountIds: nil, newAccountIds: [], refreshedWithoutClaudeStatus: false))
     }
 
+    /// The read that started before the status skipped only the connected accounts' profile rows: with
+    /// none of the newly known accounts connected, a second read right after launch would run every
+    /// vendor tool again for the same answer (audit B2-U-05).
+    @Test("status arriving after a refresh rereads only when a newly known account is connected")
+    func statusLoadedAfterRefreshNeedsAConnectedAccount() {
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a", "b"]), refreshedWithoutClaudeStatus: true,
+            boundAccountIds: []))
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a"]), refreshedWithoutClaudeStatus: true,
+            boundAccountIds: Set(["gone"])))
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a", "b"]), refreshedWithoutClaudeStatus: true,
+            boundAccountIds: Set(["b"])))
+        #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: nil, newAccountIds: Set(["a", "b"]), refreshedWithoutClaudeStatus: false,
+            boundAccountIds: Set(["b"])))
+        // A changed registry still rereads whatever is connected.
+        #expect(UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
+            oldAccountIds: Set(["a"]), newAccountIds: Set(["a", "b"]), refreshedWithoutClaudeStatus: false,
+            boundAccountIds: []))
+    }
+
     @Test("unchanged account ids do not refresh; added or removed ids always do")
     func registeredAccountIdsChanged() {
         #expect(!UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(

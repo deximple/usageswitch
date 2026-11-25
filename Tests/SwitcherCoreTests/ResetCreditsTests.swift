@@ -27,7 +27,7 @@ struct ResetCreditsTests {
     func collector(_ runner: FakeUsageRunner, cache: CodexResetCreditCache,
                    now: @escaping @Sendable () -> Date = { ResetCreditsTests.readAt }) -> CodexUsageCollector {
         let status = CodexStatus(installed: true, version: "0.167.0", accounts: [account()], found: [], hiddenCount: 0)
-        return CodexUsageCollector(status: { status }, runner: runner, codexCLI: URL(fileURLWithPath: "/fake/codex"),
+        return CodexUsageCollector(status: { status }, runner: runner, codexCLI: URL(fileURLWithPath: "/usr/bin/true"),
                                    workingDirectory: FileManager.default.temporaryDirectory,
                                    resetCredits: cache, now: now)
     }
@@ -194,7 +194,7 @@ struct ResetCreditsTests {
         let status = CodexStatus(installed: true, version: "0.167.0", accounts: [otherLogin], found: [], hiddenCount: 0)
         let runner = runner([Self.countOnly(2)])
         let usage = try #require(CodexUsageCollector(
-            status: { status }, runner: runner, codexCLI: URL(fileURLWithPath: "/fake/codex"),
+            status: { status }, runner: runner, codexCLI: URL(fileURLWithPath: "/usr/bin/true"),
             workingDirectory: FileManager.default.temporaryDirectory, resetCredits: cache,
             now: { Self.readAt }).collect().first)
         #expect(runner.requests.first?.stdinLines?.last?.contains(#""excludeResetCreditDetails":false"#) == true)

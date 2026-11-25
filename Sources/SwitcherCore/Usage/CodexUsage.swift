@@ -191,6 +191,9 @@ public struct CodexUsageCollector: Sendable {
         }
         // API-key and unknown sign-ins have no subscription window; found homes are never listed here.
         guard account.identity?.mode == .chatgpt else { return finish(.notReporting) }
+        // The app falls back to the bundled path when discovery found no CLI it trusts; that path gets
+        // the same check, so a binary others can rewrite is never started (audit B2-U-03).
+        guard UsageInstallations.isTrustworthyExecutable(codexCLI) else { return finish(.unavailable(.cliMissing)) }
         guard ClaudeUsageCollector.isDirectory(workingDirectory) else { return finish(.failed(.refused)) }
         var env = codexCLI.standardizedFileURL != bundledCLI?.standardizedFileURL
             ? UsageChildEnvironment.make(for: codexCLI, home: userHome)
@@ -208,7 +211,7 @@ public struct CodexUsageCollector: Sendable {
         let result = runner.run(request)
         switch result.outcome {
         case .timedOut: return finish(.failed(.timeout))
-        case .failedToStart: return finish(.unavailable(.cliMissing))
+        case .failedToStart: return finish(UsageProcessResult.startFailure(of: codexCLI))
         case .outputLimit: return finish(.unavailable(.refused))
         case .cancelled: return finish(.unavailable(.refused))
         case .stopped, .exited:

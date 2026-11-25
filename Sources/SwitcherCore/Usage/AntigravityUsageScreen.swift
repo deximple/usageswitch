@@ -67,6 +67,38 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
         self.timing = timing
     }
 
+    /// Descriptors above stderr the child closes before exec. The table can be raised far beyond what
+    /// this app ever opens; past this bound the sweep would only cost time.
+    private static let descriptorSweepLimit: Int32 = 65_536
+
+    /// `forkpty`, with a child that calls only async-signal-safe functions on values made before the
+    /// fork — a child of a multithreaded app must not allocate or call into Foundation — and that
+    /// starts agy the way posix_spawn starts every other vendor tool here: no descriptor of this app
+    /// left open (another read's pipe, a log file), an empty signal mask and default dispositions
+    /// (audit N-09). The pseudo-terminal is still agy's controlling terminal, which posix_spawn can't set.
+    private static func forkPTY(master: inout Int32, size: inout winsize, directory: UnsafePointer<CChar>,
+                                file: UnsafePointer<CChar>, argv: UnsafePointer<UnsafeMutablePointer<CChar>?>,
+                                envp: UnsafePointer<UnsafeMutablePointer<CChar>?>, descriptorLimit: Int32) -> pid_t {
+        let pid = forkpty(&master, nil, nil, &size)
+        guard pid == 0 else { return pid }
+        var empty = sigset_t()
+        sigemptyset(&empty)
+        sigprocmask(SIG_SETMASK, &empty, nil)
+        var number: Int32 = 1
+        while number < NSIG {
+            if number != SIGKILL && number != SIGSTOP { signal(number, SIG_DFL) }
+            number += 1
+        }
+        var descriptor: Int32 = STDERR_FILENO + 1
+        while descriptor < descriptorLimit {
+            close(descriptor)
+            descriptor += 1
+        }
+        if chdir(directory) != 0 { _exit(126) }
+        execve(file, argv, envp)
+        _exit(127)
+    }
+
     private static func scheduleReaper(for pid: pid_t) {
         Task.detached(priority: .utility) {
             for _ in 0..<60 {
@@ -94,20 +126,21 @@ struct SystemAntigravityPTYRunner: AntigravityPTYExecuting {
         var size = winsize()
         size.ws_col = 200
         size.ws_row = 100
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        let pid = forkpty(&master, nil, nil, &size)
-        guard pid >= 0 else {
+        // Everything the child needs is made before the fork (audit N-09).
+        guard let file = arguments[0], let directory = strdup(workingDirectory.path) else {
             return AntigravityPTYResult(outcome: .failedToStart, output: Data(), childPID: nil)
         }
-        if pid == 0 {
-            guard chdir(workingDirectory.path) == 0 else { _exit(126) }
-            arguments.withUnsafeBufferPointer { argv in
-                variables.withUnsafeBufferPointer { envp in
-                    _ = execve(argv[0]!, UnsafeMutablePointer(mutating: argv.baseAddress!),
-                               UnsafeMutablePointer(mutating: envp.baseAddress!))
-                }
+        defer { free(directory) }
+        let descriptorLimit = min(getdtablesize(), Self.descriptorSweepLimit)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let pid = arguments.withUnsafeBufferPointer { argv in
+            variables.withUnsafeBufferPointer { envp in
+                Self.forkPTY(master: &master, size: &size, directory: directory, file: file,
+                             argv: argv.baseAddress!, envp: envp.baseAddress!, descriptorLimit: descriptorLimit)
             }
-            _exit(127)
+        }
+        guard pid >= 0 else {
+            return AntigravityPTYResult(outcome: .failedToStart, output: Data(), childPID: nil)
         }
         guard fcntl(master, F_SETFL, O_NONBLOCK) == 0 else {
             _ = close(master)

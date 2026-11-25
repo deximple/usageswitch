@@ -45,7 +45,8 @@ final class CodexProcessTable: ProcessTable, @unchecked Sendable {
 /// Records what the Codex tab asked of Codex; `login` decides what a `codex login` run does.
 final class FakeCodexControl: CodexAppControl, @unchecked Sendable {
     struct Launch: Equatable { let home: String?; let appDataDir: String? }
-    struct CLIRun: Equatable { let arguments: [String]; let home: String }
+    /// `home` nil: run without CODEX_HOME, so Codex picks its standard home itself (audit C-2).
+    struct CLIRun: Equatable { let arguments: [String]; let home: String? }
 
     private let lock = NSLock()
     private var _launches: [Launch] = []
@@ -67,7 +68,12 @@ final class FakeCodexControl: CodexAppControl, @unchecked Sendable {
     /// What `codex login` does: usually writes a sign-in into the home and exits 0.
     var login: @Sendable (URL, @Sendable (String) -> Void, @Sendable () -> Bool) -> CodexCLIOutcome = { _, _, _ in .exited(0) }
 
-    init(table: CodexProcessTable, trashDir: URL) { self.table = table; self.trashDir = trashDir }
+    /// Where Codex itself puts its sign-in when no CODEX_HOME is set.
+    let standardHome: URL
+
+    init(table: CodexProcessTable, trashDir: URL, standardHome: URL = URL(fileURLWithPath: "/nonexistent/.codex")) {
+        self.table = table; self.trashDir = trashDir; self.standardHome = standardHome
+    }
 
     var launches: [Launch] { lock.lock(); defer { lock.unlock() }; return _launches }
     var activated: [pid_t] { lock.lock(); defer { lock.unlock() }; return _activated }
@@ -107,15 +113,16 @@ final class FakeCodexControl: CodexAppControl, @unchecked Sendable {
 
     func stopAllCommands(grace: TimeInterval) { lock.lock(); _stopAllCalls += 1; lock.unlock() }
 
-    func runCLI(_ cli: URL, arguments: [String], home: URL, timeout: TimeInterval,
+    func runCLI(_ cli: URL, arguments: [String], home: URL?, timeout: TimeInterval,
                 shouldStop: @escaping @Sendable () -> Bool, onOutput: @escaping @Sendable (String) -> Void) -> CodexCLIOutcome {
-        lock.lock(); _cliRuns.append(CLIRun(arguments: arguments, home: home.path)); lock.unlock()
+        lock.lock(); _cliRuns.append(CLIRun(arguments: arguments, home: home?.path)); lock.unlock()
+        let used = home ?? standardHome
         if arguments.first == "logout" {
             guard logoutWorks else { return .exited(1) }
-            try? FileManager.default.removeItem(at: home.appendingPathComponent("auth.json"))
+            try? FileManager.default.removeItem(at: used.appendingPathComponent("auth.json"))
             return .exited(0)
         }
-        return login(home, onOutput, shouldStop)
+        return login(used, onOutput, shouldStop)
     }
 
     func moveToTrash(_ url: URL) throws {
@@ -148,7 +155,8 @@ struct CodexRig {
             try FileManager.default.createDirectory(at: env.codexAppURL.appendingPathComponent("Contents/MacOS"),
                                                     withIntermediateDirectories: true)
         }
-        control = FakeCodexControl(table: table, trashDir: sandbox.root.appendingPathComponent("Trash", isDirectory: true))
+        control = FakeCodexControl(table: table, trashDir: sandbox.root.appendingPathComponent("Trash", isDirectory: true),
+                                   standardHome: env.codexStandardHome)
         var options = CodexManager.Options()
         options.quitTimeout = 0.5
         options.pollInterval = 0.02
@@ -395,6 +403,34 @@ struct CodexTests {
         let kept = try rig.manager.addAccount()
         #expect(kept.state == .signedOut && kept.label == L10n.t(.codexNewAccount))
         #expect(rig.control.launches.isEmpty)
+    }
+
+    /// `codex login` with CODEX_HOME set refuses a folder that doesn't exist yet ("CODEX_HOME points to
+    /// …, but that path does not exist"); left unset, Codex creates `~/.codex` itself (audit C-2).
+    @Test func theStandardHomeSignsInWithoutCodexHome() throws {
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        rig.control.login = { home, _, _ in
+            try? CodexFixture.writeAuth(into: home, email: "alex@example.com")
+            return .exited(0)
+        }
+        let account = try rig.manager.reauthenticate("standard")
+        #expect(rig.control.cliRuns == [.init(arguments: ["login"], home: nil)])
+        #expect(account.id == "standard" && account.label == "alex@example.com")
+    }
+
+    /// An unreadable process table can't rule out an open window: never start a second instance on
+    /// the same home and app data, and never sign in under a window that may still be open (audit C-3).
+    @Test func anUnreadableProcessTableStartsNoSecondInstance() throws {
+        let rig = try CodexRig(); defer { rig.cleanup() }
+        let work = try rig.makeHome(".codex-work", email: "work@example.com")
+        try rig.adopt("found:.codex-work")
+        rig.table.add(pid: 620, path: rig.appExecutable, codexHome: work.path, appDataPath: "/d/work")
+        rig.table.unreadable = true
+        let unknown = L10n.t(.reasonCodexWindowsUnknown)
+        #expect(switcherError { _ = try rig.manager.open("found:.codex-work") } == .codexLaunchFailed(unknown))
+        #expect(switcherError { _ = try rig.manager.open("standard") } == .codexLaunchFailed(unknown))
+        #expect(switcherError { _ = try rig.manager.reauthenticate("found:.codex-work") } == .codexSignInFailed(unknown))
+        #expect(rig.control.launches.isEmpty && rig.control.cliRuns.isEmpty && rig.control.quitRequests.isEmpty)
     }
 
     @Test func signingInAgainClosesTheWindowFirstAndReopensIt() throws {

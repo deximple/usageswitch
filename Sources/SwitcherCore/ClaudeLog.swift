@@ -9,10 +9,14 @@ public struct ClaudeLog: Sendable {
         public let text: String
         /// When a `Cursor` read the line. Unlike `timestamp` it does not depend on parsing the log's wall clock.
         public let observedAt: Date?
-        public init(timestamp: Date, text: String, observedAt: Date? = nil) {
+        /// The same moment on the monotonic clock, for measuring a wait: a wall clock moved by NTP or by
+        /// hand cannot make it end early or late (audit A-2).
+        public let observedUptime: TimeInterval?
+        public init(timestamp: Date, text: String, observedAt: Date? = nil, observedUptime: TimeInterval? = nil) {
             self.timestamp = timestamp
             self.text = text
             self.observedAt = observedAt
+            self.observedUptime = observedUptime
         }
     }
 
@@ -109,21 +113,28 @@ public struct ClaudeLog: Sendable {
     /// Walks the log newest line first and stops at the first line `match` accepts. Each file is tried by
     /// its tail before it is read whole. `loggedOutAfter` says whether a logout marker follows that line.
     private func newestMatch<T>(_ match: (Line) -> T?) -> (value: T, loggedOutAfter: Bool)? {
+        scanNewest(match).found
+    }
+
+    /// `newestMatch`, plus whether every log file there was read: a miss proves nothing about a log
+    /// that could not be read (audit A-3).
+    private func scanNewest<T>(_ match: (Line) -> T?) -> (found: (value: T, loggedOutAfter: Bool)?, complete: Bool) {
         var loggedOutInNewerFiles = false
+        var complete = true
         for name in Self.fileNames {
             guard let size = size(of: name) else { continue }
             let passes: [Int?] = size > Self.tailBytes ? [Self.tailBytes, nil] : [nil]
             for tail in passes {
-                guard let text = read(name, tailBytes: tail) else { break }
+                guard let text = read(name, tailBytes: tail) else { complete = false; break }
                 var loggedOut = loggedOutInNewerFiles
                 for line in Self.parse(text).reversed() {
                     if Self.logoutPatterns.contains(where: { line.text.contains($0) }) { loggedOut = true }
-                    if let value = match(line) { return (value, loggedOut) }
+                    if let value = match(line) { return ((value, loggedOut), complete) }
                 }
                 if tail == nil { loggedOutInNewerFiles = loggedOut }
             }
         }
-        return nil
+        return (nil, complete)
     }
 
     /// Lines with timestamp >= `since` (second resolution) from main1.log + main.log, oldest first.
@@ -192,12 +203,17 @@ public struct ClaudeLog: Sendable {
 
     /// Most recent account/org evidence: an `Initialization succeeded` line, or a token-cache lookup that
     /// names `acct:<uuid>|…:<org>` (these appear constantly while signed in). Scans newest file first.
-    public func latestIdentity() -> IdentitySignal? {
-        newestMatch { line in (Self.parseInit(line) ?? Self.parseCacheKey(line)).map { (line.timestamp, $0) } }
-            .map { found in
-                IdentitySignal(timestamp: found.value.0, accountUuid: found.value.1.account,
-                               orgUuid: found.value.1.org, loggedOutAfter: found.loggedOutAfter)
-            }
+    public func latestIdentity() -> IdentitySignal? { latestIdentityScan().signal }
+
+    /// `latestIdentity`, plus whether every log file there was read (a nil signal then means the log
+    /// really names no account, not that a read failed).
+    func latestIdentityScan() -> (signal: IdentitySignal?, complete: Bool) {
+        let scan = scanNewest { line in (Self.parseInit(line) ?? Self.parseCacheKey(line)).map { (line.timestamp, $0) } }
+        let signal = scan.found.map { found in
+            IdentitySignal(timestamp: found.value.0, accountUuid: found.value.1.account,
+                           orgUuid: found.value.1.org, loggedOutAfter: found.loggedOutAfter)
+        }
+        return (signal, scan.complete)
     }
 
     /// Design D2-5 recapture guard: the last `[LocalSessionManager] Initialization succeeded` exists and no
@@ -215,11 +231,14 @@ public struct ClaudeLog: Sendable {
         private var offset: UInt64 = 0
         private var lastTimestamp: Date?
         private let now: @Sendable () -> Date
+        private let uptime: (@Sendable () -> TimeInterval)?
         public private(set) var collected: [Line] = []
 
-        public init(log: ClaudeLog, now: @escaping @Sendable () -> Date = { Date() }) {
+        public init(log: ClaudeLog, now: @escaping @Sendable () -> Date = { Date() },
+                    uptime: (@Sendable () -> TimeInterval)? = nil) {
             self.log = log
             self.now = now
+            self.uptime = uptime
             let url = log.logsDir.appendingPathComponent("main.log")
             var st = stat()
             if stat(url.path, &st) == 0 {
@@ -254,8 +273,9 @@ public struct ClaudeLog: Sendable {
                 }
             }
             let observedAt = now()
+            let observedUptime = uptime?()
             let lines = ClaudeLog.parse(newText, initialTimestamp: lastTimestamp)
-                .map { Line(timestamp: $0.timestamp, text: $0.text, observedAt: observedAt) }
+                .map { Line(timestamp: $0.timestamp, text: $0.text, observedAt: observedAt, observedUptime: observedUptime) }
             if let last = lines.last { lastTimestamp = last.timestamp }
             collected += lines
             return lines
@@ -285,8 +305,11 @@ public enum LaunchVerdict: Equatable, Sendable {
     case success(initAt: Date)
     case failure(reason: String, needsRelogin: Bool)
 
+    /// `nowUptime` measures the settle on the monotonic clock for lines a cursor stamped with it;
+    /// without either, the settle counts from the wall-clock observation (or the log's own time).
     public static func evaluate(
-        lines: [ClaudeLog.Line], targetAccount: String, targetOrg: String, now: Date, settle: TimeInterval
+        lines: [ClaudeLog.Line], targetAccount: String, targetOrg: String, now: Date, settle: TimeInterval,
+        nowUptime: TimeInterval? = nil
     ) -> LaunchVerdict {
         guard let startIdx = lines.firstIndex(where: { $0.text.contains(ClaudeLog.startMarker) }) else { return .pending }
         let after = lines[startIdx...]
@@ -303,7 +326,13 @@ public enum LaunchVerdict: Equatable, Sendable {
                 reason: L10n.t(.reasonWrongAccount, String(first.account.prefix(8)), String(first.org.prefix(8))),
                 needsRelogin: false)
         }
-        if now.timeIntervalSince(firstLine.observedAt ?? firstLine.timestamp) < settle { return .pending }
+        let settled: TimeInterval
+        if let nowUptime, let observed = firstLine.observedUptime {
+            settled = nowUptime - observed
+        } else {
+            settled = now.timeIntervalSince(firstLine.observedAt ?? firstLine.timestamp)
+        }
+        if settled < settle { return .pending }
         return .success(initAt: firstLine.timestamp)
     }
 }

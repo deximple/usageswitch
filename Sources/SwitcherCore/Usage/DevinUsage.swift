@@ -128,20 +128,30 @@ public struct DevinUsageCollector: Sendable {
     }
 
     /// `--version` on the discovered CLI only — bounded 3s, no session command.
-    private func cliVersion() -> String? {
-        guard let cli else { return nil }
+    /// The CLI's version, or why there is none: each failure keeps its own reason instead of all
+    /// reading as a missing CLI (audit B2-U-02).
+    private func cliVersion() -> Result<String, VersionFailure> {
+        guard let cli else { return .failure(VersionFailure(state: .unavailable(.cliMissing))) }
         let req = UsageProcessRequest(executable: cli, arguments: ["--version"],
                                       environment: UsageChildEnvironment.make(for: cli, home: home),
                                       workingDirectory: home, timeout: 3)
         let out = runner.run(req)
-        guard case .exited(0) = out.outcome else { return nil }
+        switch out.outcome {
+        case .exited(0): break
+        case .timedOut: return .failure(VersionFailure(state: .failed(.timeout)))
+        case .failedToStart: return .failure(VersionFailure(state: UsageProcessResult.startFailure(of: cli)))
+        case .exited, .stopped, .outputLimit, .cancelled: return .failure(VersionFailure(state: .failed(.refused)))
+        }
         let text = out.lines.first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         // version-shaped token only — banner noise is not a version
-        guard let range = text.range(of: #"[0-9]+(\.[0-9]+){1,3}"#, options: .regularExpression)
-        else { return nil }
-        return UsageJSON.plainID(String(text[range]), max: 64)
+        guard let range = text.range(of: #"[0-9]+(\.[0-9]+){1,3}"#, options: .regularExpression),
+              let version = UsageJSON.plainID(String(text[range]), max: 64)
+        else { return .failure(VersionFailure(state: .unavailable(.schemaChanged))) }
+        return .success(version)
     }
+
+    private struct VersionFailure: Error { let state: UsageState }
 
     public func collect() -> [AccountUsage] {
         func finish(_ state: UsageState, _ windows: [UsageWindow] = [], plan: String? = nil,
@@ -154,7 +164,11 @@ public struct DevinUsageCollector: Sendable {
         guard let t = token() else { return [finish(.unavailable(.noSignIn))] }
         // a missing or unparseable CLI version means we cannot honestly say what we
         // are — do not pretend our version is the vendor's
-        guard let version = cliVersion() else { return [finish(.unavailable(.cliMissing))] }
+        let version: String
+        switch cliVersion() {
+        case .success(let read): version = read
+        case .failure(let failure): return [finish(failure.state)]
+        }
 
         struct Metadata: Encodable { let apiKey, ideName, ideVersion, extensionName, extensionVersion: String }
         struct Body: Encodable { let metadata: Metadata }

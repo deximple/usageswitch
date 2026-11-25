@@ -32,10 +32,13 @@ final class ClaudeLogSignals: @unchecked Sendable {
         let now = exists
             ? "\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec)" : "missing"
         if let snapshot, fingerprint == now { return snapshot }
-        let fresh = Snapshot(latestIdentity: log.latestIdentity(),
+        let identity = log.latestIdentityScan()
+        let fresh = Snapshot(latestIdentity: identity.signal,
                              nativeMultiAccount: exists && markerFound(inode: info.st_ino, size: UInt64(info.st_size)))
-        // "No identity" in an existing log may be a read that failed; it is looked up again next time.
-        let cacheable = !exists || fresh.latestIdentity != nil
+        // "No identity" is kept like any answer once every file was read — a signed-out Claude must not
+        // cost a whole-log read on every status poll (audit A-3). After a read that failed it is looked
+        // up again next time.
+        let cacheable = !exists || identity.signal != nil || identity.complete
         fingerprint = cacheable ? now : nil
         snapshot = cacheable ? fresh : nil
         return fresh

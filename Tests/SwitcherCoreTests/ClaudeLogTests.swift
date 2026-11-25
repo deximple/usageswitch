@@ -163,6 +163,36 @@ struct ClaudeLogTests {
         #expect(bytes.count("main.log") > afterFirst)
     }
 
+    /// A signed-out Claude logs no identity: an unchanged log must not be read again on every
+    /// status poll just because it has none (audit A-3).
+    @Test func aLogWithoutAnIdentityIsNotReadAgainWhileUnchanged() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.append(sb.env.mainLog, filler(megabytes: 1))
+        let (log, bytes) = observedLog(sb)
+        let signals = ClaudeLogSignals(log: log)
+        #expect(signals.current().latestIdentity == nil)
+        let afterFirst = bytes.count("main.log")
+        #expect(afterFirst > 0)
+        #expect(signals.current().latestIdentity == nil)
+        #expect(signals.current().latestIdentity == nil)
+        #expect(bytes.count("main.log") == afterFirst)
+        // A signal appended later is still picked up.
+        try LogFixture.appendLines(sb.env.mainLog, [(at(5), LogFixture.cacheKeyLine(.b))])
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.b.account)
+    }
+
+    /// "No identity" from a read that failed is never remembered: the next poll looks again.
+    @Test func aFailedReadIsLookedUpAgain() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        try LogFixture.appendLines(sb.env.mainLog, [(at(1), LogFixture.initLine(.a))])
+        let signals = ClaudeLogSignals(log: ClaudeLog(logsDir: sb.env.claudeLogsDir))
+        // Unreadable, but stat still sees the same inode, size and modification time.
+        #expect(chmod(sb.env.mainLog.path, 0o000) == 0)
+        #expect(signals.current().latestIdentity == nil)
+        #expect(chmod(sb.env.mainLog.path, 0o600) == 0)
+        #expect(signals.current().latestIdentity?.accountUuid == FakeIdentity.a.account)
+    }
+
     @Test func theMultiAccountMarkerIsFoundAcrossAppendsAndResetOnRotation() throws {
         let sb = try Sandbox(); defer { sb.remove() }
         let signals = ClaudeLogSignals(log: ClaudeLog(logsDir: sb.env.claudeLogsDir))

@@ -149,6 +149,8 @@ extension DriftRun {
         case .unavailable(.managed):
             return read(.skipped, "Managed Claude Code settings are present, so the app doesn't run it either.")
         case .unavailable(.cliMissing):
+            return read(.attention, "The CLI was found but the app won't run it: it is gone, or others can rewrite it.")
+        case .failed(.cliFailedToStart):
             return read(.attention, "The CLI was found but could not be started.")
         case .unavailable(.refused):
             if discarded == .stopped {

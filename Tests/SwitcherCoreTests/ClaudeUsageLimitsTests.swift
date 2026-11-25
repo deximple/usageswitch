@@ -171,6 +171,25 @@ struct ClaudeUsageLimitsTests {
         #expect(ClaudeUsageLimits.reading(in: ClaudeUsageTests.lines(UsageFixture.claude_2_1_317)) == .absent)
     }
 
+    /// The stream with `usage_report` set to any JSON value, not only an object.
+    static func stream(reportValue: Any, panel: String = "") -> [String] {
+        let assistant: [String: Any] = ["type": "assistant", "message": ["model": "<synthetic>"],
+                                        "usage_report": reportValue]
+        return [#"{"type":"system","subtype":"init"}"#, line(assistant), result(panel)]
+    }
+
+    @Test("a report of another type is unreadable; a null one is absent (#73 review)")
+    func reportOfAnotherType() throws {
+        let rows: [[String: Any]] = [["rate_limits": ["limits": [Self.limit()]]]]
+        #expect(ClaudeUsageLimits.reading(in: Self.stream(reportValue: rows)) == .unreadable)
+        #expect(ClaudeUsageLimits.reading(in: Self.stream(reportValue: "none")) == .unreadable)
+        #expect(ClaudeUsageLimits.reading(in: Self.stream(reportValue: NSNull())) == .absent)
+        // With no limit in the panel either, that is a changed format, not an account that reports none.
+        let read = try state(Self.stream(reportValue: rows, panel: "Nothing to report here"))
+        #expect(read.state == .unavailable(.schemaChanged))
+        #expect(read.windows.isEmpty)
+    }
+
     @Test("rate limits or rows of another type are unreadable")
     func wrongContainers() {
         #expect(ClaudeUsageLimits.reading(in: Self.stream(report: ["rate_limits": "none"])) == .unreadable)

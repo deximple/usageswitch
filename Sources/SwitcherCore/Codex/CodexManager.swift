@@ -71,6 +71,9 @@ public final class CodexManager: @unchecked Sendable {
     @discardableResult
     public func open(_ query: String) throws -> CodexAccount {
         guard isInstalled else { throw SwitcherError.codexNotInstalled }
+        // Without the process list an open window looks like none, and `open -n` would start a second
+        // instance on the same home and app data (audit C-3).
+        guard table.all() != nil else { throw SwitcherError.codexLaunchFailed(L10n.t(.reasonCodexWindowsUnknown)) }
         let account = try resolve(query)
         if !account.pids.isEmpty {
             // Never start a second instance on the same home and app data: if it can't be brought forward, say so.
@@ -124,6 +127,8 @@ public final class CodexManager: @unchecked Sendable {
     public func reauthenticate(_ query: String, shouldStop: @escaping @Sendable () -> Bool = { false },
                                onLink: @escaping @Sendable (URL) -> Void = { _ in }) throws -> CodexAccount {
         guard isInstalled else { throw SwitcherError.codexNotInstalled }
+        // A window that can't be seen can't be closed first: it would keep using the old sign-in (audit C-3).
+        guard table.all() != nil else { throw SwitcherError.codexSignInFailed(L10n.t(.reasonCodexWindowsUnknown)) }
         let account = try resolve(query)
         let wasOpen = !account.pids.isEmpty
         try quitWindows(of: account)
@@ -253,7 +258,10 @@ public final class CodexManager: @unchecked Sendable {
         let profile = try profile(id)
         var arguments = ["login"]
         if profile.kind == .managed { arguments += ["-c", "cli_auth_credentials_store=\"file\""] }
-        let outcome = control.runCLI(env.codexCLI, arguments: arguments, home: profile.home, timeout: options.signInTimeout,
+        // The standard home runs without CODEX_HOME: set, Codex refuses a `~/.codex` that doesn't exist yet
+        // ("CODEX_HOME points to …, but that path does not exist"); unset, it creates it (audit C-2).
+        let home = profile.kind == .standard ? nil : profile.home
+        let outcome = control.runCLI(env.codexCLI, arguments: arguments, home: home, timeout: options.signInTimeout,
                                      shouldStop: shouldStop, onOutput: { line in
                                          if let link = Self.signInLink(in: line) { onLink(link) }
                                      })

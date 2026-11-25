@@ -300,6 +300,7 @@ extension Strings {
         .errCodexLaunchFailed: "No se pudo abrir Codex: %@",
         .reasonCodexExitCode: "codex login terminó con el código %d",
         .reasonCodexNotStarted: "no se pudo iniciar codex login: %@",
+        .reasonCodexWindowsUnknown: "no se pudo leer la lista de procesos, así que no se puede descartar una ventana de Codex abierta",
 
         .tabUsage: "Uso",
         .tabAPI: "API",
@@ -459,6 +460,7 @@ extension Strings {
         .usageReasonNotEligible: "Esta cuenta no es apta para el uso de %@",
         .usageReasonGeminiRetired: "Google ya no ofrece cuota de Gemini CLI para cuentas individuales (ahora en Antigravity)",
         .usageReasonCliMissing: "No se encontró la herramienta de línea de comandos",
+        .usageReasonCliFailedToStart: "No se pudo iniciar la herramienta de línea de comandos",
         .usageReasonManaged: "Ajustes gestionados — no se puede leer el uso",
         .usageReasonRefused: "La lectura del uso fue rechazada",
         .usageReasonAccountMismatch: "El uso llegó de otra cuenta, así que no se muestra",

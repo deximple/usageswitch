@@ -300,6 +300,7 @@ extension Strings {
         .errCodexLaunchFailed: "Couldn't open Codex: %@",
         .reasonCodexExitCode: "codex login exited with code %d",
         .reasonCodexNotStarted: "codex login couldn't start: %@",
+        .reasonCodexWindowsUnknown: "can't read the process list, so an open Codex window can't be ruled out",
 
         .tabUsage: "Usage",
         .tabAPI: "API",
@@ -459,6 +460,7 @@ extension Strings {
         .usageReasonNotEligible: "This account isn\'t eligible for %@ usage",
         .usageReasonGeminiRetired: "Google no longer offers Gemini CLI quota for individual accounts (moved to Antigravity)",
         .usageReasonCliMissing: "Command-line tool not found",
+        .usageReasonCliFailedToStart: "Command-line tool couldn't start",
         .usageReasonManaged: "Managed settings — usage can't be read",
         .usageReasonRefused: "Usage read was refused",
         .usageReasonAccountMismatch: "Usage came back for a different account, so none is shown",

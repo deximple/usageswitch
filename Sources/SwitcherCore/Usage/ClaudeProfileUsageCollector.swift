@@ -204,7 +204,7 @@ public struct ClaudeProfileUsageCollector: Sendable {
             workingDirectory: workingDirectory, timeout: 20))
         switch result.outcome {
         case .timedOut: return .problem(.failed(.timeout))
-        case .failedToStart: return .problem(.unavailable(.cliMissing))
+        case .failedToStart: return .problem(UsageProcessResult.startFailure(of: binary))
         case .outputLimit: return .problem(.unavailable(.refused))
         case .cancelled: return .problem(.unavailable(.refused))
         case .stopped, .exited: break

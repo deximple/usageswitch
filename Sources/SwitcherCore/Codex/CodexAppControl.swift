@@ -21,7 +21,8 @@ public protocol CodexAppControl: Sendable {
     func requestQuit(pid: pid_t) -> Bool
     func signalTerminate(pid: pid_t) -> Bool
     /// Runs Codex's own command-line tool for one home. Output lines go to `onOutput` and are never stored.
-    func runCLI(_ cli: URL, arguments: [String], home: URL, timeout: TimeInterval,
+    /// `home == nil` runs it without CODEX_HOME, so Codex uses (and creates) its standard home itself.
+    func runCLI(_ cli: URL, arguments: [String], home: URL?, timeout: TimeInterval,
                 shouldStop: @escaping @Sendable () -> Bool, onOutput: @escaping @Sendable (String) -> Void) -> CodexCLIOutcome
     func moveToTrash(_ url: URL) throws
     func bundleVersion(appURL: URL) -> String?
@@ -78,7 +79,7 @@ public struct SystemCodexAppControl: CodexAppControl {
 
     public func signalTerminate(pid: pid_t) -> Bool { kill(pid, SIGTERM) == 0 }
 
-    public func runCLI(_ cli: URL, arguments: [String], home: URL, timeout: TimeInterval,
+    public func runCLI(_ cli: URL, arguments: [String], home: URL?, timeout: TimeInterval,
                        shouldStop: @escaping @Sendable () -> Bool, onOutput: @escaping @Sendable (String) -> Void) -> CodexCLIOutcome {
         let pipe = Pipe()
         let lines = LineSplitter(onOutput)

@@ -134,3 +134,42 @@ struct CLITests {
         #expect(run(sb, ["codex", "remove", "work", "--yes"]).0 != 3)
     }
 }
+
+/// A reader that went away (`--cli switch … | head -1`, a script that died) must not end the CLI in
+/// the middle of a switch: SIGPIPE killed it before relaunchers were restored (audit C-1).
+@Suite("CLI output to a closed pipe (audit C-1)")
+struct CLIBrokenPipeTests {
+    /// A pipe whose read end is already closed: every write gets EPIPE.
+    static func brokenPipe() throws -> Int32 {
+        var fds: [Int32] = [0, 0]
+        try #require(pipe(&fds) == 0)
+        close(fds[0])
+        return fds[1]
+    }
+
+    @Test func brokenPipesStopRaisingSIGPIPE() throws {
+        let fd = try Self.brokenPipe()
+        defer { close(fd) }
+        CLI.ignoreBrokenPipes(on: [fd])
+        #expect(fcntl(fd, F_GETNOSIGPIPE) == 1)
+        let byte: [UInt8] = [0x78]
+        // Still alive: the write fails with EPIPE instead of killing the process.
+        #expect(write(fd, byte, 1) == -1 && errno == EPIPE)
+    }
+
+    @Test func writingToABrokenPipeReportsFailureInsteadOfRaising() throws {
+        let fd = try Self.brokenPipe()
+        CLI.ignoreBrokenPipes(on: [fd])
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        #expect(!CLI.write("{\"ok\":true}\n", to: handle))
+        let open = try Self.openPipe()
+        defer { close(open.read) }
+        #expect(CLI.write("x", to: FileHandle(fileDescriptor: open.write, closeOnDealloc: true)))
+    }
+
+    static func openPipe() throws -> (read: Int32, write: Int32) {
+        var fds: [Int32] = [0, 0]
+        try #require(pipe(&fds) == 0)
+        return (fds[0], fds[1])
+    }
+}

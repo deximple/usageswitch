@@ -71,7 +71,7 @@ public struct ClaudeUsageCollector: Sendable {
         let result = runner.run(request)
         switch result.outcome {
         case .timedOut: return (.failed(.timeout), [])
-        case .failedToStart: return (.unavailable(.cliMissing), [])
+        case .failedToStart: return (UsageProcessResult.startFailure(of: binary), [])
         case .outputLimit: return (.unavailable(.refused), [])
         case .cancelled: return (.unavailable(.refused), [])
         case .stopped, .exited:

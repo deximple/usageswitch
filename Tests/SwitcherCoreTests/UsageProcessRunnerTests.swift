@@ -15,6 +15,16 @@ struct UsageProcessRunnerTests {
                             stdinLines: stdinLines, stopWhen: stopWhen, timeout: timeout)
     }
 
+    /// The child exits while the read handler still holds its last chunk: the run must not return
+    /// before that chunk is kept, nor let the final drain read ahead of it (audit B2-U-06).
+    @Test func theLastChunkIsKeptWhenTheChildExitsMidRead() {
+        let first = SlowFirstRead()
+        let slow = SystemUsageProcessRunner(afterRead: { first.wait() })
+        let result = slow.run(request(executable: "/bin/sh", ["-c", "printf 'a\\nb\\nc'"]))
+        #expect(result.outcome == .exited(0))
+        #expect(result.lines == ["a", "b", "c"])
+    }
+
     @Test func aNodeShebangLauncherStartsWithTheCollectorEnvironment() throws {
         // audit B-05: a `#!/usr/bin/env node` launcher needs its interpreter on PATH — the pinned
         // system PATH exited 127.
@@ -178,5 +188,19 @@ struct UsageProcessRunnerTests {
             let result = runner.run(request(executable: "/bin/sh", ["-c", #"printf "a\nb\nlast""#]))
             #expect(result.lines == ["a", "b", "last"])
         }
+    }
+}
+
+/// Holds the first chunk the read handler sees long enough for the run to notice the exit.
+final class SlowFirstRead: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waited = false
+
+    func wait() {
+        lock.lock()
+        let first = !waited
+        waited = true
+        lock.unlock()
+        if first { Thread.sleep(forTimeInterval: 0.5) }
     }
 }
