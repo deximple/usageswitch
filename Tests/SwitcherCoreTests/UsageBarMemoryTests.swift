@@ -8,11 +8,11 @@ struct UsageBarMemoryTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func account(_ id: String = "codex:work", state: UsageState = .ok, used: Double,
-                         resetsIn: TimeInterval? = 3600) -> AccountUsage {
+                         resetsIn: TimeInterval? = 3600, login: String? = "login-a") -> AccountUsage {
         AccountUsage(id: id, provider: .codex, accountRef: "work", label: "Work", plan: nil,
                      windows: [UsageWindow(scope: nil, durationMinutes: 300, usedPercent: used,
                                            resetsAt: resetsIn.map(now.addingTimeInterval))],
-                     state: state, readAt: now, toolVersion: nil)
+                     state: state, readAt: now, toolVersion: nil, identityKey: login)
     }
 
     /// One reading after another, the way the app feeds them; returns the level shown each time.
@@ -38,10 +38,23 @@ struct UsageBarMemoryTests {
         let first = account(used: 80)
         let marks = UsageBarMemory.update([:], usages: [first], warnAt: 80, now: now)
         let next = account(used: 79)
-        let key = UsagePriority.key(next, next.windows[0])
-        #expect(UsageBarMemory.previous(for: next.windows[0], key: key, warnAt: 80, in: marks) == .warning)
-        #expect(UsageBarMemory.previous(for: next.windows[0], key: "codex:other/session/", warnAt: 80,
-                                        in: marks) == nil)
+        #expect(UsageBarMemory.previous(for: next.windows[0], of: next, warnAt: 80, in: marks) == .warning)
+        let other = account("codex:other", used: 79)
+        #expect(UsageBarMemory.previous(for: other.windows[0], of: other, warnAt: 80, in: marks) == nil)
+    }
+
+    /// A row keeps its id when the account behind it changes (`gh auth switch` under Copilot's one
+    /// row), and two accounts can reset at the same moment: the old login's level must not hold.
+    @Test("another login under the same row starts without the old level")
+    func anotherLoginForgets() {
+        let readings = [account(used: 80), account(used: 79, login: "login-b")]
+        #expect(levels(readings, warnAt: [80, 80]) == [.warning, .ample])
+        // A login that came or went is another login too.
+        #expect(levels([account(used: 80, login: nil), account(used: 79)], warnAt: [80, 80])
+                == [.warning, .ample])
+        // A provider that names no login is held by its row alone.
+        let unnamed = [account(used: 80, login: nil), account(used: 79, login: nil)]
+        #expect(levels(unnamed, warnAt: [80, 80]) == [.warning, .warning])
     }
 
     @Test("a new cycle starts without the old level")

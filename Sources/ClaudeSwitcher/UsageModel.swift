@@ -88,8 +88,8 @@ final class UsageModel: ObservableObject {
 
     /// The level this window's bar showed at the last reading, when it still applies.
     func heldBarRole(_ usage: AccountUsage, _ window: UsageWindow) -> UsageBarPalette.Role? {
-        UsageBarMemory.previous(for: window, key: UsagePriority.key(usage, window),
-                                warnAt: Double(settings.usageWarnPercent), in: barMarks)
+        UsageBarMemory.previous(for: window, of: usage, warnAt: Double(settings.usageWarnPercent),
+                                in: barMarks)
     }
 
     init(settings: SwitcherModel) {
