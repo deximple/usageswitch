@@ -208,7 +208,8 @@ final class SwitcherModel: ObservableObject {
         if UsageRefreshPolicy.shouldRefreshAfterClaudeStatusChange(
             oldAccountIds: oldAccountIds,
             newAccountIds: newAccountIds,
-            refreshedWithoutClaudeStatus: AppModel.usage.refreshedWithoutClaudeStatus) {
+            refreshedWithoutClaudeStatus: AppModel.usage.refreshedWithoutClaudeStatus,
+            boundAccountIds: Set(claudeUsageProfiles.map(\.accountId))) {
             AppModel.usage.requestRefresh()
         }
     }
