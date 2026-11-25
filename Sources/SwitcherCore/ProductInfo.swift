@@ -11,7 +11,7 @@ public enum ProductInfo {
     public static let legacyBundleID = "com.jaysong.claude-switcher"
     /// Fallback version string when the bundle/build can't report one (`swift run`). Kept equal to
     /// `CFBundleShortVersionString` in Resources/Info.plist: `ProductInfoTests` fails until a release bumps both.
-    public static let fallbackVersion = "2.5.0"
+    public static let fallbackVersion = "2.5.1"
 
     /// Published releases. "Check for Updates…" opens this page in the browser; the app itself never goes online.
     public static let releasesURL = URL(string: "https://github.com/deximple/usageswitch/releases/latest")!
