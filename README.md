@@ -142,7 +142,7 @@ Each account is a small block: who it is, then one line per limit.
 
 **Bar colors:** a bar with room is filled with the tool's logo color — Claude's terracotta, blue for Gemini and Antigravity, black (white in dark mode) for the others; amber with a warning icon has passed your warning level (80 % used by default); a red icon and an empty bar mean used up; a faded grey bar is an old reading waiting for a refresh — or, for a saved Claude account or Codex sign-in that can't be read right now, that account's last successful reading with the time it was seen. A window whose reset already passed shows no number.
 
-**Footer:** *updated 1m ago · Next update in 4m*. UsageSwitch refreshes every 5 minutes, right after a limit resets, and when you click ↻.
+**Footer:** *updated 1m ago · Next update in 4m*. UsageSwitch refreshes every 5 minutes, right after a limit resets, and when you click ↻. After the Mac wakes from sleep, a read that failed is tried again 30 seconds, 1 minute and 2 minutes later — at most three times per wake.
 
 **Choose the menu bar limit:** pick any limit in **⚙︎ › Menu Bar Usage**, or right-click a limit and choose **Pin**. The menu bar then shows that limit (for example *Weekly 25% left*) instead of whichever limit is tightest. A choice in **Menu Bar Usage** wins over pins; **Automatic (least left)** goes back to pins, then the tightest limit.
 
@@ -226,7 +226,7 @@ Click **Guide** above the list to open it. A small dot next to it means a sugges
   | *Urgent* | frontier models, maximum effort — asks first, and returns to *Balanced* at the next 5-hour Claude reset (or after five hours) |
 
 - **Task** — slide from *Simple coding* to *Maximum reasoning* to say what you're about to do.
-- **Suggestion** — one line naming the provider and account, the model and the effort that fit what's left right now (*Suggested: …*; with only one account to weigh, *Available: …*). When no model suggestion fits, the Guide shows the account with the most room among comparable subscription accounts. API-key profiles are never suggested.
+- **Suggestion** — one line naming the provider and account, the model and the effort that fit what's left right now (*Suggested: …*; with only one account to weigh, *Available: …*). When nothing fits the mode and task, the Guide says *Nothing fits this mode and task right now.* — try another mode or task. (Only if its built-in model catalog can't be loaded does it compare Codex subscription accounts by the room they have left instead.) API-key profiles are never suggested.
 - **Why this suggestion** — fold it open to see up to four accounts the suggestion was weighed against (the limit in the way, the share left, when it resets) and the accounts **Left out**: at the warning level, likely to run out before the reset, or waiting for a new reading.
 - **Looking ahead** — from each limit's pace (the recent one when two readings line up, else its average so far), the Guide lists up to three accounts that may run out before they reset, soonest first. Nothing is projected before 15 % of a limit's window has passed. A limit about to reset counts the share that would otherwise lapse unused, so 60 % left three hours before a weekly reset ranks above 70 % left for six more days. For the suggested account it adds *Spread evenly, about 15% a day lasts to the reset*.
 - **A lighter option** — when an account is on course to run out and its logs show what it mostly ran in the last day, the Guide names a lighter model or effort from the same maker (*lighter option: …*). It points a direction, not a saving.
@@ -287,13 +287,13 @@ Everything lives in the **⚙︎** menu.
 | Setting | What it does |
 |---|---|
 | Language | English, 한국어, 日本語, 简体中文 or Español. Follows the system by default. |
-| Appearance | Follow System, Light or Dark. |
+| Appearance | Follow System, Light or Dark. On macOS 26 and later the main window's floating controls (the tab bar, the bottom action bar and secondary buttons) use Liquid Glass; with **Reduce transparency** on (System Settings › Accessibility › Display) they are flat, as they are in the menu and on macOS 15. |
 | Open at Login | Starts UsageSwitch when you log in. |
 | Show Account Name in Menu Bar | Shows the current Claude account's name next to the icon (emails stay masked). |
 | Always Show Emails | Shows full emails instead of masked ones. |
 | Show Usage in Menu Bar | Shows a limit next to the icon, for example *Weekly 25% left*. On by default. |
 | Menu Bar Usage | Which limit that is. **Automatic (least left)** uses a pinned limit, else the one with the least left that isn't used up; or pick one limit from the list. |
-| Usage Alerts · Warn at used percentage | Sends a macOS notification when a limit passes 70 %, 80 % (default) or 90 % used. |
+| Usage Alerts · Warn when usage reaches | Sends a macOS notification when a limit passes 70 %, 80 % (default) or 90 % used. |
 | Show the Guide indicator | The dot next to **Guide** when a suggestion is ready. |
 | Usage Connections | Turns each optional tool on or off; a tool turned off leaves the usage list. Lists only tools found on this Mac. |
 | Flush learning data | Deletes the Guide's local learning files. |

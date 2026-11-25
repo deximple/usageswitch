@@ -177,6 +177,23 @@ struct DriftRunTests {
         #expect(status(failing, "Codex protocol") == .attention)
         #expect(!failing.findings.contains { $0.check == "Codex answer fields the app does not read" })
         #expect(!failing.hasDrift)
+        // A scheduled run that only alerts on failure must hear about it (audit V-1).
+        #expect(failing.exitStatus == 3)
+        #expect(rig.run(runner(), frozen: frozen()).report().exitStatus == 0)
+    }
+
+    @Test("two Codex CLIs with the same version write their schemas to different folders (audit V-1)")
+    func twoCodexCLIsOfOneVersion() {
+        installClaudeAndCodex()
+        let bundled = rig.folder.write("#!/bin/sh\nexec real \"$@\"\n", to: "Codex.app/bin/codex", executable: true)
+        let runner: FakeRunner = runner()
+        _ = rig.run(runner, frozen: frozen(), bundledCodexCLI: bundled).report()
+        let schemaArguments: [String] = ["app-server", "generate-json-schema", "--out"]
+        let folders: [String] = runner.requests.compactMap { (request: UsageProcessRequest) -> String? in
+            Array(request.arguments.prefix(3)) == schemaArguments ? request.arguments.last : nil
+        }
+        #expect(folders.count == 2)
+        #expect(Set(folders).count == 2)
     }
 
     @Test("a schema bundle the reader can't follow any more is drift")

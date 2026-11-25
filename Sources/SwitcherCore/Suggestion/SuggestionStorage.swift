@@ -89,11 +89,15 @@ enum SuggestionStorage {
         let previousSize: off_t
     }
 
-    /// Cuts each file back to the size it had before `appendLines` wrote to it.
+    /// Cuts each file back to the size it had before `appendLines` wrote to it. Opened with
+    /// O_NOFOLLOW like the append itself, so a link put in its place is never followed (audit S-3).
     static func rollBack(_ appended: [Appended], fs: SafeFS) {
         for entry in appended {
             guard (try? fs.check(entry.file)) != nil else { continue }
-            _ = truncate(entry.file.path, entry.previousSize)
+            let descriptor = open(entry.file.path, O_WRONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+            guard descriptor >= 0 else { continue }
+            _ = ftruncate(descriptor, entry.previousSize)
+            close(descriptor)
         }
     }
 

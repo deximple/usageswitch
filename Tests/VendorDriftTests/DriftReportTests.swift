@@ -37,6 +37,36 @@ struct DriftReportTests {
         #expect(report.markdown(timeZone: utc).contains("**Drift found: \(phrase).**\n"))
     }
 
+    @Test("a run that compared nothing is not a clean one (audit V-1)")
+    func nothingCompared() {
+        for findings: [DriftFinding] in [[], [
+            DriftFinding(.strings, "Claude CLI text", .skipped, "A launcher script."),
+            DriftFinding(.live, "Claude read", .attention, "No answer."),
+            DriftFinding(.notChecked, "Stored sign-ins", .notChecked, "Not checked."),
+        ]] {
+            let report = report(findings)
+            #expect(report.comparedNothing)
+            #expect(report.exitStatus == 3)
+            #expect(report.markdown(timeZone: utc).contains("**Nothing was compared.**"))
+            #expect(!report.markdown(timeZone: utc).contains("No drift found"))
+        }
+    }
+
+    @Test("a Codex protocol that was not compared leaves the run unfinished; drift still wins (audit V-1)")
+    func protocolNotCompared() {
+        let open = report([
+            DriftFinding(.codexProtocol, "Codex protocol", .attention, "Not compared."),
+            DriftFinding(.strings, "Claude CLI text", .ok, "All present."),
+        ])
+        #expect(!open.comparedNothing)
+        #expect(open.exitStatus == 3)
+        #expect(open.markdown(timeZone: utc).contains("**No drift found, but the Codex protocol was not compared.**"))
+        let drifted = report(open.findings + [DriftFinding(.strings, "Codex CLI text", .drift, "Gone.")])
+        #expect(drifted.exitStatus == 1)
+        let clean = report([DriftFinding(.codexProtocol, "Codex protocol", .ok, "Matches.")])
+        #expect(clean.exitStatus == 0)
+    }
+
     @Test("with nothing installed the report says so; table cells can't break the table")
     func edges() {
         #expect(report([]).markdown(timeZone: utc).contains("None of the tools UsageSwitch reads is installed."))

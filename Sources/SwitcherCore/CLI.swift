@@ -6,6 +6,13 @@ public enum CLI {
 
     /// The real entry point: default collaborators and the process's own stdout/stderr.
     public static func run(_ rawArgs: [String]) -> Int32 {
+        // Here and not in the testable core, which must leave its caller's signals alone (audit T-5).
+        if ignoresInterruption(rawArgs) {
+            // An interrupted session would skip the relauncher restore and could leave files mid-swap.
+            signal(SIGINT, SIG_IGN)
+            signal(SIGTERM, SIG_IGN)
+            signal(SIGHUP, SIG_IGN)
+        }
         var options = SwitcherOptions()
         options.allowFaultInjection = ProcessInfo.processInfo.environment["CDSW_ALLOW_FAULT_INJECTION"] == "1"
         // A reader that went away (`… | head -1`, a script that died) must not end the CLI between
@@ -44,15 +51,6 @@ public enum CLI {
         L10n.language = lang.flatMap(AppLanguage.matching) ?? settings.effectiveLanguage
         guard let command = args.first else { return fail("usage", usage, exit: 64, out: out) }
         let yes = args.contains("--yes")
-        // status/list run pending-switch recovery; codex remove/reauth move folders and sign out.
-        let signalSensitive = ["switch", "capture", "enroll", "recover", "remove", "status", "list"].contains(command)
-            || (command == "codex" && args.count >= 2 && ["remove", "reauth"].contains(args[1]))
-        if signalSensitive {
-            // An interrupted session would skip the relauncher restore and could leave files mid-swap.
-            signal(SIGINT, SIG_IGN)
-            signal(SIGTERM, SIG_IGN)
-            signal(SIGHUP, SIG_IGN)
-        }
         let progress: (SwitchStep) -> Void = { step in err("step: \(step.title)\n") }
         do {
             switch command {
@@ -148,6 +146,15 @@ public enum CLI {
         } catch {
             return fail("unexpected", String(describing: error), exit: 1, out: out)
         }
+    }
+
+    /// Commands that move Claude's files or Codex homes. status/list run pending-switch recovery;
+    /// codex remove/reauth move folders and sign out.
+    static func ignoresInterruption(_ rawArgs: [String]) -> Bool {
+        let args = removingOption("--lang", from: rawArgs)
+        guard let command = args.first else { return false }
+        return ["switch", "capture", "enroll", "recover", "remove", "status", "list"].contains(command)
+            || (command == "codex" && args.count >= 2 && ["remove", "reauth"].contains(args[1]))
     }
 
     /// `codex status|open|add|reauth|remove|rename|unhide`: the Codex tab from the command line.

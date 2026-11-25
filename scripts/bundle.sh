@@ -1,11 +1,29 @@
 #!/bin/bash
 # Builds build/UsageSwitch.app (release, universal: Apple silicon and Intel) and signs it.
-# Developer ID when this Mac's keychain has that identity; without it, ad-hoc, and it says so.
-# SIGN_IDENTITY=- asks for the ad-hoc signature outright. An identity that is there but fails to
-# sign stops the build: a release must never come out ad-hoc without anyone asking for it.
+# Developer ID when this Mac's keychain has one "Developer ID Application" identity, or the one
+# SIGN_IDENTITY names; without one, ad-hoc, and it says so. With more than one, SIGN_IDENTITY
+# must pick. SIGN_IDENTITY=- asks for the ad-hoc signature outright. An identity that is there
+# but fails to sign stops the build: a release must never come out ad-hoc without anyone asking.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-release}"
+# The valid signing identities, captured first: `grep -q` on a pipe would SIGPIPE `security`
+# under pipefail.
+IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  IDENTITY="$SIGN_IDENTITY"
+else
+  # No name in the repository: the keychain's own Developer ID, when there is exactly one.
+  DEVELOPER_IDS=$(sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' <<< "$IDENTITIES" | sort -u)
+  case "$(grep -c . <<< "$DEVELOPER_IDS" || true)" in
+    0) IDENTITY=-
+       echo "no Developer ID Application identity in the keychain; using ad-hoc signature" >&2 ;;
+    1) IDENTITY="$DEVELOPER_IDS" ;;
+    *) echo "error: more than one Developer ID Application identity in the keychain; pick one with" \
+            "SIGN_IDENTITY=\"Developer ID Application: …\" $0" >&2
+       exit 1 ;;
+  esac
+fi
 # One multi-arch build: the new build backend emits a single universal product —
 # per-arch --show-bin-path no longer exists (both arches share Products/<config>).
 swift build -c "$CONFIG" --arch arm64 --arch x86_64
@@ -37,7 +55,6 @@ else
 fi
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Jaekeun Song (4UN6WC576K)}"
 # Notarization needs Apple's secure timestamp; TIMESTAMP=none skips it for offline local builds.
 TS="--timestamp"; [ "${TIMESTAMP:-}" = none ] && TS="--timestamp=none"
 sign() { perl -e 'alarm 90; exec @ARGV' codesign --force --options runtime "$TS" --sign "$IDENTITY" "$@" ; }
@@ -54,9 +71,6 @@ sign_bundle_ad_hoc() {
   if [ -d "$FRAMEWORK" ]; then codesign --force --deep --sign - "$FRAMEWORK"; fi
   codesign --force --sign - "$APP"
 }
-# The valid signing identities, captured first: `grep -q` on a pipe would SIGPIPE `security`
-# under pipefail.
-IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
 if [ "$IDENTITY" = - ]; then
   sign_bundle_ad_hoc
   echo "signed: ad-hoc"

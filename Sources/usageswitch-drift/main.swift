@@ -6,7 +6,8 @@ import VendorDrift
 // reads from them. Prints a Markdown report (or, with --update-snapshot, the Codex protocol
 // snapshot) to stdout and writes no file itself. See scripts/vendor-drift.sh.
 //
-// Exit status: 0 no drift, 1 drift found, 2 the tool could not run.
+// Exit status: 0 no drift, 1 drift found, 2 the tool could not run, 3 it ran but could not compare
+// what it is for (nothing installed or answering, or the Codex protocol).
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("usageswitch-drift: \(message)\n\(DriftArguments.usage)\n".utf8))
@@ -56,4 +57,4 @@ if arguments.updateSnapshot {
 let report: DriftReport = run.report()
 let text: String = Redaction.scrub(report.markdown(), home: environment.home)
 FileHandle.standardOutput.write(Data(text.utf8))
-exit(report.hasDrift ? 1 : 0)
+exit(report.exitStatus)

@@ -117,12 +117,89 @@ struct CLITests {
     }
 
     @Test func removeNeedsYes() throws {
-        let sb = try Sandbox(); defer { sb.remove() }
+        let rig = try Rig.make(); defer { rig.cleanup() }
         // `remove` without --yes asks first — before touching the saved sign-in.
-        let (code, out, _) = run(sb, ["remove", "someone@example.com"])
+        let out = StringSink()
+        let code = CLI.run(args: ["remove", FakeIdentity.b.key], switcher: rig.switcher,
+                           codex: CodexManager(env: rig.env, table: EmptyTable()),
+                           out: { out.text += $0 }, err: { _ in })
         #expect(code == 3)
-        #expect(out.contains("needs_confirmation"))
-        #expect(!sb.env.storeDir.appendingPathComponent("snapshots").path.isEmpty)
+        #expect(out.text.contains("needs_confirmation"))
+        #expect(rig.switcher.store.latest(for: FakeIdentity.b.identity) != nil)
+    }
+
+    // MARK: - A failed switch (audit T-2): the only signal a script has to tell "restored" from "needs recovery"
+
+    /// The exit code and the printed `error` object of `switch`.
+    private func runSwitch(_ rig: Rig, fault: Bool = true) throws -> (Int32, [String: String]) {
+        let out = StringSink()
+        var args = ["switch", FakeIdentity.b.key]
+        if fault { args += ["--inject-fault", "post-swap-verify"] }
+        let code = CLI.run(args: args, switcher: rig.switcher, codex: CodexManager(env: rig.env, table: EmptyTable()),
+                           out: { out.text += $0 }, err: { _ in })
+        let envelope = try JSONSerialization.jsonObject(with: Data(out.text.utf8)) as? [String: Any]
+        return (code, try #require(envelope?["error"] as? [String: String]))
+    }
+
+    private func faultRig() throws -> Rig {
+        var options = SwitcherOptions()
+        options.allowFaultInjection = true
+        return try Rig.make(options: options)
+    }
+
+    @Test func aConfirmedRollbackIs1() throws {
+        let rig = try faultRig(); defer { rig.cleanup() }
+        let (code, error) = try runSwitch(rig)
+        #expect(code == 1)
+        #expect(error["rollback"] == "verified")
+    }
+
+    @Test func anUnconfirmedRollbackIs2() throws {
+        let rig = try faultRig(); defer { rig.cleanup() }
+        rig.world.update { $0.afterLaunch = { $0.launchError = .launchFailed("LaunchServices refused") } }
+        let (code, error) = try runSwitch(rig)
+        #expect(code == 2)
+        #expect(error["rollback"] == "unverified")
+    }
+
+    @Test func aFailedRollbackIs4() throws {
+        let rig = try faultRig(); defer { rig.cleanup() }
+        rig.world.update { $0.afterLaunch = { $0.quitMode = .ignore } }
+        let (code, error) = try runSwitch(rig)
+        #expect(code == 4)
+        #expect(error["rollback"] == "failed")
+    }
+
+    @Test func anInterruptedSwapIs4() throws {
+        // Claude starts mid-swap and won't quit: the files are left for recovery.
+        let rig = try Rig.make(running: false); defer { rig.cleanup() }
+        rig.world.update { $0.quitMode = .ignore; $0.spawnClaudeWhenJournalApplied = 1 }
+        let (code, error) = try runSwitch(rig, fault: false)
+        #expect(code == 4)
+        #expect(error["code"] == "swap_interrupted")
+    }
+
+    // MARK: - Signals (audit T-5)
+
+    @Test func theTestableEntryPointLeavesSignalsAlone() throws {
+        let sb = try Sandbox(); defer { sb.remove() }
+        let previous = signal(SIGINT, SIG_DFL)
+        defer { signal(SIGINT, previous) }
+        _ = run(sb, ["status"])
+        var current = sigaction()
+        sigaction(SIGINT, nil, &current)
+        // SIG_DFL is 0 and SIG_IGN is 1.
+        #expect(unsafeBitCast(current.__sigaction_u.__sa_handler, to: Int.self) == 0)
+    }
+
+    @Test func commandsThatMoveFilesIgnoreInterruption() {
+        for args in [["switch", "x"], ["capture"], ["enroll"], ["recover"], ["remove", "x"], ["status"], ["list"],
+                     ["codex", "remove", "x"], ["codex", "reauth", "x"], ["--lang", "ko", "status"]] {
+            #expect(CLI.ignoresInterruption(args), "\(args)")
+        }
+        for args in [[], ["usage"], ["rename", "x", "y"], ["language", "ko"], ["codex", "status"], ["codex"]] {
+            #expect(!CLI.ignoresInterruption(args), "\(args)")
+        }
     }
 
     @Test func codexRemoveNeedsYes() throws {
@@ -130,8 +207,10 @@ struct CLITests {
         let (code, out, _) = run(sb, ["codex", "remove", "work"])
         #expect(code == 3)
         #expect(out.contains("needs_confirmation"))
-        // With --yes the guard passes; the removal itself then runs.
-        #expect(run(sb, ["codex", "remove", "work", "--yes"]).0 != 3)
+        // With --yes the guard passes; the removal itself then runs and finds no such account.
+        let removed = run(sb, ["codex", "remove", "work", "--yes"])
+        #expect(removed.0 == 1)
+        #expect(removed.1.contains("unknown_account"))
     }
 }
 

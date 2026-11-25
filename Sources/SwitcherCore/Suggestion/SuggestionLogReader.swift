@@ -139,7 +139,9 @@ public struct SuggestionLogPass: Equatable, Sendable {
     public let pendingBytes: Int
     /// The accounts whose logs still have unread bytes.
     public let pendingAccounts: Set<APIKeyAccountKey>
-    /// The UTC day this reader first read logs into the current store, when known.
+    /// The UTC day of the pass the stored usage is complete from, when known: the first pass into
+    /// the current store, or later when an account a spend estimate depends on was added, came
+    /// back after more than 14 days, or had a backlog that outlasted its first day (audit G-02).
     public let firstPassDay: String?
     /// The pass could not complete: stored spend is partial and the estimator must not call it final.
     public let failed: Bool
@@ -198,9 +200,18 @@ public final class SuggestionLogReader: @unchecked Sendable {
         var lastSeenAt: Date?
     }
 
+    /// When an account's logs were last read, and the day of the first pass that left none of
+    /// them unread. Its spend is complete from 13 days before that day.
+    private struct AccountCoverage: Codable {
+        var completeFromDay: String?
+        var lastSeenAt: Date
+    }
+
     private struct FileCursorState: Codable {
         var cursors: [String: Cursor]
         var firstPassDay: String?
+        /// Keyed by provider and salted account key. Nil in a cursor file from before 2.5.1.
+        var accounts: [String: AccountCoverage]?
     }
 
     private enum CursorLoad {
@@ -387,7 +398,8 @@ public final class SuggestionLogReader: @unchecked Sendable {
         SuggestionRetention.prune(directory: directory, fs: fs, now: now)
         var state: FileCursorState
         switch loadCursors() {
-        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now))
+        case .missing: state = FileCursorState(cursors: [:], firstPassDay: SuggestionRetention.utcDay(now),
+                                               accounts: [:])
         case .loaded(let loaded):
             state = loaded
             // A 2.1.4 cursor file has no first-pass day: coverage is unknown and could hide a
@@ -450,9 +462,12 @@ public final class SuggestionLogReader: @unchecked Sendable {
             let nextCursor: Cursor
             switch file.root.provider {
             case .claude:
+                // A message is final only once the whole quiet file is read: a read cut short by the
+                // budget may stop between two lines of the same message (audit G-07).
                 (nextCursor, parsed) = processClaude(
                     data, cursor: cursor, accountRef: accountRef,
-                    finalizePending: now.timeIntervalSince(info.modifiedAt) > Self.pendingMessageIdleTime)
+                    finalizePending: now.timeIntervalSince(info.modifiedAt) > Self.pendingMessageIdleTime
+                        && UInt64(data.count) == info.size - cursor.offset)
             case .codex:
                 (nextCursor, parsed) = processCodex(
                     data, cursor: cursor, accountRef: accountRef,
@@ -495,15 +510,53 @@ public final class SuggestionLogReader: @unchecked Sendable {
             if kept.lastSeenAt == nil { kept.lastSeenAt = now }
             return now.timeIntervalSince(kept.lastSeenAt ?? now) > Self.cursorRetention ? nil : kept
         }
+        let pending = unread.values.filter { $0.bytes > 0 }
+        let pendingAccounts = Set(pending.map(\.account))
+        let completeFromDay = updateCoverage(&state, roots: roots, pendingAccounts: pendingAccounts,
+                                             priorityAccountRefs: priorityAccountRefs, now: now)
         do { try saveCursors(state) } catch {
             SuggestionStorage.rollBack(appended, fs: fs)
             return SuggestionLogPass(records: [], bytesRead: 0, firstPassDay: state.firstPassDay, failed: true)
         }
-        let pending = unread.values.filter { $0.bytes > 0 }
         return SuggestionLogPass(
             records: records, bytesRead: totalRead,
             pendingBytes: Int(clamping: pending.reduce(UInt64(0)) { $0 &+ $1.bytes }),
-            pendingAccounts: Set(pending.map(\.account)), firstPassDay: state.firstPassDay)
+            pendingAccounts: pendingAccounts, firstPassDay: completeFromDay)
+    }
+
+    /// Records when each account's logs were read and returns the day the usage behind a spend
+    /// estimate is complete from (audit G-02). Files are read only while they are under 14 days old,
+    /// so an account first read today, read again after more than 14 days, or still behind at the
+    /// end of a day may have missed older files: its coverage starts at the first pass that leaves
+    /// nothing of it unread.
+    private func updateCoverage(_ state: inout FileCursorState, roots: [SuggestionLogRoot],
+                                pendingAccounts: Set<APIKeyAccountKey>,
+                                priorityAccountRefs: Set<String>, now: Date) -> String? {
+        let today = SuggestionRetention.utcDay(now)
+        // A cursor file from before 2.5.1 has no accounts: they keep the store's first-pass day.
+        let migrating = state.accounts == nil
+        var accounts = state.accounts ?? [:]
+        var priorityDays: [String] = []
+        for root in roots where root.provider == .claude || root.provider == .codex {
+            guard let accountRef = accountReferences.key(for: root.accountRef) else { continue }
+            let account = APIKeyAccountKey(provider: root.provider, accountKey: accountRef)
+            let id = "\(root.provider.rawValue):\(accountRef)"
+            var coverage = accounts[id] ?? AccountCoverage(
+                completeFromDay: migrating ? state.firstPassDay : nil, lastSeenAt: now)
+            if now.timeIntervalSince(coverage.lastSeenAt) > Self.maximumFileAge {
+                coverage.completeFromDay = nil
+            }
+            coverage.lastSeenAt = now
+            if coverage.completeFromDay == nil, !pendingAccounts.contains(account) {
+                coverage.completeFromDay = today
+            }
+            accounts[id] = coverage
+            if priorityAccountRefs.contains(root.accountRef) {
+                priorityDays.append(coverage.completeFromDay ?? today)
+            }
+        }
+        state.accounts = accounts.filter { now.timeIntervalSince($0.value.lastSeenAt) <= Self.cursorRetention }
+        return ([state.firstPassDay].compactMap { $0 } + priorityDays).max()
     }
 
     public func recentSummary(now: Date = Date()) -> [String: SuggestionLogSummary.Hint] {

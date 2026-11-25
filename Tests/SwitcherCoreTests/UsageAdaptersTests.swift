@@ -575,14 +575,40 @@ final class RedirectProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         // The 302 is the final answer: after the delegate refuses the redirect the
-        // original request completes at once — no timeout involved (audit B-13).
+        // original request completes at once — no timeout involved (audit B-13). Like URLSession,
+        // the refused redirect's own response is what the request returns (audit T-3).
         let r = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
                                 headerFields: ["Location": "https://evil.example"])!
         client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: "https://evil.example")!),
                             redirectResponse: r)
+        client?.urlProtocol(self, didReceive: r, cacheStoragePolicy: .notAllowed)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+/// Answers 200, then sends one byte every 0.1 s for six seconds: never idle long enough for
+/// URLSession's own timeout, so only the transport's overall wait can end it (audit T-4).
+final class TrickleProtocol: URLProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        tick(left: 60)
+    }
+    private func tick(left: Int) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { [self] in
+            lock.lock(); let stop = stopped; lock.unlock()
+            guard !stop else { return }
+            guard left > 0 else { client?.urlProtocolDidFinishLoading(self); return }
+            client?.urlProtocol(self, didLoad: Data([0x7B]))
+            tick(left: left - 1)
+        }
+    }
+    override func stopLoading() { lock.lock(); stopped = true; lock.unlock() }
 }
 
 /// Serves exactly `bytes` bytes, declared via Content-Length or streamed as chunks
@@ -612,7 +638,7 @@ final class BodySizeProtocol: URLProtocol, @unchecked Sendable {
 struct ProviderEdgeTests {
     private let home = URL(fileURLWithPath: "/tmp/e")
 
-    @Test("redirect refusal: nil response AND the target was never invoked")
+    @Test("redirect refusal: the 302 itself comes back AND the target was never invoked")
     func redirect() {
         RedirectProtocol.targetHit.set(false)
         let c = URLSessionConfiguration.ephemeral
@@ -620,9 +646,23 @@ struct ProviderEdgeTests {
         let t = SystemUsageHTTPTransport(configuration: c)
         let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
                                  method: .get, timeout: 5)
-        // The refused redirect completes immediately — nil, without the old 5 s wait.
-        #expect(t.send(req) == nil)
+        // The refused redirect completes immediately, without the old 5 s wait. Collectors take
+        // anything but 200 as a failed read.
+        #expect(t.send(req)?.status == 302)
         #expect(RedirectProtocol.targetHit.value == false)
+    }
+
+    @Test("a server that keeps trickling is cut off after the timeout cap plus two seconds (audit T-4)")
+    func tricklingServer() {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [TrickleProtocol.self]
+        let t = SystemUsageHTTPTransport(timeoutCap: 0.5, configuration: c)
+        let req = UsageHTTPRequest(url: URL(string: "https://api2.cursor.sh/x")!,
+                                   method: .get, timeout: 30)
+        let started = Date()
+        #expect(t.send(req) == nil)
+        // About 2.5 s; the trickle itself would end, with a 200, after six.
+        #expect(Date().timeIntervalSince(started) < 5)
     }
 
     @Test("the 1 MiB body cap: exactly at the limit returns, one byte over drops")
@@ -754,9 +794,33 @@ struct ProviderEdgeTests {
     }
 
     @Test("credential reader rejects Int.max limit and non-regular paths")
-    func readerBounds() {
-        #expect(UsageFileCredentialReader(limit: Int.max).read(URL(fileURLWithPath: "/tmp/e")) == nil)
+    func readerBounds() throws {
+        // A file the reader can read, so a nil below comes from the bound and not a missing file (audit T-3).
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("creds-\(UUID().uuidString)")
+        try Data("{}".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(UsageFileCredentialReader().read(file) == Data("{}".utf8))
+        #expect(UsageFileCredentialReader(limit: Int.max - 1).read(file) == nil)
+        #expect(UsageFileCredentialReader(limit: Int.max).read(file) == nil)
         #expect(UsageFileCredentialReader().read(URL(fileURLWithPath: "/tmp")) == nil)
+        // A FIFO with no writer would block the reader in open(2) if nothing checked for a regular file.
+        let fifo = FileManager.default.temporaryDirectory.appendingPathComponent("creds-fifo-\(UUID().uuidString)")
+        #expect(mkfifo(fifo.path, 0o600) == 0)
+        defer { unlink(fifo.path) }
+        let done = DispatchSemaphore(value: 0)
+        // Its own thread: under a full parallel run the global queue can be busy with other tests' waits.
+        Thread {
+            _ = UsageFileCredentialReader().read(fifo)
+            done.signal()
+        }.start()
+        let returned = done.wait(timeout: .now() + 3) == .success
+        if !returned {
+            // Release the blocked reader so the run can go on.
+            let writer = open(fifo.path, O_WRONLY | O_NONBLOCK)
+            if writer >= 0 { close(writer) }
+            _ = done.wait(timeout: .now() + 2)
+        }
+        #expect(returned)
     }
 }
 

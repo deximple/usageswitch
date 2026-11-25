@@ -141,9 +141,9 @@ Cada cuenta es un pequeño bloque: quién es y luego una línea por límite.
 
 **Colores de la barra:** una barra con margen se rellena con el color del logotipo de la herramienta — terracota para Claude, azul para Gemini y Antigravity, negro (blanco en modo oscuro) para las demás; ámbar con un icono de aviso ha pasado su nivel de aviso (80% usado por defecto); un icono rojo y la barra vacía indican que está agotado; una barra gris difuminada es una lectura antigua esperando actualización — o, para una cuenta de Claude guardada o un inicio de Codex que no se puede leer ahora, su última lectura correcta con la hora en que se vio. Una ventana cuyo reinicio ya pasó no muestra número.
 
-**Pie:** *actualizado hace 1m · Próxima actualización en 4m*. UsageSwitch se actualiza cada 5 minutos, justo después de que un límite se reinicie y al pulsar ↻.
+**Pie:** *actualizado hace 1m · Próxima actualización en 4m*. UsageSwitch se actualiza cada 5 minutos, justo después de que un límite se reinicie y al pulsar ↻. Cuando el Mac sale del reposo, una lectura que falló se vuelve a intentar 30 segundos, 1 minuto y 2 minutos después — como máximo tres veces por cada reactivación.
 
-**Elegir el límite de la barra de menús:** elija un límite en **⚙︎ › Uso en la barra de menús**, o haga clic con el botón derecho en un límite y elija **Fijar**. La barra de menús muestra entonces ese límite (por ejemplo *Semanal 25% restante*) en lugar del más ajustado. Lo elegido en **Uso en la barra de menús** tiene prioridad sobre lo fijado; **Automático (el que menos queda)** vuelve a lo fijado y, si no hay, al más ajustado.
+**Elegir el límite de la barra de menús:** elija un límite en **⚙︎ › Uso en la barra de menús**, o haga clic con el botón derecho en un límite y elija **Fijar**. La barra de menús muestra entonces ese límite (por ejemplo *Semanal 25% restante*) en lugar del más ajustado. Lo elegido en **Uso en la barra de menús** tiene prioridad sobre lo fijado; **Automático (el límite con menos restante)** vuelve a lo fijado y, si no hay, al más ajustado.
 
 <p align="center">
   <img src="docs/screenshots/es/all-usage.png" width="640" alt="La ventana principal listando cada herramienta detectada: Claude, Codex, Cursor, Grok, Gemini, Devin y OpenCode con sus límites">
@@ -225,7 +225,7 @@ Haga clic en **Guía** encima de la lista para abrirla. Un pequeño punto junto 
   | *Urgente* | modelos de frontera, esfuerzo Máximo — pregunta antes, y vuelve a *Equilibrado* en el próximo reinicio de 5 horas de Claude (o tras cinco horas) |
 
 - **Tarea** — deslice de *Programación sencilla* a *Máximo razonamiento* para decir qué va a hacer.
-- **Sugerencia** — una línea que nombra el proveedor y la cuenta, el modelo y el esfuerzo que encajan con lo que queda ahora (*Sugerido: …*; con una sola cuenta que comparar, *Disponible: …*). Cuando ninguna sugerencia de modelo encaja, la Guía muestra la cuenta con más margen entre las cuentas de suscripción comparables. Los perfiles de clave de API nunca se sugieren.
+- **Sugerencia** — una línea que nombra el proveedor y la cuenta, el modelo y el esfuerzo que encajan con lo que queda ahora (*Sugerido: …*; con una sola cuenta que comparar, *Disponible: …*). Cuando nada encaja con el modo y la tarea, la Guía dice *Nada encaja con este modo y tarea ahora mismo.* — pruebe otro modo u otra tarea. (Solo si no puede cargar su catálogo de modelos integrado compara en su lugar las cuentas de suscripción de Codex por el margen que les queda.) Los perfiles de clave de API nunca se sugieren.
 - **Por qué esta sugerencia** — al desplegarla muestra hasta cuatro cuentas con las que se comparó (el límite que frena, la parte restante y cuándo se reinicia) y las cuentas **Excluidas**: en el nivel de aviso, que podrían agotarse antes del reinicio o que esperan una lectura nueva.
 - **Lo que viene** — a partir del ritmo de cada límite (el reciente cuando dos lecturas coinciden; si no, su media hasta ahora), la Guía lista hasta tres cuentas que podrían agotarse antes de reiniciarse, la más próxima primero. No se proyecta nada antes de que pase el 15% de la ventana de un límite. Un límite a punto de reiniciarse cuenta la parte que se perdería sin usar, así que un 60% restante tres horas antes del reinicio semanal queda por delante de un 70% restante con seis días por delante. Para la cuenta sugerida añade *Repartido por igual, alrededor de 15% al día alcanza hasta el reinicio*.
 - **Una opción más ligera** — cuando una cuenta va camino de agotarse y sus registros muestran qué usó sobre todo el último día, la Guía nombra un modelo o esfuerzo más ligero del mismo fabricante (*opción más ligera: …*). Indica una dirección, no un ahorro.
@@ -286,12 +286,12 @@ Todo está en el menú **⚙︎**.
 | Ajuste | Qué hace |
 |---|---|
 | Idioma | English, 한국어, 日本語, 简体中文 o Español. Sigue al sistema por defecto. |
-| Apariencia | Seguir el sistema, Claro u Oscuro. |
+| Apariencia | Seguir el sistema, Claro u Oscuro. En macOS 26 o posterior, los controles flotantes de la ventana principal (la barra de pestañas, la barra de acciones inferior y los botones secundarios) usan Liquid Glass; con **Reducir transparencia** activado (Ajustes del Sistema › Accesibilidad › Pantalla) son planos, como en el menú y en macOS 15. |
 | Abrir al iniciar sesión | Arranca UsageSwitch al iniciar sesión. |
 | Mostrar la cuenta en la barra de menús | Muestra el nombre de la cuenta de Claude actual junto al icono (los correos siguen ocultos). |
 | Mostrar siempre los correos | Muestra los correos completos en lugar de ocultos. |
 | Mostrar uso en la barra de menús | Muestra un límite junto al icono, por ejemplo *Semanal 25% restante*. Activado por defecto. |
-| Uso en la barra de menús | Qué límite es. **Automático (el que menos queda)** usa un límite fijado o, si no hay, el que menos queda sin estar agotado; también puede elegir un límite de la lista. |
+| Uso en la barra de menús | Qué límite es. **Automático (el límite con menos restante)** usa un límite fijado o, si no hay, el que menos queda sin estar agotado; también puede elegir un límite de la lista. |
 | Alertas de uso · Avisar al porcentaje usado | Envía una notificación de macOS cuando un límite supera el 70%, 80% (por defecto) o 90% usado. |
 | Mostrar el indicador de Guía | El punto junto a **Guía** cuando hay una sugerencia lista. |
 | Conexiones de uso | Enciende o apaga cada herramienta opcional; una herramienta apagada sale de la lista de uso. Solo lista herramientas encontradas en este Mac. |

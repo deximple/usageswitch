@@ -159,6 +159,24 @@ struct SuggestionTextTests {
         #expect(noMatch.headline == nil)
     }
 
+    @Test("a tool whose limits fit none of its models gives no mode-and-task reason (audit G-04)")
+    func groupScopedLimitsAreNoCatalogMatch() throws {
+        let gemini = Support.Model(vendor: "google", model: "gemini-model",
+                                   name: "Gemini Model", efforts: ["medium"])
+        let catalog = try Support.catalog(models: [gemini], entries: [
+            Support.Entry(modelKey: gemini.key, effort: "medium", tier: "mid", simple: 2, reasoning: 2),
+        ])
+        // Antigravity reports only model-group limits, which name no catalog model.
+        let antigravity = Support.usage("agy", provider: .antigravity, windows: [
+            Support.window(10080, used: 30, resetsIn: 86400, scope: "Gemini Models"),
+        ])
+        let report = SuggestionEngine.report(mode: .balanced, task: 0.5, catalog: catalog,
+                                             usages: [antigravity], pace: [:], now: now)
+        #expect(report.result == .none(.noCatalogMatch))
+        #expect(SuggestionText.explanation(for: report, usages: [antigravity], catalog: catalog,
+                                           now: now, label: { $0.label }).empty.isEmpty)
+    }
+
     @Test("every effort level has a name and an unknown one falls back")
     func effortNames() {
         let named: [(String, L10nKey)] = [

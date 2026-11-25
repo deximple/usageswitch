@@ -128,16 +128,18 @@ public enum SuggestionEngine {
                   (0...maximumReadingAge).contains(now.timeIntervalSince(usage.readAt))
             else { continue }
             let mappedModels = harnessMap.candidateModels(for: usage.provider, catalog: catalog)
-            freshAccountMapsToCatalog = freshAccountMapsToCatalog || !mappedModels.isEmpty
             for mapped in mappedModels {
+                let windows = harnessMap.spentWindows(in: usage, for: mapped)
+                // A model none of the account's limits apply to can't be ranked (audit G-04):
+                // Antigravity reports only model-group limits.
+                guard !windows.isEmpty else { continue }
+                freshAccountMapsToCatalog = true
                 let entries = catalog.entries.filter {
                     $0.key == mapped.model.key
                         && permits($0, model: mapped.model, mode: mode)
                         && quality($0.rank, task: task) != nil
                 }
                 guard !entries.isEmpty else { continue }
-                let windows = harnessMap.spentWindows(in: usage, for: mapped)
-                guard !windows.isEmpty else { continue }
                 let paceReadings = windows.map { window -> UsagePace.Reading in
                     pace[UsagePriority.key(usage, window)] ?? .unknown
                 }
