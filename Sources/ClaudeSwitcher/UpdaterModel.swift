@@ -9,6 +9,8 @@ import SwitcherCore
 final class UpdaterModel: ObservableObject {
     private(set) var decision: UpdaterLaunchPolicy.Decision
     private var controller: SPUStandardUpdaterController?
+    /// Sparkle keeps its delegate weakly; made with the controller.
+    private var relaunchGate: UpdateRelaunchGate?
 
     var enabled: Bool { decision == .enabled }
 
@@ -23,8 +25,10 @@ final class UpdaterModel: ObservableObject {
     /// policy allows it. Calls are free after that.
     func startIfAllowed() {
         guard enabled, controller == nil else { return }
+        let gate = UpdateRelaunchGate()
+        relaunchGate = gate
         controller = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            startingUpdater: true, updaterDelegate: gate, userDriverDelegate: nil)
     }
 
     /// Menu action. Inert while disabled — wired up with the menu item in the
@@ -33,5 +37,33 @@ final class UpdaterModel: ObservableObject {
         guard enabled else { return }
         startIfAllowed()
         controller?.checkForUpdates(nil)
+    }
+}
+
+/// Sparkle asks before it quits the app to install an update. While a quit would be refused — a
+/// switch, a recovery or a Codex action under way (`QuitPolicy`) — the relaunch waits, and goes
+/// ahead on its own once the app could quit.
+@MainActor
+private final class UpdateRelaunchGate: NSObject, SPUUpdaterDelegate {
+    private var pendingInstall: (() -> Void)?
+    private var timer: Timer?
+
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        guard AppModel.quitDecision.waits else { return false }
+        pendingInstall = installHandler
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.installIfIdle() }
+        }
+        return true
+    }
+
+    private func installIfIdle() {
+        guard !AppModel.quitDecision.waits, let install = pendingInstall else { return }
+        timer?.invalidate()
+        timer = nil
+        pendingInstall = nil
+        install()
     }
 }

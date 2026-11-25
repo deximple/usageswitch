@@ -390,6 +390,34 @@ public enum APIBudgetMath {
         return Int(days)
     }
 
+    /// What a prepaid balance entered at `now` is measured from: today's spend so far, already paid
+    /// out of that balance. nil while the estimate can't tell — none yet, logs still being read, or
+    /// a price unknown — since a 0 saved then would take today's spend off the balance again (U-08).
+    public static func balanceBaseline(_ estimate: APIUsageEstimate?, at now: Date) -> Double? {
+        guard let estimate, estimate.spendIsComplete else { return nil }
+        let today = utcDay(now)
+        return estimate.dailySpend.filter { $0.day == today }.reduce(0.0) { $0 + $1.amountUSD }
+    }
+
+    /// What is left of `vendor`'s budget, counted against the figure the API tab counts it against
+    /// (`APIVendor.budgetBasis`): the complete local-log estimate, or this month's billing read.
+    /// nil when that figure isn't known or can't cover the budget's cycle.
+    public static func budgetRemaining(_ budget: APIBudget, vendor: APIVendor, estimate: APIUsageEstimate?,
+                                       actual: APICostReadState?, now: Date) -> Double? {
+        switch vendor.budgetBasis {
+        case .localLogs:
+            guard let estimate, estimate.hasAPIKeyAccounts, estimate.spendIsComplete else { return nil }
+            return remaining(budget, spending: estimate.dailySpend, now: now,
+                             coverageStartDay: estimate.coverageStartDay)
+        case .actualSpend:
+            guard case .ok(let spend) = actual,
+                  case .remaining(let left) = actualRemaining(budget, spend: spend, now: now) else { return nil }
+            return left
+        case nil:
+            return nil
+        }
+    }
+
     public static func showUsageListBalance(usedPercent: Double, remainingUSD: Double?) -> Bool {
         usedPercent.isFinite && usedPercent >= 95
             && remainingUSD.map { $0.isFinite && $0 > 0 } == true

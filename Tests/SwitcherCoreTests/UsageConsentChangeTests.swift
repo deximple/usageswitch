@@ -126,4 +126,40 @@ struct UsageConsentChangeTests {
         let revoked = UsageCollection.revokedProviders(enabledProviders: [.devin])
         #expect(snapshot.removing(providers: Set(revoked)).accounts.map(\.provider) == ["claude", "devin"])
     }
+
+    @Test("a token a read keeps after the consent was withdrawn is gone once that read ends")
+    func tokenKeptAfterWithdrawal() {
+        // Audit D-04: the read is abandoned at once, but a token request already on its way still
+        // answers, and the collector keeps the token after the consent change forgot the old one.
+        let antigravity = AntigravityAccessTokenCache()
+        let gemini = GeminiAccessTokenCache()
+        let cursor = CursorRenewalAttemptCache()
+        let key = Data("refresh".utf8)
+        UsageCollection.forgetSignIns(of: UsageCollection.revokedProviders(enabledProviders: []),
+                                      antigravity: antigravity, gemini: gemini, cursor: cursor)
+        antigravity.store(accessToken: "late", validUntil: now.addingTimeInterval(600), projectID: nil)
+        gemini.store(for: key, accessToken: "late", validUntil: now.addingTimeInterval(600))
+        cursor.record("late")
+        UsageCollection.readEnded(enabledProviders: [], antigravity: antigravity, gemini: gemini,
+                                  cursor: cursor)
+        #expect(antigravity.value(at: now) == nil)
+        #expect(gemini.value(for: key, at: now) == nil)
+        #expect(!cursor.contains("late"))
+    }
+
+    @Test("a read ending leaves a granted provider's sign-in in place")
+    func readEndedKeepsGrantedSignIns() {
+        let antigravity = AntigravityAccessTokenCache()
+        let gemini = GeminiAccessTokenCache()
+        let cursor = CursorRenewalAttemptCache()
+        let key = Data("refresh".utf8)
+        antigravity.store(accessToken: "a", validUntil: now.addingTimeInterval(600), projectID: nil)
+        gemini.store(for: key, accessToken: "g", validUntil: now.addingTimeInterval(600))
+        cursor.record("expired")
+        UsageCollection.readEnded(enabledProviders: [.antigravity, .gemini, .cursor],
+                                  antigravity: antigravity, gemini: gemini, cursor: cursor)
+        #expect(antigravity.value(at: now) != nil)
+        #expect(gemini.value(for: key, at: now) != nil)
+        #expect(cursor.contains("expired"))
+    }
 }
