@@ -50,7 +50,20 @@ enum AppModel {
     static var anySurfaceVisible: Bool { visibleSurfaces.anyVisible }
 
     static func noteSurface(_ surface: VisibleSurfaces.Surface, open: Bool) {
-        guard visibleSurfaces.note(surface, open: open) else { return }
+        surfacesChanged(visibleSurfaces.note(surface, open: open))
+    }
+
+    /// A window in the Dock is still open but not on screen.
+    static func noteMinimized(_ surface: VisibleSurfaces.Surface, _ minimized: Bool) {
+        surfacesChanged(visibleSurfaces.noteMinimized(surface, minimized))
+    }
+
+    static func noteAppHidden(_ hidden: Bool) {
+        surfacesChanged(visibleSurfaces.noteAppHidden(hidden))
+    }
+
+    private static func surfacesChanged(_ changed: Bool) {
+        guard changed else { return }
         shared.scheduleStatusPoll(visible: anySurfaceVisible)
         codex.scheduleStatusPoll(visible: anySurfaceVisible)
         if anySurfaceVisible {
@@ -80,6 +93,12 @@ enum AppModel {
 
     /// Sparkle owner. Inert until the bundle ships a feed URL + public key.
     static let updater = UpdaterModel(isDemo: LaunchOptions.fixture != nil)
+
+    /// Whether the app may quit now; Sparkle's relaunch for an update asks the same.
+    static var quitDecision: QuitPolicy.Decision {
+        QuitPolicy.decide(switcherBusy: shared.isBusy, switcherDemo: shared.isDemo,
+                          codexBusy: codex.isBusy, codexSigningIn: codex.isSigningIn, codexDemo: codex.isDemo)
+    }
 }
 
 /// Strings come from a global table rather than view inputs, so the tree is rebuilt when the language changes.
@@ -175,6 +194,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.setActivationPolicy(stillOpen ? .regular : .accessory)
     }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        AppModel.noteMinimized(window === detailWindow ? .detailWindow : .mainWindow, true)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        AppModel.noteMinimized(window === detailWindow ? .detailWindow : .mainWindow, false)
+    }
+
+    func applicationDidHide(_ notification: Notification) { AppModel.noteAppHidden(true) }
+    func applicationDidUnhide(_ notification: Notification) { AppModel.noteAppHidden(false) }
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -287,14 +319,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Quitting mid-switch would skip the relauncher restore and could leave files mid-swap, and quitting during
     /// another Codex action could leave it half done, so both wait for the user. A Codex sign-in is simply cancelled
     /// (its `codex login` ends) before the app quits.
+    /// A demo always quits (`QuitPolicy`), so a `--snapshot` of a busy fixture ends.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let codex = AppModel.codex
-        if AppModel.shared.isBusy {
+        switch AppModel.quitDecision {
+        case .waitForSwitch:
             AppModel.shared.banner = .init(kind: .info, text: L10n.t(.uiBusyQuit))
-        } else if codex.isBusy && !codex.isSigningIn && !codex.isDemo {
+        case .waitForCodex:
             codex.banner = .init(kind: .info, text: L10n.t(.codexBusyQuit))
             AppModel.tabs.tab = .codex
-        } else {
+        case .now:
             // Cancel collection first, so no reader starts another vendor command while the
             // running ones are being stopped.
             AppModel.usage.stopForQuit()
@@ -336,6 +370,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         NSApp.setActivationPolicy(.regular)
+        // Out of the Dock first: the surface is about to be counted as on screen.
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         AppModel.noteSurface(.mainWindow, open: true)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()

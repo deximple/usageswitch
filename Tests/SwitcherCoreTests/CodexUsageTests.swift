@@ -226,8 +226,9 @@ struct CodexUsageTests {
         #expect(path.contains(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path))
         #expect(!path.contains { $0.hasPrefix("/tmp/codex-home") })
         // A fresh cache: the first read of an account asks for the reset-credit details once.
-        #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: "2.0.0", resetCreditDetails: true))
-        #expect(request.stdinLines?.first?.contains(#""version":"2.0.0""#) == true)
+        #expect(request.stdinLines == CodexUsageCollector.stdinLines(version: ProductInfo.fallbackVersion,
+                                                                     resetCreditDetails: true))
+        #expect(request.stdinLines?.first?.contains(#""version":"\#(ProductInfo.fallbackVersion)""#) == true)
         #expect(request.timeout == 15)
         #expect(request.workingDirectory == workDir)
         #expect(FileManager.default.fileExists(atPath: workDir.path)) // never removed

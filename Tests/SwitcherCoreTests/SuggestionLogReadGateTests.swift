@@ -74,4 +74,41 @@ struct SuggestionLogReadGateTests {
         gate.invalidate()
         #expect(gate.shouldStart(now: t0.addingTimeInterval(1)))
     }
+
+    @Test func whileLearningDataIsDeletedNoReadStartsOrIsApplied() {
+        // Deleting learning data waits for the running read; a refresh that ends meanwhile must
+        // not start another one that writes log cursors back after the delete (audit D-06).
+        var gate = SuggestionLogReadGate()
+        let running = gate.begin()
+        gate.suspend()
+        #expect(!gate.shouldStart(now: t0))
+        #expect(!gate.shouldStart(now: t0.addingTimeInterval(3600)))
+        let applied = gate.finish(token: running, now: t0)
+        #expect(!applied)
+        gate.resume()
+        #expect(gate.shouldStart(now: t0))
+    }
+
+    @Test func aReadBegunDuringTheDeleteIsNeverApplied() {
+        var gate = SuggestionLogReadGate()
+        gate.suspend()
+        let during = gate.begin()
+        let appliedDuring = gate.finish(token: during, now: t0)
+        #expect(!appliedDuring)
+        let late = gate.begin()
+        gate.resume()
+        let appliedLate = gate.finish(token: late, now: t0)
+        #expect(!appliedLate)
+        #expect(gate.shouldStart(now: t0))
+    }
+
+    @Test func oneDeleteEndingDoesNotReopenTheGateUnderAnother() {
+        var gate = SuggestionLogReadGate()
+        gate.suspend()
+        gate.suspend()
+        gate.resume()
+        #expect(!gate.shouldStart(now: t0))
+        gate.resume()
+        #expect(gate.shouldStart(now: t0))
+    }
 }

@@ -322,6 +322,10 @@ final class UsageModel: ObservableObject {
 
     func flushSuggestionLearningData() async throws {
         guard !isDemo else { return }
+        // Before the first wait: a refresh that ends while this waits must not start a log read
+        // that writes cursors back after the delete (audit D-06). Resumed however this ends.
+        logReadGate.suspend()
+        defer { logReadGate.resume() }
         let wasRefreshing = isRefreshing
         abandonCurrentRefresh(clearRefreshing: false)
         if wasRefreshing { refreshStartedAt = nil }
@@ -343,7 +347,6 @@ final class UsageModel: ObservableObject {
         suggestionStateTask = nil
         suggestionLogTask = nil
         suggestionLogReader = nil
-        logReadGate.invalidate()
         suggestionLogHints = [:]
         apiUsageEstimates = [:]
         pace = [:]
@@ -391,12 +394,19 @@ final class UsageModel: ObservableObject {
                                        coverageStartDay: estimate.coverageStartDay)
     }
 
+    /// The API money left beside a subscription account that has (nearly) run out, counted the way
+    /// the API tab counts that vendor's budget — for Anthropic, against the billing read.
     func apiUsageBalanceHint(for usage: AccountUsage, shownWindows: [UsageWindow],
                              now: Date = Date()) -> Double? {
         guard usage.state == .ok, usage.authentication == .subscription,
-              shownWindows.contains(where: { $0.usedPercent.isFinite && $0.usedPercent >= 95 }),
               let vendor = APIVendor.matching(usage.provider),
-              let remaining = apiBudgetRemaining(for: vendor, now: now), remaining > 0 else { return nil }
+              let budget = settings.apiBudget(for: vendor),
+              let remaining = APIBudgetMath.budgetRemaining(
+                  budget, vendor: vendor, estimate: apiUsageEstimates[vendor],
+                  actual: apiActualSpends[vendor], now: now),
+              shownWindows.contains(where: {
+                  APIBudgetMath.showUsageListBalance(usedPercent: $0.usedPercent, remainingUSD: remaining)
+              }) else { return nil }
         return remaining
     }
 
@@ -769,6 +779,11 @@ final class UsageModel: ObservableObject {
 
     private func finish(_ fresh: [AccountUsage], installed: [UsageInstallation],
                         generation: Int, env: SwitcherEnvironment) {
+        // Every read ends here, abandoned ones too: a token one got after a consent was
+        // withdrawn is dropped now that nothing of that read is still running (audit D-04).
+        UsageCollection.readEnded(enabledProviders: settings.enabledUsageProviders,
+                                  antigravity: antigravityTokenCache, gemini: geminiTokenCache,
+                                  cursor: cursorRenewalAttempts)
         guard generation == self.generation else {
             if abandonedRefreshGenerations.remove(generation) != nil {
                 abandonedRefreshes = max(0, abandonedRefreshes - 1)

@@ -141,6 +141,17 @@ public enum UsageCollection {
         if revoked.contains(.cursor) { cursor.clear() }
     }
 
+    /// A read has ended, finished or abandoned. A collector already past its cancellation checks
+    /// can still get an answer to a token request after the consent was withdrawn, and keep the
+    /// token: whatever is revoked by now is forgotten again, so nothing obtained then is reused.
+    public static func readEnded(enabledProviders: Set<UsageProvider>,
+                                 antigravity: AntigravityAccessTokenCache,
+                                 gemini: GeminiAccessTokenCache,
+                                 cursor: CursorRenewalAttemptCache) {
+        forgetSignIns(of: revokedProviders(enabledProviders: enabledProviders),
+                      antigravity: antigravity, gemini: gemini, cursor: cursor)
+    }
+
     /// Pure merge for partial results: the provider's incoming rows keep
     /// retained windows from the rows they replace (same-login only, decided by
     /// `retainingWindows`), then land in fixed provider order so the visible
