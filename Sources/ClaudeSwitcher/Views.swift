@@ -116,7 +116,7 @@ struct AccountRow: View {
         .padding(.vertical, compact ? 8 : 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
-                .fill(account.isActive ? Theme.active.opacity(0.10) : .clear))
+                .fill(account.isActive ? Theme.active.opacity(StatusPalette.currentRowOpacity) : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             if let onRename {
@@ -138,7 +138,7 @@ struct AccountRow: View {
         if account.isActive {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(Theme.active)
+                .foregroundStyle(Theme.current)
                 .accessibilityLabel(L10n.t(.uiCurrentInUseAx))
         } else {
             switch account.snapshot {
@@ -150,7 +150,7 @@ struct AccountRow: View {
                     .help(L10n.t(.uiSwitchHelp))
             case .expired, .corrupt:
                 Button(L10n.t(.uiRelogin), action: onEnroll)
-                    .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                    .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                     .disabled(busy)
                     .accessibilityLabel(L10n.t(.uiEnrollAx, SwitcherModel.displayLabel(account)))
                     .help(L10n.t(.uiEnrollHelp))
@@ -188,7 +188,7 @@ struct ActiveHeader: View {
                 Text(status.accounts.filter(\.isActive)
                     .map { revealed ? $0.label : SwitcherModel.displayLabel($0) }.joined(separator: " · "))
                     .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
-                    .foregroundStyle(Theme.active)
+                    .foregroundStyle(Theme.current)
                     .lineLimit(1).truncationMode(.middle)
                 if let address = active.email {
                     email(address)
@@ -294,12 +294,12 @@ struct EnrollmentCard: View {
                     Button(L10n.t(.uiEnrollBackTo, SwitcherModel.displayLabel(previous))) {
                         model.restoreEnrollment()
                     }
-                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                    .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                     .disabled(model.isBusy)
                 }
                 Spacer()
                 Button(L10n.t(.uiCancel)) { model.dismissEnrollment() }
-                    .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                    .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                     .disabled(model.isBusy)
             }
         }
@@ -311,6 +311,17 @@ struct EnrollmentCard: View {
 
 struct BannerView: View {
     let banner: SwitcherModel.Banner
+    /// Once per result across every surface showing it (the menu and the window can at the same time).
+    @MainActor private static var announcements = AnnouncementGate()
+
+    /// A switch or save takes many seconds: VoiceOver hears how it ended without looking for it.
+    /// Standing notices (`.info`) are read where they are, not spoken every time a list appears.
+    private func announce() {
+        guard banner.kind != .info else { return }
+        let text = Privacy.maskEmails(in: banner.text)
+        guard Self.announcements.shouldAnnounce(text, at: Date()) else { return }
+        AccessibilityNotification.Announcement(text).post()
+    }
 
     var body: some View {
         let color: Color = banner.kind == .error ? Theme.danger : banner.kind == .success ? Theme.ready : Theme.alias
@@ -327,6 +338,8 @@ struct BannerView: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(color.opacity(0.1)))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(color.opacity(0.35)))
         .accessibilityElement(children: .combine)
+        .onAppear(perform: announce)
+        .onChange(of: banner.text) { _, _ in announce() }
     }
 }
 
@@ -439,7 +452,7 @@ struct MainView: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     if model.isDemo { Chip(text: L10n.t(.uiDemo)) }
                     Button { model.refresh() } label: { Label(L10n.t(.uiRefresh), systemImage: "arrow.clockwise") }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                        .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                         .keyboardShortcut("r", modifiers: .command)
                         .disabled(model.isBusy)
                 }
@@ -508,7 +521,7 @@ struct MainView: View {
                             .disabled(model.isBusy || !status.claude.running)
                             .help(L10n.t(.uiCaptureHelp))
                         Button(L10n.t(.uiNewLogin)) { model.requestEnroll() }
-                            .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                            .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                             .disabled(model.isBusy)
                             .help(L10n.t(.uiNewLoginHelp))
                         Spacer()
@@ -606,11 +619,11 @@ struct MenuView: View {
                 Divider()
                 HStack {
                     Button(L10n.t(.uiOpenWindow)) { AppDelegate.shared?.showMainWindow() }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                        .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                     Spacer()
                     SettingsMenu(model: model, codex: codex, usage: usage)
                     Button(L10n.t(.uiQuit)) { NSApp.terminate(nil) }
-                        .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                        .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                         .keyboardShortcut("q")
                         .disabled(model.isBusy)
                         .help(model.isBusy ? L10n.t(.uiQuitHelpBusy) : L10n.t(.uiQuitHelp, ProductInfo.name))

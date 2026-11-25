@@ -150,6 +150,90 @@ struct StatusPaletteTests {
         }
     }
 
+    // MARK: - Quiet buttons, the current marker and the environment dot
+
+    /// The washes a quiet button is drawn on: its own color at rest and while hovered
+    /// (`ActionButtonLook.Background.wash`), and the environment badge's tint.
+    private var quietWashes: [Double] {
+        [ActionButtonLook.Background.wash.opacity(hovering: false, pressed: false),
+         ActionButtonLook.Background.wash.opacity(hovering: true, pressed: false),
+         StatusPalette.environmentWashOpacity]
+    }
+
+    /// A quiet button's label is its own color over a wash of that color, on whatever it sits on.
+    private func quietLabelContrasts(_ tint: UsageBarTint) -> [(String, Double)] {
+        surfaces.flatMap { surface in
+            quietWashes.flatMap { opacity -> [(String, Double)] in
+                let light = UsageBarPalette.contrast(
+                    tint.light, StatusPalette.blend(tint.light, over: surface.tint.light, opacity: opacity))
+                let dark = UsageBarPalette.contrast(
+                    tint.dark, StatusPalette.blend(tint.dark, over: surface.tint.dark, opacity: opacity))
+                return [("\(surface.name) \(opacity) light", light), ("\(surface.name) \(opacity) dark", dark)]
+            }
+        }
+    }
+
+    @Test("a quiet grey button's label reaches 4.5:1 on its wash, in light and dark")
+    func quietMutedLabel() {
+        for (name, ratio) in quietLabelContrasts(StatusPalette.quietMuted) {
+            #expect(ratio >= StatusPalette.minimumTextContrast, "\(name) \(ratio)")
+        }
+    }
+
+    @Test("a quiet accent button's label reaches 4.5:1 on its wash for any accent color")
+    func quietAccentLabel() {
+        for accent in systemAccents + anyAccents {
+            let label = UsageBarTint(light: StatusPalette.quietLabel(accent.tint.light, dark: false),
+                                     dark: StatusPalette.quietLabel(accent.tint.dark, dark: true))
+            for (name, ratio) in quietLabelContrasts(label) {
+                #expect(ratio >= StatusPalette.minimumTextContrast, "\(accent.name) \(name) \(ratio)")
+            }
+        }
+    }
+
+    /// Where the current marker sits: the canvas, a chip well, the header card, and the current
+    /// account's row, which carries a 10% wash of the raw accent color.
+    @Test("the current marker reaches 3:1 for any accent color, in light and dark")
+    func currentMarkerForAnyAccent() {
+        for accent in systemAccents + anyAccents {
+            for dark in [false, true] {
+                let raw = dark ? accent.tint.dark : accent.tint.light
+                let marker = StatusPalette.currentMarker(raw, dark: dark)
+                let row = StatusPalette.blend(raw, over: dark ? UsageBarPalette.canvas.dark
+                                                              : UsageBarPalette.canvas.light,
+                                              opacity: StatusPalette.currentRowOpacity)
+                for backdrop in surfaces.map({ dark ? $0.tint.dark : $0.tint.light }) + [row] {
+                    let ratio = UsageBarPalette.contrast(marker, backdrop)
+                    #expect(ratio >= UsageBarPalette.minimumContrast,
+                            "\(accent.name) \(dark ? "dark" : "light") on #\(String(backdrop, radix: 16)) \(ratio)")
+                }
+            }
+        }
+    }
+
+    @Test func aCurrentMarkerThatAlreadyReadsKeepsTheAccent() {
+        // Dark system blue already reaches 3:1 everywhere it sits.
+        #expect(StatusPalette.currentMarker(0x0091FF, dark: true) == 0x0091FF)
+        // Light system blue does not, so it deepens toward black and keeps its hue.
+        let blue = StatusPalette.currentMarker(0x0088FF, dark: false)
+        #expect(blue != 0x0088FF)
+        #expect(blue & 0xFF > (blue >> 16) & 0xFF)
+    }
+
+    /// The badge of a confirmed environment: a dot carries the color, the text stays at body contrast.
+    @Test("the environment dot reaches 3:1 on its badge, in light and dark")
+    func environmentDot() {
+        let tint = StatusPalette.environmentMarker
+        for surface in surfaces {
+            let light = UsageBarPalette.contrast(tint.light, StatusPalette.blend(
+                tint.light, over: surface.tint.light, opacity: StatusPalette.environmentWashOpacity))
+            let dark = UsageBarPalette.contrast(tint.dark, StatusPalette.blend(
+                tint.dark, over: surface.tint.dark, opacity: StatusPalette.environmentWashOpacity))
+            #expect(light >= UsageBarPalette.minimumContrast, "\(surface.name) light \(light)")
+            #expect(dark >= UsageBarPalette.minimumContrast, "\(surface.name) dark \(dark)")
+        }
+    }
+
     @Test func blendingMixesTwoColors() {
         #expect(StatusPalette.blend(0x000000, over: 0xFFFFFF, opacity: 1) == 0x000000)
         #expect(StatusPalette.blend(0x000000, over: 0xFFFFFF, opacity: 0) == 0xFFFFFF)

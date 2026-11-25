@@ -299,6 +299,42 @@ struct UIStringFitTests {
         }
     }
 
+    // MARK: - Pinned rows and the budget row
+
+    /// A pinned row puts a 9pt pin and a 2pt gap before the window name, in the same 84pt column.
+    @Test(arguments: AppLanguage.allCases)
+    func pinnedWindowNamesFitTheNameColumn(language: AppLanguage) throws {
+        let pin = try #require(TextStyle(size: 9).width(ofSymbol: "pin.fill"))
+        let slot = TextSlot(width: MenuLimitRow.name.width - pin - 2, style: MenuLimitRow.name.style)
+        for key in Self.windowNameKeys {
+            let text = L10n.string(key, language: language)
+            #expect(slot.fit(text) == .fits, "\(language.rawValue) \(key.rawValue): \(slot.describe(text))")
+        }
+    }
+
+    /// The budget row's text fields, as `APIBudgetRow` sizes them. A rounded field keeps about 10pt
+    /// on each side of its 13pt placeholder (measured on a render: "Importe (USD" was cut at 100).
+    private static let amountFieldWidth = 112.0
+    private static let resetDayFieldWidth = 52.0
+    private static let fieldPadding = 20.0
+
+    @Test(arguments: AppLanguage.allCases)
+    func budgetPlaceholdersFitTheirFields(language: AppLanguage) {
+        let style = TextStyle(size: 13)
+        let amount = L10n.string(.apiBudgetAmount, language: language)
+        #expect(style.width(of: amount) + Self.fieldPadding <= Self.amountFieldWidth,
+                "\(language.rawValue): \(amount) is \(style.width(of: amount))pt")
+        #expect(style.width(of: "1–31") + Self.fieldPadding <= Self.resetDayFieldWidth)
+    }
+
+    @Test func budgetFieldWidthsMatchTheView() throws {
+        let views = try Self.viewSources()
+        for literal in ["amountWidth: CGFloat = \(Int(Self.amountFieldWidth))",
+                        "resetDayWidth: CGFloat = \(Int(Self.resetDayFieldWidth))"] {
+            #expect(views.contains(literal), "no view has `\(literal)`")
+        }
+    }
+
     /// The tests measure with AppKit; the app lays out with SwiftUI. They must agree, or every result above is off.
     @Test @MainActor
     func appKitMeasurementMatchesSwiftUILayout() throws {

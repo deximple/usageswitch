@@ -162,7 +162,7 @@ public struct RelauncherGuard: Sendable {
     public func suspendAll() throws -> [Relauncher] {
         let result = scan()
         guard result.unverified.isEmpty else {
-            throw SwitcherError.io(L10n.t(.reasonRelauncherUnverified, result.unverified.joined(separator: ", ")))
+            throw SwitcherError.relauncherBlocked(L10n.t(.reasonRelauncherUnverified, result.unverified.joined(separator: ", ")))
         }
         let loaded = result.relaunchers.filter(isLoaded)
         guard !loaded.isEmpty else { return [] }
@@ -171,7 +171,7 @@ public struct RelauncherGuard: Sendable {
         for r in loaded {
             let result = runner.run(Self.launchctl, ["bootout", "gui/\(env.uid)/\(r.label)"])
             if result.status != 0 && isLoaded(r) {
-                throw SwitcherError.io(L10n.t(.reasonRelauncherSuspendFailed, r.label, String(result.output.prefix(200))))
+                throw SwitcherError.relauncherBlocked(L10n.t(.reasonRelauncherSuspendFailed, r.label, String(result.output.prefix(200))))
             }
         }
         return loaded

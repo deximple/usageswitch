@@ -14,7 +14,11 @@ enum Theme {
 
     // Semantic state colors
     static let active = Color(nsColor: .controlAccentColor)
-    static let environmentActive = Color(nsColor: .systemBlue)
+    /// What marks the current account or a pending suggestion: the accent color, moved only as far as
+    /// it needs to reach 3:1 where it sits (`StatusPalette.currentMarker`).
+    static let current = fromAccent { StatusPalette.currentMarker($0, dark: $1) }
+    /// The dot on a confirmed environment's badge (system blue, deepened in light to reach 3:1).
+    static let environmentActive = adaptive(StatusPalette.environmentMarker)
     static let ready = adaptive(StatusPalette.ready)
     static let relogin = Color(nsColor: .systemOrange)
     static let alias = Color(nsColor: .secondaryLabelColor)
@@ -49,23 +53,50 @@ enum Theme {
 
     /// The current marker follows the user's accent color; the others are fixed.
     static func marker(_ marker: StatusMarker) -> Color {
-        StatusPalette.tint(for: marker).map(adaptive) ?? active
+        StatusPalette.tint(for: marker).map(adaptive) ?? current
     }
+
+    // Quiet buttons: the label is the button's own color on a faint wash of it, held to 4.5:1 there.
+    /// For a button with no color of its own (Details, Hide, Cancel, Sign in again).
+    static let quietMuted = adaptive(StatusPalette.quietMuted)
+    /// For a quiet action in the accent color (Connect usage, Add Codex account).
+    static let quietAccent = fromAccent { StatusPalette.quietLabel($0, dark: $1) }
 
     // The primary button. Its fill is the user's accent color with the brightness moved until the
     // label reads on it at 4.5:1 (`StatusPalette.accentFill`); the hue stays theirs.
     static let onFill = adaptive(StatusPalette.labelOnFill)
-    static let accentFill = Color(nsColor: NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        var accent: NSColor?
-        appearance.performAsCurrentDrawingAppearance {
-            accent = NSColor.controlAccentColor.usingColorSpace(.sRGB)
+    static let accentFill = fromAccent { StatusPalette.accentFill($0, dark: $1) }
+
+    /// A color made from the user's accent color as it is drawn in the view's appearance. The
+    /// transform searches up to 100 steps, so each accent and appearance is worked out once.
+    private static func fromAccent(_ transform: @escaping @Sendable (UInt32, Bool) -> UInt32) -> Color {
+        let cache = AccentCache()
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            var accent: NSColor?
+            appearance.performAsCurrentDrawingAppearance {
+                accent = NSColor.controlAccentColor.usingColorSpace(.sRGB)
+            }
+            guard let accent else { return .controlAccentColor }
+            let channels = [accent.redComponent, accent.greenComponent, accent.blueComponent]
+            let hex = channels.reduce(UInt32(0)) { $0 << 8 | UInt32((min(max($1, 0), 1) * 255).rounded()) }
+            return nsColor(cache.value(for: hex, dark: dark, transform))
+        })
+    }
+
+    /// Results of one accent transform, by accent and appearance.
+    private final class AccentCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [UInt64: UInt32] = [:]
+
+        func value(for accent: UInt32, dark: Bool, _ transform: (UInt32, Bool) -> UInt32) -> UInt32 {
+            let key = UInt64(accent) << 1 | (dark ? 1 : 0)
+            if let known = lock.withLock({ values[key] }) { return known }
+            let computed = transform(accent, dark)
+            lock.withLock { values[key] = computed }
+            return computed
         }
-        guard let accent else { return .controlAccentColor }
-        let channels = [accent.redComponent, accent.greenComponent, accent.blueComponent]
-        let hex = channels.reduce(UInt32(0)) { $0 << 8 | UInt32((min(max($1, 0), 1) * 255).rounded()) }
-        return nsColor(StatusPalette.accentFill(hex, dark: dark))
-    })
+    }
 
     /// A color that follows the view's light/dark appearance, from an sRGB hex pair.
     fileprivate static func adaptive(_ tint: UsageBarTint) -> Color {

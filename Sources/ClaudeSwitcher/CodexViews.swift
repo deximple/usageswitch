@@ -222,7 +222,7 @@ struct CodexRow: View {
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusCard - 4, style: .continuous)
                 .fill(account.state == .running || focused
-                    ? Theme.active.opacity(0.10) : .clear))
+                    ? Theme.active.opacity(StatusPalette.currentRowOpacity) : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button(L10n.t(.uiRename), action: onRename).disabled(busy)
@@ -244,7 +244,7 @@ struct CodexRow: View {
         switch account.state {
         case .running:
             Button(L10n.t(.codexShow), action: onOpen)
-                .buttonStyle(ActionButtonStyle(tint: Theme.active, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietAccent, prominent: false))
                 .disabled(busy)
                 .help(L10n.t(.codexOpenHelp))
         case .signedIn:
@@ -254,7 +254,7 @@ struct CodexRow: View {
                 .help(L10n.t(.codexOpenHelp))
         case .signedOut:
             Button(L10n.t(.codexSignIn), action: onSignIn)
-                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                 .disabled(busy)
         }
     }
@@ -288,10 +288,10 @@ struct CodexFoundRow: View {
             }
             Spacer(minLength: 8)
             Button(L10n.t(.codexDismiss)) { model.dismiss(found) }
-                .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                 .disabled(model.isBusy)
             Button(L10n.t(.codexAdopt)) { model.requestAdopt(found) }
-                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                 .disabled(model.isBusy)
         }
         .padding(.horizontal, 14)
@@ -313,7 +313,7 @@ struct CodexHeader: View {
             if status.installed {
                 Text(L10n.t(.codexRunningCount, status.runningCount))
                     .font(compact ? .system(size: 16, weight: .semibold) : Theme.display)
-                    .foregroundStyle(status.runningCount > 0 ? Theme.active : Theme.ink)
+                    .foregroundStyle(status.runningCount > 0 ? Theme.current : Theme.ink)
                 if !compact, let version = status.version {
                     Label("Codex v\(version)", systemImage: "shippingbox").font(Theme.caption).foregroundStyle(Theme.inkMuted)
                 }
@@ -348,10 +348,10 @@ struct CodexSignInProgress: View {
     private var buttons: some View {
         if model.signInLink != nil {
             Button(L10n.t(.codexOpenLinkAgain)) { model.openSignInLink() }
-                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
         }
         Button(L10n.t(.uiCancel)) { model.cancelSignIn() }
-            .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+            .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
     }
 }
 
@@ -383,7 +383,7 @@ struct CodexMainContent: View {
                     VStack(alignment: .trailing, spacing: 6) {
                         if model.isDemo { Chip(text: L10n.t(.uiDemo)) }
                         Button { model.refresh() } label: { Label(L10n.t(.uiRefresh), systemImage: "arrow.clockwise") }
-                            .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                            .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                             .keyboardShortcut("r", modifiers: .command)
                             .disabled(model.isBusy)
                     }
@@ -457,7 +457,7 @@ struct CodexMenuContent: View {
             if case .signingIn = model.phase { CodexSignInProgress(model: model) }
             if let banner = model.banner { BannerView(banner: banner) }
             let add = Button(L10n.t(.codexAdd)) { model.add() }
-                .buttonStyle(ActionButtonStyle(tint: Theme.alias, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                 .disabled(model.isBusy || !status.installed)
                 .help(L10n.t(.codexAddHelp))
             if status.found.isEmpty {
@@ -467,7 +467,7 @@ struct CodexMenuContent: View {
                 let found = Button(L10n.t(.codexFoundCount, status.found.count)) {
                     AppDelegate.shared?.showMainWindow()
                 }
-                .buttonStyle(ActionButtonStyle(tint: Theme.inkMuted, prominent: false))
+                .buttonStyle(ActionButtonStyle(tint: Theme.quietMuted, prominent: false))
                 // Side by side when both labels fit on one line; stacked when they don't
                 // (ja, es), so a label never wraps inside its button.
                 ViewThatFits(in: .horizontal) {

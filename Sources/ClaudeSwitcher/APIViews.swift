@@ -12,6 +12,8 @@ struct APIContent: View {
     @State private var entries: [APIKeyEntry] = []
     @State private var revealedKeys: [String: String] = [:]
     @State private var keyMessage: String?
+    /// The Keychain list couldn't be read: the empty list below is not "no keys".
+    @State private var keyListFailed = false
     @State private var pendingDelete: APIKeyEntry?
 
     private var vault: KeychainAPIKeyVault { KeychainAPIKeyVault() }
@@ -63,6 +65,9 @@ struct APIContent: View {
                         Toggle(L10n.t(.apiKeyAdminToggle), isOn: $registerAsAdmin)
                             .font(Theme.caption).foregroundStyle(Theme.ink)
                     }
+                    if keyListFailed {
+                        UsageNote(text: L10n.t(.apiKeyListFailed), tone: .failure)
+                    }
                     if let keyMessage {
                         Text(keyMessage).font(Theme.caption).foregroundStyle(Theme.inkMuted)
                     }
@@ -97,7 +102,8 @@ struct APIContent: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .task { await reloadKeys() }
-        .onDisappear { revealedKeys.removeAll() }
+        // A typed key that was never stored doesn't wait for the next visit either.
+        .onDisappear { revealedKeys.removeAll(); key = "" }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.apiKeysShouldHideNotification)) { _ in
             revealedKeys.removeAll()
         }
@@ -173,7 +179,7 @@ struct APIContent: View {
             } else if actual == .rateLimited || actual == .network || actual == .schemaChanged {
                 Text(L10n.t(.apiAdminFailed))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
-            } else if !hasAdminEntry && (vendor == .anthropic || vendor == .openai) {
+            } else if !hasAdminEntry && !keyListFailed && (vendor == .anthropic || vendor == .openai) {
                 Text(L10n.t(.apiAdminHint))
                     .font(Theme.caption).foregroundStyle(Theme.inkMuted)
             }
@@ -196,6 +202,12 @@ struct APIContent: View {
                 } else {
                     Text(L10n.t(estimate?.isReadingLogs == true ? .apiEstimatesReadingLogs : .apiNoPrice))
                         .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                }
+                // Prices come from the catalog built into this version: say how old it is.
+                if let date = ModelCatalogDate.text(language: settings.language) {
+                    Text(L10n.t(.usageCatalogAsOf, date))
+                        .font(Theme.caption).foregroundStyle(Theme.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if usage.hasSubscriptionRoom(for: vendor) {
@@ -222,6 +234,7 @@ struct APIContent: View {
         let savedAdmin = registerAsAdmin
             && (savedVendor == .anthropic || savedVendor == .openai)
         Task {
+            keyMessage = nil
             do {
                 _ = try await vault.register(vendor: savedVendor, nickname: savedNickname,
                                              key: savedKey, admin: savedAdmin)
@@ -247,12 +260,16 @@ struct APIContent: View {
         }
         do {
             entries = try await vault.list()
+            keyListFailed = false
             usage.adminKeysDidChange(adminVendors: Set(entries.filter(\.isAdmin).map(\.vendor)))
-        } catch { keyMessage = L10n.t(.apiKeyAccessFailure) }
+        } catch {
+            keyListFailed = true
+        }
     }
 
     private func revealKey(_ entry: APIKeyEntry) {
         Task {
+            keyMessage = nil
             do {
                 revealedKeys[entry.id] = try await vault.reveal(id: entry.id)
                 // A revealed secret must not stay on screen (audit B-06).
@@ -264,6 +281,7 @@ struct APIContent: View {
 
     private func deleteKey(_ entry: APIKeyEntry) {
         Task {
+            keyMessage = nil
             do {
                 try await vault.delete(id: entry.id)
                 revealedKeys.removeValue(forKey: entry.id)
@@ -284,24 +302,24 @@ private struct APIBudgetRow: View {
     @ObservedObject var settings: SwitcherModel
     @ObservedObject var usage: UsageModel
     @State private var amount = ""
-    @State private var kind: Kind = .balance
+    @State private var kind: APIBudgetKind
     @State private var resetDay = "1"
 
-    private enum Kind: String, CaseIterable, Identifiable {
-        case balance, quota
-        var id: String { rawValue }
-    }
+    /// Wide enough for the amount placeholder in every language ("Importe (USD)").
+    static let amountWidth: CGFloat = 112
+    static let resetDayWidth: CGFloat = 52
 
     init(vendor: APIVendor, settings: SwitcherModel, usage: UsageModel) {
         self.vendor = vendor
         self.settings = settings
         self.usage = usage
+        _kind = State(initialValue: APIBudgetInput.defaultKind(for: vendor))
         switch settings.apiBudget(for: vendor) {
         case .balance(let amount, _, _):
-            _amount = State(initialValue: String(amount))
+            _amount = State(initialValue: APIBudgetInput.text(amount))
             _kind = State(initialValue: .balance)
         case .quota(let amount, let day):
-            _amount = State(initialValue: String(amount))
+            _amount = State(initialValue: APIBudgetInput.text(amount))
             _kind = State(initialValue: .quota)
             _resetDay = State(initialValue: String(day))
         case nil:
@@ -309,35 +327,11 @@ private struct APIBudgetRow: View {
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.gapTight) {
-            HStack(spacing: 6) {
-                Picker(L10n.t(.apiBudgetTitle), selection: $kind) {
-                    Text(L10n.t(.apiBudgetBalance)).tag(Kind.balance)
-                    Text(L10n.t(.apiBudgetQuota)).tag(Kind.quota)
-                }
-                .pickerStyle(.menu)
-                TextField(L10n.t(.apiBudgetAmount), text: $amount)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 100)
-                if kind == .quota {
-                    TextField(L10n.t(.apiBudgetResetDay), text: $resetDay)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 54)
-                }
-                Button(L10n.t(.apiBudgetSave), action: save)
-                    .disabled(settings.isDemo || (kind == .balance && balanceBaseline == nil))
-                if settings.apiBudget(for: vendor) != nil {
-                    Button(L10n.t(.apiBudgetClear)) { settings.setAPIBudget(nil, for: vendor) }
-                        .disabled(settings.isDemo)
-                }
-            }
-            if kind == .balance, let note = balanceNote {
-                Text(L10n.t(note))
-                    .font(Theme.caption)
-                    .foregroundStyle(Theme.inkMuted)
-            }
-        }
+    private var parsedAmount: Double? { APIBudgetInput.amount(amount) }
+    private var parsedDay: Int? { APIBudgetInput.resetDay(resetDay) }
+    private var canSave: Bool {
+        !settings.isDemo && parsedAmount != nil
+            && (kind == .balance ? balanceBaseline != nil : parsedDay != nil)
     }
 
     /// Today's spend so far, which a balance entered now already paid; nil until the logs are read.
@@ -353,8 +347,71 @@ private struct APIBudgetRow: View {
         return estimate.spendLast7DaysUSD != nil ? .apiNoPrice : nil
     }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.gapTight) {
+            // One line in the window; in the menu the controls wrap so every placeholder shows whole.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { kindPicker; fields; buttons }
+                VStack(alignment: .leading, spacing: Theme.gapTight) {
+                    kindPicker
+                    HStack(spacing: 6) { fields; buttons }
+                }
+                VStack(alignment: .leading, spacing: Theme.gapTight) {
+                    kindPicker
+                    HStack(spacing: 6) { fields }
+                    HStack(spacing: 6) { buttons }
+                }
+            }
+            // A value that can't be saved says why, instead of a Save that does nothing.
+            if !amount.trimmingCharacters(in: .whitespaces).isEmpty, parsedAmount == nil {
+                UsageNote(text: L10n.t(.apiBudgetInvalidAmount), tone: .warning)
+            } else if kind == .quota, !resetDay.trimmingCharacters(in: .whitespaces).isEmpty, parsedDay == nil {
+                UsageNote(text: L10n.t(.apiBudgetInvalidDay), tone: .warning)
+            }
+            if kind == .balance, let note = balanceNote {
+                Text(L10n.t(note))
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.inkMuted)
+            }
+        }
+    }
+
+    private var kindPicker: some View {
+        Picker(L10n.t(.apiBudgetTitle), selection: $kind) {
+            Text(L10n.t(.apiBudgetBalance)).tag(APIBudgetKind.balance)
+            Text(L10n.t(.apiBudgetQuota)).tag(APIBudgetKind.quota)
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+    }
+
+    @ViewBuilder private var fields: some View {
+        TextField(L10n.t(.apiBudgetAmount), text: $amount)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: Self.amountWidth)
+            .onSubmit(save)
+        if kind == .quota {
+            Text(L10n.t(.apiBudgetResetDay)).font(Theme.caption).foregroundStyle(Theme.ink)
+                .fixedSize()
+            TextField("1–31", text: $resetDay)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: Self.resetDayWidth)
+                .accessibilityLabel(L10n.t(.apiBudgetResetDay))
+                .onSubmit(save)
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        Button(L10n.t(.apiBudgetSave), action: save)
+            .disabled(!canSave)
+        if settings.apiBudget(for: vendor) != nil {
+            Button(L10n.t(.apiBudgetClear)) { settings.setAPIBudget(nil, for: vendor) }
+                .disabled(settings.isDemo)
+        }
+    }
+
     private func save() {
-        guard let value = Double(amount), value.isFinite, value >= 0 else { return }
+        guard canSave, let value = parsedAmount else { return }
         switch kind {
         case .balance:
             let asOf = Date()
@@ -363,8 +420,9 @@ private struct APIBudgetRow: View {
             settings.setAPIBudget(.balance(amountUSD: value, asOf: asOf,
                                             asOfDaySpentUSD: asOfDaySpentUSD), for: vendor)
         case .quota:
-            guard let day = Int(resetDay), (1...31).contains(day) else { return }
+            guard let day = parsedDay else { return }
             settings.setAPIBudget(.quota(amountUSD: value, resetDayOfMonth: day), for: vendor)
         }
+        amount = APIBudgetInput.text(value)
     }
 }

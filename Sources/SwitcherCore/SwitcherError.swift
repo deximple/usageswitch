@@ -27,11 +27,17 @@ public enum SwitcherError: Error, Equatable, CustomStringConvertible {
     case quitTimeout(waitedSeconds: Int)
     case claudeStartedDuringSwap
     case swapFailed(String)
+    /// The switch was refused before anything changed, for a reason that is the whole message — the
+    /// "couldn't swap the sign-in" header doesn't fit it. The CLI code stays `swap_failed`.
+    case swapBlocked(String)
     case swapInterrupted
     case verificationFailed(String, rollback: RollbackOutcome)
     case activeIdentityUnknown(String)
     case enrollmentIdentityMismatch(expected: String, got: String)
     case io(String)
+    /// A LaunchAgent that relaunches Claude couldn't be checked or paused. Not a file operation, so
+    /// the reason stands alone; the CLI code stays `io`.
+    case relauncherBlocked(String)
     case sqlite(String)
     case launchFailed(String)
     case cannotRemoveActive
@@ -67,6 +73,7 @@ public enum SwitcherError: Error, Equatable, CustomStringConvertible {
         case .quitTimeout(let s): return L10n.t(.errQuitTimeout, s)
         case .claudeStartedDuringSwap: return L10n.t(.errClaudeStartedDuringSwap)
         case .swapFailed(let r): return L10n.t(.errSwapFailed, r)
+        case .swapBlocked(let r): return r
         case .swapInterrupted: return L10n.t(.errSwapInterrupted)
         case .verificationFailed(let r, let rb):
             switch rb {
@@ -77,6 +84,7 @@ public enum SwitcherError: Error, Equatable, CustomStringConvertible {
         case .activeIdentityUnknown(let r): return L10n.t(.errActiveUnknown, r)
         case .enrollmentIdentityMismatch(let e, let g): return L10n.t(.errEnrollmentMismatch, g, e)
         case .io(let r): return L10n.t(.errIO, r)
+        case .relauncherBlocked(let r): return r
         case .sqlite(let r): return L10n.t(.errSQLite, r)
         case .launchFailed(let r): return L10n.t(.errLaunchFailed, r)
         case .cannotRemoveActive: return L10n.t(.errCannotRemoveActive)
@@ -113,12 +121,12 @@ public enum SwitcherError: Error, Equatable, CustomStringConvertible {
         case .quitVetoed: return "quit_vetoed"
         case .quitTimeout: return "quit_timeout"
         case .claudeStartedDuringSwap: return "claude_started_during_swap"
-        case .swapFailed: return "swap_failed"
+        case .swapFailed, .swapBlocked: return "swap_failed"
         case .swapInterrupted: return "swap_interrupted"
         case .verificationFailed: return "verification_failed"
         case .activeIdentityUnknown: return "active_identity_unknown"
         case .enrollmentIdentityMismatch: return "enrollment_identity_mismatch"
-        case .io: return "io"
+        case .io, .relauncherBlocked: return "io"
         case .sqlite: return "sqlite"
         case .launchFailed: return "launch_failed"
         case .cannotRemoveActive: return "cannot_remove_active"

@@ -88,7 +88,7 @@ struct RelauncherGuardTests {
         let guardian = RelauncherGuard(env: sb.env, fs: sb.fs, runner: world, reader: reader)
 
         let error = switcherError { _ = try guardian.suspendAll() }
-        guard case let .io(message)? = error else {
+        guard case let .relauncherBlocked(message)? = error else {
             Issue.record("expected an unverified relauncher error")
             return
         }
@@ -195,7 +195,7 @@ struct RelauncherGuardTests {
     @Test func failedBootoutThrows() throws {
         let s = try setup(); defer { s.sb.remove() }
         s.world.update { $0.bootoutFails = [AgentFixture.keepaliveLabel] }
-        guard case .io = switcherError({ _ = try s.guardian.suspendAll() }) else { Issue.record("expected io"); return }
+        guard case .relauncherBlocked = switcherError({ _ = try s.guardian.suspendAll() }) else { Issue.record("expected relauncherBlocked"); return }
         #expect(s.world.isAgentLoaded(AgentFixture.keepaliveLabel))
     }
 

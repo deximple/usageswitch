@@ -83,7 +83,7 @@ struct UsageDetailView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     Button(L10n.t(.uiClaudeProfileDisconnect)) { disconnectProfile(account.id) }
-                        .font(.system(size: 12)).foregroundStyle(Theme.active)
+                        .font(.system(size: 12)).foregroundStyle(Theme.quietAccent)
                     if p.usage.state == .unavailable(.noSignIn) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(L10n.t(.usageProfileSignInTitle))
@@ -102,13 +102,13 @@ struct UsageDetailView: View {
                                     forType: .string)
                                 copiedHint = true
                             }
-                            .font(.system(size: 12)).foregroundStyle(Theme.active)
+                            .font(.system(size: 12)).foregroundStyle(Theme.quietAccent)
                             .accessibilityLabel(Text("\(displayedName(p)), \(L10n.t(.usageProfileSignInCopy))"))
                         }
                     }
                 } else {
                     Button(L10n.t(.uiClaudeProfileConnect)) { connectProfile(for: account) }
-                        .font(.system(size: 12)).foregroundStyle(Theme.active)
+                        .font(.system(size: 12)).foregroundStyle(Theme.quietAccent)
                         .accessibilityLabel(Text("\(displayedName(p)), \(L10n.t(.uiClaudeProfileConnect))"))
                 }
             } else {
@@ -123,7 +123,7 @@ struct UsageDetailView: View {
             Button(L10n.t(.uiConnectUsage)) {
                 SettingsMenu.enableUsageConnection(p.usage.provider, model: model, usage: usage)
             }
-            .font(.system(size: 12)).foregroundStyle(Theme.active)
+            .font(.system(size: 12)).foregroundStyle(Theme.quietAccent)
             .accessibilityLabel(Text("\(UsageText.providerName(p.usage.provider)), \(displayedName(p)), \(L10n.t(.uiConnectUsage))"))
         } else if let reason = UsageText.reason(for: p.usage) {
             Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -137,8 +137,11 @@ struct UsageDetailView: View {
             && !UsageCollection.canConnect(p.usage, enabledProviders: model.enabledUsageProviders) {
             Text(L10n.t(.usageNoData)).font(.system(size: 11)).foregroundStyle(.secondary)
         }
-        if let resets = UsageText.resetCredits(p.usage.resetCredits, now: Date()) {
-            Label(resets, systemImage: "ticket").font(Theme.small).foregroundStyle(.secondary)
+        // A count kept from an earlier read carries its age, like a last-known bar.
+        if let resets = UsageText.resetCreditsLine(p.usage, now: Date()) {
+            Label(resets.text, systemImage: "ticket").font(Theme.small).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(resets.lastKnown ? "\(L10n.t(.usageLastKnownA11y)), \(resets.text)" : resets.text)
         }
         if p.usage.provider == .cursor,
            let destination = URL(string: "https://cursor.com/dashboard/spending") {

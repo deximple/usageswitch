@@ -16,7 +16,7 @@ struct P3HardeningTests {
         let mainPID = rig.world.mainPID
         rig.world.update { $0.tableUnreadable = true }
         #expect(switcherError { _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: true) }
-            == .swapFailed(L10n.t(.reasonProcessListUnreadable)))
+            == .swapBlocked(L10n.t(.reasonProcessListUnreadable)))
         #expect(rig.world.read { ($0.quitRequests, $0.sigterms, $0.launches) } == (0, 0, 0))
         #expect(!rig.switcher.swapper.journalPresent)
         #expect(rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))
@@ -49,7 +49,7 @@ struct P3HardeningTests {
         try rig.sandbox.write("{bad json", to: rig.env.journalFile)
         rig.world.update { $0.tableUnreadable = true }
         #expect(switcherError { _ = try rig.switcher.setAsidePendingJournal() }
-            == .swapFailed(L10n.t(.reasonSetAsideWhileRunning)))
+            == .swapBlocked(L10n.t(.reasonSetAsideWhileRunning)))
     }
 
     // MARK: Claude must still be quit around every copy

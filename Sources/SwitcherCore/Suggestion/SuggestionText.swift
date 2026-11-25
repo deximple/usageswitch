@@ -221,6 +221,6 @@ public enum SuggestionText {
     /// " · resets in 2d 4h"; nothing for an unknown reset or one under a minute away.
     private static func resetSuffix(_ resetsAt: Date?, now: Date) -> String {
         guard let resetsAt, resetsAt.timeIntervalSince(now) >= 60 else { return "" }
-        return " · " + L10n.t(.usageResetsIn, UsageText.countdown(to: resetsAt, from: now))
+        return " · " + L10n.t(.usageResetsInClause, UsageText.countdown(to: resetsAt, from: now))
     }
 }

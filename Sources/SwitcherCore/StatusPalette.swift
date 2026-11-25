@@ -97,6 +97,66 @@ public enum StatusPalette {
     public static let neutralButton = FilledButton(fill: UsageBarTint(light: 0x505050, dark: 0xD0D0D0),
                                                    label: labelOnFill)
 
+    // MARK: - Quiet buttons, the current marker and the environment dot
+
+    /// The environment badge's tint behind its text.
+    public static let environmentWashOpacity = 0.12
+    /// The current account's row: a faint wash of the accent color.
+    public static let currentRowOpacity = 0.10
+
+    /// What a quiet button or a marker can sit on: the canvas, a chip well (as dark as the tinted
+    /// cards get) and the header card.
+    private static func backdrops(dark: Bool) -> [UInt32] {
+        [UsageBarPalette.canvas, chipWell, surface].map { dark ? $0.dark : $0.light }
+    }
+
+    /// The washes a quiet button draws of its own color: at rest, hovered, and the environment badge's.
+    private static let quietWashes: [Double] = [
+        ActionButtonLook.Background.wash.opacity(hovering: false, pressed: false),
+        ActionButtonLook.Background.wash.opacity(hovering: true, pressed: false),
+        environmentWashOpacity,
+    ]
+
+    /// `color` moved toward black (light) or white (dark), 1% at a time, to the first step `reads`
+    /// accepts. The hue stays; a color that already reads is left alone.
+    private static func deepened(_ color: UInt32, dark: Bool, until reads: (UInt32) -> Bool) -> UInt32 {
+        let end: UInt32 = dark ? 0xFFFFFF : 0x000000
+        return (0...100).lazy.map { blend(end, over: color, opacity: Double($0) / 100) }
+            .first(where: reads) ?? end
+    }
+
+    /// The label of a quiet button in `tint`: drawn over a wash of itself, it reaches
+    /// `minimumTextContrast` at rest and hovered, on every backdrop.
+    public static func quietLabel(_ tint: UInt32, dark: Bool) -> UInt32 {
+        deepened(tint, dark: dark) { label in
+            backdrops(dark: dark).allSatisfy { backdrop in
+                quietWashes.allSatisfy {
+                    UsageBarPalette.contrast(label, blend(label, over: backdrop, opacity: $0)) >= minimumTextContrast
+                }
+            }
+        }
+    }
+
+    /// The grey of a quiet button with no color of its own (Details, Hide, Cancel, Sign in again).
+    /// The system's secondary label reaches only 3.6–3.9:1 on its own wash in light.
+    public static let quietMuted = UsageBarTint(light: 0x535353, dark: 0xC5C5C5)
+
+    /// The current marker in the user's accent color: moved only as far as it needs to reach 3:1 on
+    /// every backdrop and on the current row, which is washed with the raw accent.
+    public static func currentMarker(_ accent: UInt32, dark: Bool) -> UInt32 {
+        let canvas = dark ? UsageBarPalette.canvas.dark : UsageBarPalette.canvas.light
+        let row = blend(accent, over: canvas, opacity: currentRowOpacity)
+        return deepened(accent, dark: dark) { marker in
+            (backdrops(dark: dark) + [row]).allSatisfy {
+                UsageBarPalette.contrast(marker, $0) >= UsageBarPalette.minimumContrast
+            }
+        }
+    }
+
+    /// The dot on a confirmed environment's badge: system blue, deepened in light until it reaches
+    /// 3:1 on its own badge tint.
+    public static let environmentMarker = UsageBarTint(light: 0x0070D1, dark: 0x0091FF)
+
     /// `top` drawn at `opacity` over `bottom`, as sRGB hex.
     public static func blend(_ top: UInt32, over bottom: UInt32, opacity: Double) -> UInt32 {
         func channel(_ shift: UInt32) -> UInt32 {

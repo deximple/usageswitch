@@ -74,6 +74,10 @@ struct GuideBasisView: View {
                         if !explanation.compared.isEmpty {
                             row(Text(L10n.t(.suggestionBasisNote)), tint: Theme.inkMuted)
                                 .padding(.top, Theme.gapTight)
+                            // The ranking comes from the catalog built into this version: say how old it is.
+                            if let date = ModelCatalogDate.text(language: L10n.language) {
+                                row(Text(L10n.t(.usageCatalogAsOf, date)), tint: Theme.inkMuted)
+                            }
                         }
                     }
                     .padding(.top, Theme.gapTight)
@@ -87,5 +91,15 @@ struct GuideBasisView: View {
     private func row(_ text: Text, tint: Color) -> some View {
         text.font(Theme.caption).foregroundStyle(tint)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The date of the model catalog built into this version, read once. Prices in the API tab and the
+/// Guide's ranking both come from it, and neither changes until the app is updated.
+enum ModelCatalogDate {
+    private static let factsDate = (try? SuggestionCatalog.bundled())?.factsDate
+
+    static func text(language: AppLanguage) -> String? {
+        factsDate.flatMap { UsageText.catalogDate($0, language: language) }
     }
 }
