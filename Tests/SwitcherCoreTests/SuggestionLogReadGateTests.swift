@@ -101,4 +101,14 @@ struct SuggestionLogReadGateTests {
         #expect(!appliedLate)
         #expect(gate.shouldStart(now: t0))
     }
+
+    @Test func oneDeleteEndingDoesNotReopenTheGateUnderAnother() {
+        var gate = SuggestionLogReadGate()
+        gate.suspend()
+        gate.suspend()
+        gate.resume()
+        #expect(!gate.shouldStart(now: t0))
+        gate.resume()
+        #expect(gate.shouldStart(now: t0))
+    }
 }

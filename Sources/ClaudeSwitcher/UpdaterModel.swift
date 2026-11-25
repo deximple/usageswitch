@@ -45,25 +45,29 @@ final class UpdaterModel: ObservableObject {
 /// ahead on its own once the app could quit.
 @MainActor
 private final class UpdateRelaunchGate: NSObject, SPUUpdaterDelegate {
-    private var pendingInstall: (() -> Void)?
+    private var pendingInstalls: [() -> Void] = []
     private var timer: Timer?
 
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
                  untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
         guard AppModel.quitDecision.waits else { return false }
-        pendingInstall = installHandler
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        pendingInstalls.append(installHandler)
+        guard timer == nil else { return true }
+        // Common modes: the check keeps running while a menu is open.
+        let check = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.installIfIdle() }
         }
+        RunLoop.main.add(check, forMode: .common)
+        timer = check
         return true
     }
 
     private func installIfIdle() {
-        guard !AppModel.quitDecision.waits, let install = pendingInstall else { return }
+        guard !AppModel.quitDecision.waits else { return }
         timer?.invalidate()
         timer = nil
-        pendingInstall = nil
-        install()
+        let installs = pendingInstalls
+        pendingInstalls = []
+        installs.forEach { $0() }
     }
 }

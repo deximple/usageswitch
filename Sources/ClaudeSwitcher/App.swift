@@ -370,6 +370,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         NSApp.setActivationPolicy(.regular)
+        // Out of the Dock first: the surface is about to be counted as on screen.
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         AppModel.noteSurface(.mainWindow, open: true)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()

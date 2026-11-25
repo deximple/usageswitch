@@ -332,8 +332,8 @@ private struct APIBudgetRow: View {
                         .disabled(settings.isDemo)
                 }
             }
-            if kind == .balance, balanceBaseline == nil, usage.apiUsageEstimates[vendor]?.isReadingLogs ?? true {
-                Text(L10n.t(.apiEstimatesLoading))
+            if kind == .balance, let note = balanceNote {
+                Text(L10n.t(note))
                     .font(Theme.caption)
                     .foregroundStyle(Theme.inkMuted)
             }
@@ -343,6 +343,14 @@ private struct APIBudgetRow: View {
     /// Today's spend so far, which a balance entered now already paid; nil until the logs are read.
     private var balanceBaseline: Double? {
         APIBudgetMath.balanceBaseline(usage.apiUsageEstimates[vendor], at: Date())
+    }
+
+    /// Why a balance can't be saved yet, unless the vendor section already says it: with no week
+    /// figure it shows "still reading" or "no price"; with one, only this row can explain.
+    private var balanceNote: L10nKey? {
+        guard balanceBaseline == nil else { return nil }
+        guard let estimate = usage.apiUsageEstimates[vendor] else { return .apiEstimatesLoading }
+        return estimate.spendLast7DaysUSD != nil ? .apiNoPrice : nil
     }
 
     private func save() {
