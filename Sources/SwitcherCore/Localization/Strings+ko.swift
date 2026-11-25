@@ -429,6 +429,7 @@ extension Strings {
         .usageUsedPercent: "%d%% 사용",
         .usageListTitle: "남은 한도",
         .usageWarnA11y: "한도 부족",
+        .usageCriticalA11y: "거의 소진",
         .usageExhaustedA11y: "모두 소진",
         .usageClaudeSource: "Claude Code · CLI",
         .usageLeft: "%d%% 남음",

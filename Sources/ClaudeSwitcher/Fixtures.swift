@@ -186,6 +186,8 @@ enum Fixtures {
             return demo([], isRefreshing: true)
         case "usage-stale":
             return demo(staleUsages(), segment: .all)
+        case "usage-levels":
+            return demo(levelUsages(), segment: .all)
         case "usage-failed":
             return demo(staleUsages(), segment: .guide)
         case "usage-guide", "usage-guide-basis":
@@ -534,6 +536,27 @@ enum Fixtures {
             }
         }
         return usages
+    }
+
+    /// One bar per level at the default warning line (20% left): ample 72%, warning 16%, critical 6%
+    /// and used up on current readings, then a timed-out re-read whose last-known bars are grey.
+    /// Providers without saved accounts, so the screen is only these rows.
+    private static func levelUsages() -> [AccountUsage] {
+        [
+            account(.grok, "current", "Grok", .ok, plan: "SuperGrok", auth: .subscription, windows: [
+                window(300, 28, resetsIn: 3 * 3600),
+                window(10080, 84, resetsIn: 4 * 86400),
+            ]),
+            account(.devin, "current", "Devin", .ok, plan: "Pro", auth: .subscription, windows: [
+                window(300, 94, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 100, resetsIn: 3 * 86400 + 2 * 3600),
+            ]),
+            account(.opencode, "current", "OpenCode", .failed(.timeout), plan: "Go",
+                    auth: .subscription, readAgo: 40 * 60, windows: [
+                window(300, 45, resetsIn: 1 * 3600 + 13 * 60),
+                window(10080, 70, resetsIn: 5 * 86400 + 7 * 3600),
+            ]),
+        ]
     }
 
     /// A timed-out re-read that kept its previous windows: the windows' resets are still in the

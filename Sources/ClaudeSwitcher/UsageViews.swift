@@ -2,16 +2,6 @@ import AppKit
 import SwiftUI
 import SwitcherCore
 
-/// Bar fill: the vendor's logo color while there is room; warning and used-up override it,
-/// and a stale reading is always grey.
-enum UsageColors {
-    static func forWindow(_ window: UsageWindow, provider: UsageProvider, stale: Bool,
-                          warnAt: Double = 80) -> Color {
-        Theme.usageFill(UsageBarPalette.role(usedPercent: window.usedPercent, warnAt: warnAt,
-                                             stale: stale), provider: provider)
-    }
-}
-
 /// A status line that never rides on color alone: the marker carries the color, the text
 /// stays at full reading contrast.
 struct UsageNote: View {
@@ -27,7 +17,7 @@ struct UsageNote: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.usageWarn)
                     .accessibilityHidden(true)
             case .failure:
-                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.usageExhausted)
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.usageCritical)
                     .accessibilityHidden(true)
             }
             Text(text).foregroundStyle(tone == .neutral ? Theme.inkMuted : Theme.ink)
@@ -419,7 +409,8 @@ struct UsageContent: View {
                     ForEach(usage.windows.filter { $0.scope == nil }, id: \.self) { window in
                         UsageBarRow(usage: usage, window: window, settings: settings, now: now,
                                     compact: compact,
-                                    pace: model.pace[UsagePriority.key(usage, window)])
+                                    pace: model.pace[UsagePriority.key(usage, window)],
+                                    held: model.heldBarRole(usage, window))
                     }
                     if let reason = UsageText.reason(for: usage) { UsageNote(text: reason) }
                 } else if let reason = UsageText.reason(for: usage) {
@@ -478,7 +469,8 @@ struct UsageContent: View {
 
     private func limitRow(_ usage: AccountUsage, _ window: UsageWindow, now: Date) -> some View {
         UsageBarRow(usage: usage, window: window, settings: settings, now: now, compact: compact,
-                    pace: model.pace[UsagePriority.key(usage, window)])
+                    pace: model.pace[UsagePriority.key(usage, window)],
+                    held: model.heldBarRole(usage, window))
     }
 
     /// One account: label + billing + confirmed environment + plan, then its windows —
@@ -687,6 +679,9 @@ struct UsageBarRow: View {
     var stacked = false
     /// Drain speed for this window, when two readings line up.
     var pace: UsagePace.Reading?
+    /// The level this bar showed at the last reading: a level eases only once the remaining share
+    /// has clearly recovered (`UsageBarPalette.role`).
+    var held: UsageBarPalette.Role?
 
     /// Remaining 0…100, nil for a reading that isn't a real non-negative number.
     private var left: Int? { UsageText.percentLeft(window.usedPercent) }
@@ -698,9 +693,10 @@ struct UsageBarRow: View {
     private var stale: Bool { display != .current }
     /// Pinned for the menu bar title: a pin before the name, and in the spoken summary.
     private var pinned: Bool { settings.usagePins.contains(UsagePriority.key(usage, window)) }
-    private var color: Color {
-        UsageColors.forWindow(window, provider: usage.provider, stale: stale,
-                              warnAt: Double(settings.usageWarnPercent))
+    /// Ample, warning, critical or used up by the number the row shows; stale when it isn't current.
+    private var role: UsageBarPalette.Role {
+        UsageBarPalette.role(usedPercent: window.usedPercent, warnAt: Double(settings.usageWarnPercent),
+                             stale: stale, previous: held)
     }
     private var earlyRunOut: Date? {
         guard !stale, let pace else { return nil }
@@ -747,21 +743,22 @@ struct UsageBarRow: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// Warning/exhausted marker so the state never rides on color alone; nil when fine or stale.
+    /// The level's glyph and spoken name, so it never rides on color alone; nil when ample or stale.
     private var statusIcon: (name: String, label: String)? {
-        guard !stale else { return nil }
-        if window.usedPercent >= 100 { return ("xmark.octagon.fill", L10n.t(.usageExhaustedA11y)) }
-        if window.usedPercent >= Double(settings.usageWarnPercent) {
-            return ("exclamationmark.triangle.fill", L10n.t(.usageWarnA11y))
+        guard let name = role.symbol else { return nil }
+        switch role {
+        case .warning: return (name, L10n.t(.usageWarnA11y))
+        case .critical: return (name, L10n.t(.usageCriticalA11y))
+        case .exhausted: return (name, L10n.t(.usageExhaustedA11y))
+        case .stale, .ample: return nil
         }
-        return nil
     }
 
-    /// Marker before the percentage: the compact stale clock, else exhausted/warning, else the
+    /// Marker before the percentage: the compact stale clock, else the level's glyph, else the
     /// early run-out warning — a state is never told by the bar's color or the note's text alone.
     private var marker: (name: String, tint: Color)? {
         if stale { return compact ? ("clock", Theme.inkMuted) : nil }
-        if let statusIcon { return (statusIcon.name, color) }
+        if let statusIcon { return (statusIcon.name, Theme.usageMarker(role)) }
         if earlyRunOut != nil { return ("exclamationmark.triangle.fill", Theme.usageWarn) }
         return nil
     }
@@ -882,22 +879,14 @@ struct UsageBarRow: View {
         }
     }
 
-    /// The track is always neutral, so an empty bar reads as empty — never as a pale full one.
-    private var bar: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.usageTrack)
-                Capsule().fill(color)
-                    .frame(width: proxy.size.width * CGFloat(shownLeft ?? 0) / 100)
-            }
-        }
-        .frame(height: 6)
-    }
+    private var bar: some View { UsageBar(left: shownLeft, role: role) }
 
     private var percent: some View {
         HStack(spacing: 3) {
             if let marker {
-                Image(systemName: marker.name).font(.system(size: 10))
+                // The used-up ring is drawn in outline, so it gets the weight the filled glyphs have.
+                Image(systemName: marker.name)
+                    .font(.system(size: 10, weight: role == .exhausted ? .bold : .regular))
                     .foregroundStyle(marker.tint)
             }
             Text(shownLeft.map { "\($0)%" } ?? "—")

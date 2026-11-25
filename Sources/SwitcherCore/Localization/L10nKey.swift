@@ -496,6 +496,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageUsedPercent = "usage.usedPercent"
     case usageListTitle = "usage.list.title"
     case usageWarnA11y = "usage.a11y.warning"
+    case usageCriticalA11y = "usage.a11y.critical"
     case usageExhaustedA11y = "usage.a11y.exhausted"
     case usageClaudeSource = "usage.claudeSource"
     case usageRunsOut = "usage.runsOut"
