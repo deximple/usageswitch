@@ -4,8 +4,9 @@ import SwitcherCore
 /// The remaining-share bar: a neutral well with the level's fill in it. The track is always
 /// neutral, so an empty bar reads as empty — never as a pale full one.
 ///
-/// Both appearances share the fill colors. In light the fill carries a 1pt border in a deep tone
-/// of the same hue, because there the border and not the fill reaches 3:1; dark draws none. The
+/// Both appearances use the dark fills (the light green a little deeper). In light the fill
+/// carries a 1pt border in a deep tone of the same hue, because there the border and not the fill
+/// reaches 3:1; dark draws none. A fill narrower than its two borders is all border. The
 /// bar looks raised: gradients and thin lines only, never a system material, and nothing the
 /// offscreen snapshot draws differently from the window (it inverts inner shadows). A stale bar is
 /// flat and grey, and so is every bar under Reduce Transparency or Increase Contrast (the light

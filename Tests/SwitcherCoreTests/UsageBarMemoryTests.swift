@@ -8,10 +8,10 @@ struct UsageBarMemoryTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func account(_ id: String = "codex:work", state: UsageState = .ok, used: Double,
-                         resetsIn: TimeInterval = 3600) -> AccountUsage {
+                         resetsIn: TimeInterval? = 3600) -> AccountUsage {
         AccountUsage(id: id, provider: .codex, accountRef: "work", label: "Work", plan: nil,
                      windows: [UsageWindow(scope: nil, durationMinutes: 300, usedPercent: used,
-                                           resetsAt: now.addingTimeInterval(resetsIn))],
+                                           resetsAt: resetsIn.map(now.addingTimeInterval))],
                      state: state, readAt: now, toolVersion: nil)
     }
 
@@ -52,13 +52,21 @@ struct UsageBarMemoryTests {
         // A reset that only wobbles by a few minutes is the same cycle.
         let wobble = [account(used: 80), account(used: 79, resetsIn: 3600 + 300)]
         #expect(levels(wobble, warnAt: [80, 80]) == [.warning, .warning])
+        // A reading without a reset time can't name another cycle, so the level holds.
+        let unknown = [account(used: 80, resetsIn: nil), account(used: 79, resetsIn: nil)]
+        #expect(levels(unknown, warnAt: [80, 80]) == [.warning, .warning])
+        let lost = [account(used: 80), account(used: 79, resetsIn: nil)]
+        #expect(levels(lost, warnAt: [80, 80]) == [.warning, .warning])
     }
 
     @Test("a changed warning setting starts without the old level")
     func changedSettingForgets() {
-        let readings = [account(used: 75), account(used: 75), account(used: 75)]
-        // 25% left: under the 30% line, then judged afresh against the 20% line.
+        // 25% left is under the 30% line. At 21% left the 20% line would hold a warning it had
+        // reached itself, but this one was reached against another line: judged afresh.
+        let readings = [account(used: 75), account(used: 79), account(used: 79)]
         #expect(levels(readings, warnAt: [70, 80, 80]) == [.warning, .ample, .ample])
+        // The same readings under one setting do hold.
+        #expect(levels([account(used: 80), account(used: 79)], warnAt: [80, 80]) == [.warning, .warning])
     }
 
     @Test("only a current reading is remembered")

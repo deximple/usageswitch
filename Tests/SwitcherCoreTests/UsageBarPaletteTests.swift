@@ -117,7 +117,7 @@ struct UsageBarPaletteTests {
         }
     }
 
-    @Test("stale and used-up bars have no fill of their own")
+    @Test("a used-up bar's marker takes the critical look, and a stale bar has none")
     func looksByRole() {
         #expect(Palette.look(for: .ample) == Palette.ample)
         #expect(Palette.look(for: .warning) == Palette.warning)
