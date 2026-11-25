@@ -6,9 +6,9 @@
 //
 // Checks, failing closed:
 //   - the feed is signed: it carries Sparkle's signing block and the block's
-//     edSignature verifies over the bytes before it. No build requires this
-//     yet; a build that turns SURequireSignedFeed on accepts no other feed, so
-//     the published feed is kept signed from now on.
+//     edSignature verifies over the bytes before it. Builds from 2.5.1 on set
+//     SURequireSignedFeed and accept no other feed, so the published feed must
+//     stay signed.
 //   - the signed bytes parse as XML and hold at least one <item>; the whole file
 //     parses too, because builds without SURequireSignedFeed read all of it
 //   - every item carries sparkle:version, sparkle:shortVersionString and exactly

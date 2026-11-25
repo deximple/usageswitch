@@ -1,5 +1,150 @@
 # Changelog
 
+## 2.5.1 — steadier Claude outlooks, clearer reasons for failed reads, and the rest of the 2.5.0 audit
+
+**Claude's run-out outlook no longer starts over.** Claude's reset time moves by
+a fraction of a second between answers, and its usage text cuts the time to the
+minute, so the same weekly reset could read "7:59am" on one read and "8am" on
+the next. The pace estimate behind "may run out before its reset at this pace"
+took that for a new limit period and started again. Where the structured values
+in the same answer list a limit, UsageSwitch now takes that limit's percentage
+and reset time from them and rounds the reset to the nearest minute. A limit
+they don't list, and a Claude CLI that sends no structured values, is read from
+the text as before.
+
+**A changed format is no longer shown as no usage.** When Grok, Devin, OpenCode,
+Copilot or Claude still reports usage but under names or kinds this version
+doesn't know, the row says "Couldn't read usage — this … version may need a
+UsageSwitch update" instead of "Not reporting usage".
+
+**Reads after waking from sleep.** A read that gets no answer right after the
+Mac wakes — the network is often not back yet — is tried again after about 30
+seconds, then a minute after that, then two minutes after that, instead of
+staying failed until the next five-minute read. This applies for ten minutes
+after waking, with at most three early re-reads per wake. A rate limit, an
+expired or rejected sign-in, a missing command-line tool and a connection that
+is turned off are answers and don't cause an early re-read.
+
+**Reasons that say what happened.**
+- Cursor: an HTTP 429 shows "Rate limited — try again later", not "Couldn't
+  reach the service". When `cursor-agent status` times out while renewing the
+  sign-in, the row says "Timed out reading usage" instead of "Sign-in expired".
+- A command-line tool that is installed but can't be started says "Command-line
+  tool couldn't start" instead of "Command-line tool not found" (Claude, Claude
+  profiles and Codex). A failed Devin version check keeps its own reason — a
+  timeout, a tool that couldn't start, a refused read or a changed format.
+- While their first reading is being read, a registered Codex home and a saved
+  Claude account linked to a CLI profile show "Refreshing…", not "Not reporting
+  usage".
+- Codex limit resets kept from a failed reading, or from one older than ten
+  minutes, end with the reading's age ("· updated 12m ago"), and VoiceOver
+  reads "Last known value".
+- A refusal with a stated reason — the process list can't be read, Claude is
+  running while a switch record would be set aside, a LaunchAgent can't be
+  checked or paused — shows that reason alone, without the "Couldn't swap the
+  sign-in" or "File operation failed" lead-in. The `--cli` JSON codes are
+  unchanged.
+
+**API budgets.**
+- The amount field accepts "12,50", "$20" and "1,000.50". A value that can't be
+  saved says why and turns the save button off, and a saved amount reads back
+  as "20", not "20.0".
+- An Anthropic budget starts as a monthly quota that resets on day 1 — the kind
+  the billing read can be compared with. A prepaid balance can still be chosen,
+  and saved budgets are kept.
+- A prepaid balance can be saved only once today's spend is known, so today's
+  spend is no longer taken off it twice.
+- The amount left is no longer overstated when a Codex home that uses an API
+  key is added later, when the app was off for more than two weeks, or when the
+  first pass over the logs was still unfinished as the day changed. Until the
+  logs cover the budget's period, no amount is shown.
+- The "API balance" line under a nearly used-up Claude subscription counts
+  Anthropic's billing read, as the API tab does.
+- When the saved keys can't be listed from the Keychain, the API tab says
+  "Couldn't read the saved API keys from the Keychain." until the list can be
+  read, and doesn't suggest registering a billing key meanwhile.
+- Spend estimates and the Guide's **Why this suggestion** list show the date of
+  the built-in model prices and rankings.
+
+**The Guide.**
+- Warnings name the provider ("Codex · Personal — …"), so two accounts with the
+  same name can't be confused.
+- When the only tool with a current reading is one the Guide can't rank
+  (Antigravity), it no longer says "Nothing fits this mode and task right now."
+- The Guide's dot stays off when the top suggestion is the Codex account and
+  model already in use, also while a saved Claude account is signed in to
+  Claude Desktop.
+- A Claude message is no longer counted twice when a log that has gone quiet is
+  read only part of the way in one pass.
+- The task slider saves changes made with the arrow keys or VoiceOver.
+
+**Contrast, VoiceOver and the keyboard.**
+- Quiet buttons keep at least 4.5:1 contrast for their label, and the markers
+  for the current account — the chip's dot, the row's checkmark, the name in
+  the header — at least 3:1, in light and dark and with every accent color.
+- The active environment badge has a dot before its text. A confirmed sign-in
+  is a filled open lock and a saved one an outlined open lock, so they differ
+  by shape, not only by color.
+- The Usage list's title and its provider headings are VoiceOver headings.
+  VoiceOver announces a success or error banner, once even when the menu and
+  the window both show it. **⌘R** refreshes the Usage tab, and a pinned limit
+  shows a pin before its name and reads "Pinned".
+
+**Switching, Codex and `--cli`.**
+- Checking a switched account no longer ends early or waits far too long when
+  the Mac's clock changes during the check.
+- If cleanup fails after a switch was verified, Claude's relaunch helpers are
+  turned back on right away instead of staying off.
+- When Claude's log names no account, UsageSwitch no longer re-reads the whole
+  log on every status check.
+- Signing in to the standard Codex account runs Codex without `CODEX_HOME`, so
+  it works before `~/.codex` exists.
+- When the process list can't be read, UsageSwitch refuses to open a Codex
+  window (it could start a second one on the same account) or to sign an
+  account in again (an open window would keep the old sign-in).
+- A Codex CLI that other users could rewrite is not run for usage, on the
+  bundled-path fallback too.
+- `--cli` commands no longer die when the program reading their output exits
+  (`… | head -1`).
+- Right after launch, usage is read once instead of twice, unless a connected
+  Claude profile needs the second read.
+- The last line of a vendor tool's output is no longer lost when the tool exits
+  at the same moment, and Antigravity's usage screen is read in a child process
+  that doesn't inherit UsageSwitch's open files.
+
+**Updates.** From this version on, UsageSwitch accepts the update feed only when
+its signature verifies against the key built into the app, and checks an
+update's signature before unpacking it. The feed has been signed since 2.5.0.
+An update that restarts the app now waits for a running account switch, or a
+Codex action other than a sign-in, to finish, then installs.
+
+**The app itself.**
+- While the main window is minimized or UsageSwitch is hidden, and no other
+  window or the menu is showing, account status is checked every 30 seconds
+  instead of every 6.
+- Turning off a usage connection while a read is running no longer leaves a
+  sign-in token from that read in memory.
+- Deleting learning data no longer lets a log read that starts at the same
+  moment write its progress back.
+- Wording was polished in all five languages, and twelve strings the app no
+  longer used were removed.
+
+**Behind the scenes:**
+- `scripts/bundle.sh` no longer has a signing identity in the repository: it
+  uses the one "Developer ID Application" certificate in the keychain, stops
+  when there are several, and signs ad-hoc when there is none or with
+  `SIGN_IDENTITY=-`. It stops when signing with a certificate fails, and checks
+  that the app has both arm64 and x86_64 slices.
+- `scripts/vendor-drift.sh` exits 3 when it compared nothing or couldn't compare
+  the Codex protocol (treat it like 1 in a scheduled run), and reports Claude
+  limits the app can't read from the structured values.
+- `scripts/audit.sh` also fails on a write to UserDefaults or the Keychain that
+  isn't on its allowlist, which mirrors what PRIVACY.md lists; `audit.sh` and
+  `test.sh` write their evidence to the main checkout when run from a worktree.
+- PRIVACY.md describes the order in which vendor tools are looked for and what
+  a trusted executable is. The READMEs describe the re-reads after waking from
+  sleep and Liquid Glass in the main window.
+
 ## 2.5.0 — a new icon, glass in the main window, and a full audit's fixes
 
 **A new app icon.** The Dock and Finder icon now shows three account rows on a

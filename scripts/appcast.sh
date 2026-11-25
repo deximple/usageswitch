@@ -9,12 +9,11 @@
 # Sparkle's `generate_keys --account usageswitch`; the private key never
 # leaves the keychain and is never committed).
 #
-# The feed itself is signed with the same key. No build requires that yet, and
-# builds without SURequireSignedFeed ignore the signature; signing now means a
-# later build can turn the requirement on without a gap. generate_appcast has
-# no flag for this — it signs the feed only when an archive in it sets
-# SURequireSignedFeed — so a feed it leaves unsigned is signed here with
-# sign_update.
+# The feed itself is signed with the same key. Builds from 2.5.1 on set
+# SURequireSignedFeed and accept no feed whose signature doesn't verify; older
+# builds ignore the signature. generate_appcast has no flag for this — it signs
+# the feed only when an archive in it sets SURequireSignedFeed — so a feed it
+# leaves unsigned is signed here with sign_update.
 #
 # The feed lists exactly the archives named on the command line. The previous
 # appcast.xml is discarded, and anything else left in build/appcast-feed/ stops
