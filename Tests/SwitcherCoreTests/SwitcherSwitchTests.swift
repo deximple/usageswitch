@@ -360,8 +360,8 @@ struct SwitcherSwitchTests {
         rig.world.addAgent(label: "com.user.claude-opener", plist: opener)
         rig.world.update { $0.bootoutFails = ["com.user.claude-opener"] }
         let before = rig.liveFingerprint()
-        guard case .io = switcherError({ _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false) }) else {
-            Issue.record("expected io"); return
+        guard case .relauncherBlocked = switcherError({ _ = try rig.switcher.switchTo(FakeIdentity.b.key, confirmed: false) }) else {
+            Issue.record("expected relauncherBlocked"); return
         }
         // The agent that *was* booted out before the failure must be bootstrapped again.
         #expect(rig.world.isAgentLoaded(AgentFixture.keepaliveLabel))

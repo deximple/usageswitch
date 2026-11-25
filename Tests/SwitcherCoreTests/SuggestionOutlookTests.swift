@@ -127,7 +127,7 @@ struct SuggestionOutlookTests {
                                                at: now.addingTimeInterval(7200), basis: .recentPace)
         let lines = SuggestionText.outlookLines([measured, average, unknown], usages: [account],
                                                 now: now, label: { $0.label })
-        let reset = " · " + string(.usageResetsIn,
+        let reset = " · " + string(.usageResetsInClause,
                                    UsageText.countdown(to: now.addingTimeInterval(3.5 * day), from: now))
         #expect(lines.map(\.text) == [
             string(.suggestionOutlookRecent, "Codex · Work", UsageText.name(of: overPace),

@@ -300,12 +300,12 @@ public final class Switcher: @unchecked Sendable {
         // The 1.0 build's unfinished swap must recover first; restoring relaunchers now could start Claude on mixed files.
         guard !legacyRecoveryPending else { throw SwitcherError.legacyRecoveryPending }
         guard processes.claudeDefinitelyNotRunning() else {
-            throw SwitcherError.swapFailed(L10n.t(.reasonSetAsideWhileRunning))
+            throw SwitcherError.swapBlocked(L10n.t(.reasonSetAsideWhileRunning))
         }
         // Only a damaged journal may be set aside: a readable one is settled by normal
         // recovery — rolling it back or committing it — never silently skipped.
         guard swapper.journalIsUnreadable() else {
-            throw SwitcherError.swapFailed(L10n.t(.reasonJournalReadable))
+            throw SwitcherError.swapBlocked(L10n.t(.reasonJournalReadable))
         }
         let destination = env.displacedDir.appendingPathComponent(
             "journal-\(Int(clock.now().timeIntervalSince1970))")
@@ -565,7 +565,7 @@ public final class Switcher: @unchecked Sendable {
         }
         // An unreadable process table cannot rule out running Code sessions: refuse rather
         // than quit Claude blindly (audit P3).
-        guard let procs = table.all() else { throw SwitcherError.swapFailed(L10n.t(.reasonProcessListUnreadable)) }
+        guard let procs = table.all() else { throw SwitcherError.swapBlocked(L10n.t(.reasonProcessListUnreadable)) }
         if let main = processes.mainProcesses(in: procs).first {
             let sessions = processes.codeSessionCLIs(in: procs, main: main).count
             if sessions > 0 && !confirmed { throw SwitcherError.needsConfirmation(codeSessions: sessions) }
@@ -872,7 +872,7 @@ public final class Switcher: @unchecked Sendable {
     @discardableResult
     func quitClaude(progress: (SwitchStep) -> Void) throws -> QuitOutcome {
         // An unreadable table cannot prove Claude is gone: the quit is not confirmed (audit P3).
-        guard let procs = table.all() else { throw SwitcherError.swapFailed(L10n.t(.reasonProcessListUnreadable)) }
+        guard let procs = table.all() else { throw SwitcherError.swapBlocked(L10n.t(.reasonProcessListUnreadable)) }
         guard let main = processes.mainProcesses(in: procs).first else {
             return QuitOutcome(clean: !processes.anyClaudeNamedProcess())
         }

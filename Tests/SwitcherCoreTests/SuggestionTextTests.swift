@@ -66,11 +66,11 @@ struct SuggestionTextTests {
         #expect(text.compared == [
             string(.suggestionBasisOption, "Codex · Personal", model,
                    UsageText.name(of: roomy.windows[0]), 70)
-                + " · " + string(.usageResetsIn, UsageText.countdown(
+                + " · " + string(.usageResetsInClause, UsageText.countdown(
                     to: now.addingTimeInterval(4 * 86400), from: now)),
             string(.suggestionBasisOption, "Codex · Work", model,
                    UsageText.name(of: tight.windows[0]), 40)
-                + " · " + string(.usageResetsIn, UsageText.countdown(
+                + " · " + string(.usageResetsInClause, UsageText.countdown(
                     to: now.addingTimeInterval(2 * 86400), from: now)),
         ])
         #expect(text.leftOut.isEmpty)
@@ -102,7 +102,7 @@ struct SuggestionTextTests {
         let session = UsageText.name(of: drainingWindow)
         #expect(text.leftOut == [
             string(.suggestionLeftOutWarn, "Codex · Warned", session, 8)
-                + " · " + string(.usageResetsIn, UsageText.countdown(
+                + " · " + string(.usageResetsInClause, UsageText.countdown(
                     to: now.addingTimeInterval(3600), from: now)),
             string(.suggestionLeftOutPace, "Codex · Draining", session),
             string(.suggestionLeftOutStale, "Codex · Stale", session),

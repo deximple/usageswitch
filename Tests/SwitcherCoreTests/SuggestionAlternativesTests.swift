@@ -94,7 +94,7 @@ struct SuggestionAlternativesTests {
                                               label: { $0.label }) == [
             string(.suggestionOtherTool, "Cursor · Cursor sign-in",
                    UsageText.name(of: cursor.windows[0]), 70)
-                + " · " + string(.usageResetsIn, UsageText.countdown(
+                + " · " + string(.usageResetsInClause, UsageText.countdown(
                     to: now.addingTimeInterval(12 * day), from: now)),
         ])
     }
