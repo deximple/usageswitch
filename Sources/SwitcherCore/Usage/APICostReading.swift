@@ -91,6 +91,11 @@ public struct APICostReader: Sendable {
     // MARK: - Anthropic
 
     /// GET /v1/organizations/cost_report — daily buckets, `amount` in cents as a decimal string.
+    /// Anthropic's docs label this endpoint legacy but "remains supported", with no end date (checked
+    /// 2026-11-25). Its successor, GET /v1/organizations/analytics/cost, is in beta behind the
+    /// `anthropic-beta: analytics-usage-cost-2026-08-24` header and answers flat rows (`cost.amount`,
+    /// `limit` counts rows, no empty days), so moving waits for it to leave beta and for a real
+    /// admin-key read to check the new shape.
     private func readAnthropic(key: String) -> APICostReadState {
         let (monthStart, sevenDaysAgo, queryStart) = bounds()
         let iso = ISO8601DateFormatter()

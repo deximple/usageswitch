@@ -1147,6 +1147,28 @@ struct AntigravityPTYTests {
                              terminateGrace: 0.1, killGrace: 0.1)
     }
 
+    /// agy is started with fork: its child must not keep this app's other descriptors (another
+    /// collector's pipe, a log file) open, the way posix_spawn's CLOEXEC_DEFAULT keeps every other
+    /// vendor tool from doing (audit N-09).
+    @Test func agyInheritsNoDescriptorOfThisApp() throws {
+        let (directory, executable) = try script(contents:
+            "#!/bin/sh\nif { : >&\"$LEAK_FD\"; } 2>/dev/null; then echo leaked; else echo clean; fi > \"$OUT\"\n")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var fds: [Int32] = [0, 0]
+        try #require(pipe(&fds) == 0)   // no CLOEXEC, like a Pipe() another read just made
+        defer { close(fds[0]); close(fds[1]) }
+        // Probed at a number the probing shell never uses itself: it saves descriptors from 10 up while
+        // redirecting and keeps its script on 255, so a low pipe number could look leaked.
+        let leak = fcntl(fds[1], F_DUPFD, 200)
+        try #require(leak >= 200 && leak < 255)
+        defer { close(leak) }
+        let out = directory.appendingPathComponent("out")
+        let environment = ["PATH": "/usr/bin:/bin", "LEAK_FD": String(leak), "OUT": out.path]
+        _ = SystemAntigravityPTYRunner(timing: timing()).run(
+            executable: executable, workingDirectory: directory, environment: environment)
+        #expect(try String(contentsOf: out, encoding: .utf8) == "clean\n")
+    }
+
     @Test("flooding fake agy without a prompt is reaped without a zombie")
     func timeoutAndReap() throws {
         let (directory, executable) = try script(contents:

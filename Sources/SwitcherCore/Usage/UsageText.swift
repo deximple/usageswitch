@@ -150,6 +150,7 @@ public enum UsageText {
         case .noSignIn: return L10n.t(.usageReasonNoSignIn, providerName(provider))
         case .signInExpired: return L10n.t(.usageReasonSignInExpired, cliCommand(provider))
         case .cliMissing: return L10n.t(.usageReasonCliMissing)
+        case .cliFailedToStart: return L10n.t(.usageReasonCliFailedToStart)
         case .managed: return L10n.t(.usageReasonManaged)
         case .refused: return L10n.t(.usageReasonRefused)
         case .signInRejected: return L10n.t(.usageReasonSignInRejected, cliCommand(provider))

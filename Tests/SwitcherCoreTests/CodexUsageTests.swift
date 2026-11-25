@@ -4,7 +4,9 @@ import Testing
 
 @Suite("Codex usage")
 struct CodexUsageTests {
-    let cli = URL(fileURLWithPath: "/fake/codex")
+    /// A real, trustworthy executable (the runner is a fake, so it never runs): the collector checks
+    /// the binary it is given like discovery does (audit B2-U-03).
+    let cli = URL(fileURLWithPath: "/usr/bin/true")
     /// An existing folder; the collector neither creates nor removes it.
     let workDir = FileManager.default.temporaryDirectory
 
@@ -196,8 +198,9 @@ struct CodexUsageTests {
         let account = account("a1")
         var runner = fakeRunner(answering: [], outcome: .timedOut)
         #expect(collector(status([account]), runner: runner).collect().first?.state == .failed(.timeout))
+        // The CLI is there and wouldn't start: that is not "not found" (audit B2-U-02).
         runner = fakeRunner(answering: [], outcome: .failedToStart)
-        #expect(collector(status([account]), runner: runner).collect().first?.state == .unavailable(.cliMissing))
+        #expect(collector(status([account]), runner: runner).collect().first?.state == .failed(.cliFailedToStart))
         runner = fakeRunner(answering: [], outcome: .exited(1))
         #expect(collector(status([account]), runner: runner).collect().first?.state == .failed(.refused))
     }
@@ -232,6 +235,27 @@ struct CodexUsageTests {
         #expect(request.timeout == 15)
         #expect(request.workingDirectory == workDir)
         #expect(FileManager.default.fileExists(atPath: workDir.path)) // never removed
+    }
+
+    /// The app falls back to the bundled path when discovery found no CLI it trusts: that path gets the
+    /// same check, so a binary others can rewrite is never started (audit B2-U-03).
+    @Test func anUntrustworthyCLIIsNeverStarted() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("codex-trust-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let writable = folder.appendingPathComponent("codex")
+        try Data("#!/bin/sh\n".utf8).write(to: writable)
+        #expect(chmod(writable.path, 0o777) == 0)
+        let runner = fakeRunner(answering: Self.lines(UsageFixture.codex_0_152_1))
+        let usages = CodexUsageCollector(status: { [self] in status([account("a1")]) }, runner: runner,
+                                         codexCLI: writable, workingDirectory: workDir, bundledCLI: writable).collect()
+        #expect(usages.map(\.state) == [.unavailable(.cliMissing)])
+        #expect(runner.requests.isEmpty)
+        // The same file, no longer writable by others, is started.
+        #expect(chmod(writable.path, 0o755) == 0)
+        _ = CodexUsageCollector(status: { [self] in status([account("a1")]) }, runner: runner,
+                                codexCLI: writable, workingDirectory: workDir, bundledCLI: writable).collect()
+        #expect(runner.requests.count == 1)
     }
 
     @Test func aMissingWorkingDirectoryFailsWithoutStartingCodex() {

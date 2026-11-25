@@ -318,6 +318,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case errCodexLaunchFailed = "err.codexLaunchFailed"
     case reasonCodexExitCode = "reason.codexExitCode"
     case reasonCodexNotStarted = "reason.codexNotStarted"
+    case reasonCodexWindowsUnknown = "reason.codexWindowsUnknown"
 
     // Usage tab
     case tabUsage = "tab.usage"
@@ -351,6 +352,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case usageReasonNotEligible = "usage.reason.notEligible"
     case usageReasonGeminiRetired = "usage.reason.geminiRetired"
     case usageReasonCliMissing = "usage.reason.cliMissing"
+    case usageReasonCliFailedToStart = "usage.reason.cliFailedToStart"
     case usageReasonManaged = "usage.reason.managed"
     case usageReasonRefused = "usage.reason.refused"
     case usageReasonAccountMismatch = "usage.reason.accountMismatch"

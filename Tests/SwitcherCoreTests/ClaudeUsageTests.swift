@@ -201,6 +201,22 @@ struct ClaudeUsageTests {
         #expect(stop(#"{"type":"result","subtype":"success"}"#))
     }
 
+    @Test("a CLI that is there but won't start is not 'not found' (audit B2-U-02)")
+    func startFailureIsNotAMissingCLI() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let binary = try makeBinary(home: home)
+        let runner = FakeUsageRunner()
+        runner.respond = { _ in UsageProcessResult(lines: [], outcome: .failedToStart) }
+        #expect(collector(home: home, binaryPaths: [binary], runner: runner).collect().state == .failed(.cliFailedToStart))
+        // Gone by the time it was started: that one is missing.
+        runner.respond = { _ in
+            try? FileManager.default.removeItem(at: binary)
+            return UsageProcessResult(lines: [], outcome: .failedToStart)
+        }
+        #expect(collector(home: home, binaryPaths: [binary], runner: runner).collect().state == .unavailable(.cliMissing))
+    }
+
     @Test("no Current line is notReporting; a malformed one is schemaChanged")
     func collectorTextStates() throws {
         let home = try tempHome()

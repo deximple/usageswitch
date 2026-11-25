@@ -26,6 +26,12 @@ public struct UsageProcessRequest: Sendable {
 }
 
 public struct UsageProcessResult: Sendable {
+    /// The state of a run that couldn't start: a CLI that is gone is missing; one that is still there
+    /// and wouldn't start says so, instead of being reported as not found (audit B2-U-02).
+    public static func startFailure(of executable: URL) -> UsageState {
+        FileManager.default.fileExists(atPath: executable.path) ? .failed(.cliFailedToStart) : .unavailable(.cliMissing)
+    }
+
     public enum Outcome: Equatable, Sendable {
         /// `stopWhen` matched a line.
         case stopped
@@ -152,6 +158,20 @@ enum GroupSpawn {
     }
 }
 
+/// Serializes the pipe's read handler with the final drain. A handler already inside finishes
+/// before `close` returns; after it, the handler reads nothing, so the drain sees the rest in order.
+final class PipeReadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var closed = false
+
+    func ifOpen(_ body: () -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        if !closed { body() }
+    }
+
+    func close() { lock.lock(); closed = true; lock.unlock() }
+}
+
 /// Lines arriving while the run is being torn down, plus the predicate match flag.
 final class UsageLineBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -182,7 +202,12 @@ final class UsageLineBox: @unchecked Sendable {
 }
 
 public struct SystemUsageProcessRunner: UsageProcessRunner {
-    public init() {}
+    /// Test seam: runs in the read handler after a chunk is read and before it is kept.
+    private let afterRead: (@Sendable () -> Void)?
+
+    public init() { afterRead = nil }
+
+    init(afterRead: @escaping @Sendable () -> Void) { self.afterRead = afterRead }
 
     public func run(_ request: UsageProcessRequest) -> UsageProcessResult {
         guard request.maxOutputBytes > 0, request.timeout.isFinite, request.timeout > 0 else {
@@ -198,12 +223,19 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
             box.append(line)
             if request.stopWhen?(line) == true { box.match() }
         }
+        let afterRead = self.afterRead
+        let gate = PipeReadGate()
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            // EOF is terminal: without this the handler keeps firing on the closed pipe.
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-            } else if box.accepts(data.count, limit: request.maxOutputBytes) { splitter.append(data) }
+            gate.ifOpen {
+                let data = handle.availableData
+                // EOF is terminal: without this the handler keeps firing on the closed pipe.
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                } else {
+                    afterRead?()
+                    if box.accepts(data.count, limit: request.maxOutputBytes) { splitter.append(data) }
+                }
+            }
         }
         if request.stdinLines != nil { stdinPipe = Pipe() }
         guard let child = GroupSpawn.spawn(executable: request.executable,
@@ -244,7 +276,7 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
                     child.kill()
                     child.reap()
                 }
-                drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
+                drain(stdout, gate: gate, into: splitter, budget: box, limit: request.maxOutputBytes)
                 let outcome: UsageProcessResult.Outcome = cancelled ? .cancelled
                     : box.overflowed ? .outputLimit : box.matched ? .stopped : .timedOut
                 return UsageProcessResult(lines: box.lines, outcome: outcome)
@@ -252,16 +284,19 @@ public struct SystemUsageProcessRunner: UsageProcessRunner {
             Thread.sleep(forTimeInterval: 0.05)
         }
         child.reap()
-        drain(stdout, into: splitter, budget: box, limit: request.maxOutputBytes)
+        drain(stdout, gate: gate, into: splitter, budget: box, limit: request.maxOutputBytes)
         return UsageProcessResult(lines: box.lines,
                                   outcome: box.overflowed ? .outputLimit : .exited(child.exitStatus))
     }
 
     /// After the handler is released, reads whatever is still in the pipe without blocking — a
     /// grandchild may hold the write end open, so a plain read could hang. Feeds the splitter so a
-    /// last line racing the exit is not lost.
-    private func drain(_ pipe: Pipe, into splitter: LineSplitter, budget: UsageLineBox, limit: Int) {
+    /// last line racing the exit is not lost. Closing the gate first waits for a handler that is
+    /// already holding a chunk, so that chunk lands before the drain's and before the lines are
+    /// returned (audit B2-U-06).
+    private func drain(_ pipe: Pipe, gate: PipeReadGate, into splitter: LineSplitter, budget: UsageLineBox, limit: Int) {
         let handle = pipe.fileHandleForReading
+        gate.close()
         handle.readabilityHandler = nil
         let fd = handle.fileDescriptor
         let flags = fcntl(fd, F_GETFL)

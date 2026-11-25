@@ -20,6 +20,9 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     struct State {
         var now: Date
+        /// Added to `now` for the wall clock only: models NTP or the user moving the clock while
+        /// `uptime` keeps counting steadily (audit A-2).
+        var wallClockOffset: TimeInterval = 0
         var procs: [ProcInfo] = []
         var procEnv: [pid_t: [String: String]] = [:]
         var nextPID: pid_t = 5000
@@ -128,7 +131,7 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     // MARK: Clock
 
-    func now() -> Date { read { $0.now } }
+    func now() -> Date { read { $0.now.addingTimeInterval($0.wallClockOffset) } }
 
     /// `now` only ever moves forward (sleep advances it), so it is monotonic in this world.
     func uptime() -> TimeInterval { read { $0.now.timeIntervalSince1970 } }
@@ -284,7 +287,7 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
 
     // MARK: - Simulation internals (called with the lock held)
 
-    private static func schedule(_ s: inout State, at: Date, _ action: @escaping (inout State, Date) -> Void) {
+    static func schedule(_ s: inout State, at: Date, _ action: @escaping (inout State, Date) -> Void) {
         s.nextEventID += 1
         s.events.append((at: at, id: s.nextEventID, action: action))
     }
@@ -428,7 +431,7 @@ final class FakeWorld: ProcessTable, ClaudeAppControl, CommandRunner, Clock, @un
         relaunch(&s, env: env)
     }
 
-    private static func appendLog(_ s: inout State, env: SwitcherEnvironment, at: Date, _ text: String) {
+    static func appendLog(_ s: inout State, env: SwitcherEnvironment, at: Date, _ text: String) {
         try? LogFixture.append(env.mainLog, LogFixture.line(at, text) + "\n")
     }
 

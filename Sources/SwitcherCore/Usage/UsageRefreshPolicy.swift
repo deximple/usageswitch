@@ -14,14 +14,20 @@ public enum UsageRefreshPolicy {
     }
 
     /// Refresh when the saved Claude registry changes, or when status arrives after an
-    /// earlier usage read started without it.
+    /// earlier usage read started without it. That read skipped only the connected accounts'
+    /// profile rows, so with `boundAccountIds` (the accounts a Claude usage profile is bound to)
+    /// it rereads only when a newly known account is one of them — otherwise every vendor tool
+    /// would run twice right after launch for the same answer (audit B2-U-05). nil keeps the
+    /// unconditional reread.
     public static func shouldRefreshAfterClaudeStatusChange(
         oldAccountIds: Set<String>?,
         newAccountIds: Set<String>,
-        refreshedWithoutClaudeStatus: Bool
+        refreshedWithoutClaudeStatus: Bool,
+        boundAccountIds: Set<String>? = nil
     ) -> Bool {
         guard let oldAccountIds else {
-            return refreshedWithoutClaudeStatus
+            guard refreshedWithoutClaudeStatus else { return false }
+            return boundAccountIds.map { !$0.isDisjoint(with: newAccountIds) } ?? true
         }
         return oldAccountIds != newAccountIds
     }

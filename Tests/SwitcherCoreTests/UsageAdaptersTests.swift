@@ -710,7 +710,28 @@ struct ProviderEdgeTests {
         let rows = DevinUsageCollector(enabled: true, http: http, credentials: creds,
                                        runner: Runner(), cli: URL(fileURLWithPath: "/usr/bin/devin"),
                                        clientVersion: "1.0", home: home).collect()
-        #expect(rows.first?.state == .unavailable(.cliMissing) && http.requests.isEmpty)
+        // The CLI answered, in a shape this build can't read: a changed format, not a missing CLI (B2-U-02).
+        #expect(rows.first?.state == .unavailable(.schemaChanged) && http.requests.isEmpty)
+    }
+
+    @Test("devin --version failures keep their own reason (audit B2-U-02)",
+          arguments: [(UsageProcessResult.Outcome.timedOut, UsageState.failed(.timeout)),
+                      (.failedToStart, .failed(.cliFailedToStart)),
+                      (.exited(1), .failed(.refused))])
+    func devinVersionFailures(outcome: UsageProcessResult.Outcome, expected: UsageState) {
+        struct Runner: UsageProcessRunner {
+            let outcome: UsageProcessResult.Outcome
+            func run(_ r: UsageProcessRequest) -> UsageProcessResult {
+                UsageProcessResult(lines: ["devin 2.3.4"], outcome: outcome)
+            }
+        }
+        let http = SpyTransport(); let creds = SpyCredentials()
+        creds.files["/tmp/e/.local/share/devin/credentials.toml"] = #"api_key = "k""#.data(using: .utf8)
+        // A CLI that is there (the runner is a fake, so it never runs).
+        let rows = DevinUsageCollector(enabled: true, http: http, credentials: creds,
+                                       runner: Runner(outcome: outcome), cli: URL(fileURLWithPath: "/usr/bin/true"),
+                                       clientVersion: "1.0", home: home).collect()
+        #expect(rows.first?.state == expected && http.requests.isEmpty)
     }
 
     @Test("opencode override data dir reads <dir>/auth.json directly")

@@ -8,9 +8,26 @@ public enum CLI {
     public static func run(_ rawArgs: [String]) -> Int32 {
         var options = SwitcherOptions()
         options.allowFaultInjection = ProcessInfo.processInfo.environment["CDSW_ALLOW_FAULT_INJECTION"] == "1"
+        // A reader that went away (`… | head -1`, a script that died) must not end the CLI between
+        // quitting Claude and restoring its relaunchers: a write then fails instead (audit C-1).
+        ignoreBrokenPipes(on: [STDOUT_FILENO, STDERR_FILENO])
         return run(args: rawArgs, switcher: Switcher(options: options), codex: CodexManager(),
-                   out: { FileHandle.standardOutput.write(Data($0.utf8)) },
-                   err: { FileHandle.standardError.write(Data($0.utf8)) })
+                   out: { _ = write($0, to: FileHandle.standardOutput) },
+                   err: { _ = write($0, to: FileHandle.standardError) })
+    }
+
+    /// Writes to these descriptors fail with EPIPE instead of raising SIGPIPE once their reader is gone.
+    /// The flag sits on the open file, not on the process's signal handling: the vendor tools this
+    /// process starts write to pipes of their own and keep the default.
+    static func ignoreBrokenPipes(on descriptors: [Int32]) {
+        for descriptor in descriptors { _ = fcntl(descriptor, F_SETNOSIGPIPE, 1) }
+    }
+
+    /// False when the text could not be written (its reader is gone). `FileHandle.write(_:)` would
+    /// raise an Objective-C exception here instead of failing.
+    @discardableResult
+    static func write(_ text: String, to handle: FileHandle) -> Bool {
+        (try? handle.write(contentsOf: Data(text.utf8))) != nil
     }
 
     /// Testable core: inject the switcher, the codex manager and the output sinks (audit B-13).
@@ -164,7 +181,7 @@ public enum CLI {
                 try codex.open(account.id)
             } catch let error as SwitcherError {
                 // The account is kept; it can be opened later.
-                FileHandle.standardError.write(Data("warning: \(error.description)\n".utf8))
+                err("warning: \(error.description)\n")
             }
             return emit(account, out: out)
         case "adopt":

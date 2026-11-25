@@ -300,6 +300,7 @@ extension Strings {
         .errCodexLaunchFailed: "无法打开 Codex：%@",
         .reasonCodexExitCode: "codex login 以代码 %d 退出",
         .reasonCodexNotStarted: "无法启动 codex login：%@",
+        .reasonCodexWindowsUnknown: "无法读取进程列表，无法确认是否已有打开的 Codex 窗口",
 
         .tabUsage: "用量",
         .tabAPI: "API",
@@ -459,6 +460,7 @@ extension Strings {
         .usageReasonNotEligible: "此账户不适用 %@ 用量",
         .usageReasonGeminiRetired: "Google 已停止为个人账户提供 Gemini CLI 配额（已迁移到 Antigravity）",
         .usageReasonCliMissing: "找不到命令行工具",
+        .usageReasonCliFailedToStart: "无法启动命令行工具",
         .usageReasonManaged: "存在管理配置 — 无法读取用量",
         .usageReasonRefused: "读取用量被拒绝",
         .usageReasonAccountMismatch: "返回的是其他账户的用量，因此不显示",

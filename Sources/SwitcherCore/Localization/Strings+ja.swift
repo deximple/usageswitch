@@ -300,6 +300,7 @@ extension Strings {
         .errCodexLaunchFailed: "Codex を開けませんでした：%@",
         .reasonCodexExitCode: "codex login がコード %d で終了しました",
         .reasonCodexNotStarted: "codex login を開始できませんでした：%@",
+        .reasonCodexWindowsUnknown: "プロセス一覧を読み取れないため、開いている Codex ウィンドウがないか確認できません",
 
         .tabUsage: "使用量",
         .tabAPI: "API",
@@ -459,6 +460,7 @@ extension Strings {
         .usageReasonNotEligible: "このアカウントは %@ の使用量の対象外です",
         .usageReasonGeminiRetired: "Google は個人アカウント向けの Gemini CLI クォータを終了しました（Antigravity に移行）",
         .usageReasonCliMissing: "コマンドラインツールが見つかりません",
+        .usageReasonCliFailedToStart: "コマンドラインツールを起動できませんでした",
         .usageReasonManaged: "管理設定があるため使用量を読み取れません",
         .usageReasonRefused: "使用量の読み取りが拒否されました",
         .usageReasonAccountMismatch: "別のアカウントの使用量が返されたため表示しません",
