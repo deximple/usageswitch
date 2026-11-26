@@ -12,7 +12,7 @@ public enum MenuBarTitle {
     /// A window counts as used up when its displayed remaining share is 0 — the same
     /// rounding the rows use, so 99.6% used doesn't keep the bar stuck on a fake live value.
     private static func isExhausted(_ window: UsageWindow) -> Bool {
-        UsageText.percentLeft(window.usedPercent) == 0
+        UsageBarPalette.isUsedUp(usedPercent: window.usedPercent)
     }
 
     /// Picks the window for the bar. The window the user chose for the bar wins whenever it is

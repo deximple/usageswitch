@@ -40,6 +40,9 @@ public enum UsageBarPalette {
             case .exhausted: 3
             }
         }
+
+        /// At the warning line or past it: warning, critical and used up. A stale bar claims nothing.
+        public var isAtWarning: Bool { (severity ?? 0) >= 1 }
     }
 
     /// One level's colors. Both appearances use the dark appearance's fill (the light green is a
@@ -130,13 +133,27 @@ public enum UsageBarPalette {
     /// that is lower (5% under a 10% warning line).
     public static func criticalLine(warnAt: Double) -> Double { min(10, warningLine(warnAt: warnAt) / 2) }
 
+    /// Whether a reading has reached the warning line, judged the way its bar is: by the whole
+    /// percent the row shows. The alerts, the Priority sections and the suggestions all ask here,
+    /// so they turn on the same reading the bar does. No level is held over from an earlier
+    /// reading: in the recovery stretch above a line only the bar and the Guide's attention list
+    /// (`UsageAttention`) keep the old level. A reading that isn't a real number has reached nothing.
+    public static func isAtWarningLine(usedPercent: Double, warnAt: Double) -> Bool {
+        role(usedPercent: usedPercent, warnAt: warnAt, stale: false).isAtWarning
+    }
+
+    /// Whether the row reads 0%: used up, however close to 100 the unrounded reading is.
+    public static func isUsedUp(usedPercent: Double) -> Bool {
+        UsageText.percentLeft(usedPercent) == 0
+    }
+
     /// The level a bar shows. Stale beats everything (the number isn't current). The rest follows
     /// the whole percent the row shows, so the number, the color and the glyph share one line:
     /// 0% is used up, then critical, then warning. Getting worse shows at once; a level `previous`
     /// had reached eases only once the remaining share is `recovery` points above its line.
     public static func role(usedPercent: Double, warnAt: Double, stale: Bool, previous: Role? = nil) -> Role {
         guard !stale, let left = UsageText.percentLeft(usedPercent) else { return .stale }
-        if left == 0 { return .exhausted }
+        if isUsedUp(usedPercent: usedPercent) { return .exhausted }
         let held = previous?.severity ?? 0
         func reaches(_ line: Double, _ level: Role) -> Bool {
             let holding = held >= (level.severity ?? 0)

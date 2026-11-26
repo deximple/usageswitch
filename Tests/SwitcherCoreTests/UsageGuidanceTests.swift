@@ -272,8 +272,9 @@ struct UsageGuidanceTests {
 
     @Test("boundary values that stay admitted")
     func boundaries() {
-        // 79.9% used is just under the warn bar; exactly 600 s old still counts.
-        let a = usage([window(300, used: 79.9, resetsAt: epoch.addingTimeInterval(3600))],
+        // 79.5% used reads 21% left, the last number short of the warning line; exactly 600 s old
+        // still counts.
+        let a = usage([window(300, used: 79.5, resetsAt: epoch.addingTimeInterval(3600))],
                       id: "codex:a", readAt: epoch.addingTimeInterval(-600))
         let b = usage([window(300, used: 10, resetsAt: epoch.addingTimeInterval(3600))], id: "codex:b")
         let proposals = UsageGuidance.proposals([a, b], now: epoch)
@@ -455,7 +456,12 @@ struct UsageAlertTests {
         let at = UsageAlerts.update(usages: [usage([window(10080, used: 80, resetsAt: future)])],
                                     threshold: 80, alerted: [:], now: epoch)
         #expect(at.alerts.map(\.emptied) == [false])
-        let under = UsageAlerts.update(usages: [usage([window(10080, used: 79.9, resetsAt: future)])],
+        // The line is the number the row shows: 79.9% used reads 20% left and is on it, 79.5% used
+        // reads 21% and is not.
+        let shown = UsageAlerts.update(usages: [usage([window(10080, used: 79.9, resetsAt: future)])],
+                                       threshold: 80, alerted: [:], now: epoch)
+        #expect(shown.alerts.map(\.emptied) == [false])
+        let under = UsageAlerts.update(usages: [usage([window(10080, used: 79.5, resetsAt: future)])],
                                        threshold: 80, alerted: [:], now: epoch)
         #expect(under.alerts.isEmpty && under.alerted.isEmpty)
     }
@@ -465,7 +471,11 @@ struct UsageAlertTests {
         let at = UsageAlerts.update(usages: [usage([window(10080, used: 75, resetsAt: future)])],
                                     threshold: 80, alerted: alerted, now: epoch)
         #expect(at.alerted == alerted)
-        let under = UsageAlerts.update(usages: [usage([window(10080, used: 74.9, resetsAt: future)])],
+        // 74.9% used still reads 25% left; 74.5% used reads 26% and arms the alert again.
+        let shown = UsageAlerts.update(usages: [usage([window(10080, used: 74.9, resetsAt: future)])],
+                                       threshold: 80, alerted: alerted, now: epoch)
+        #expect(shown.alerted == alerted)
+        let under = UsageAlerts.update(usages: [usage([window(10080, used: 74.5, resetsAt: future)])],
                                        threshold: 80, alerted: alerted, now: epoch)
         #expect(under.alerted.isEmpty)
     }
@@ -474,7 +484,11 @@ struct UsageAlertTests {
         let full = UsageAlerts.update(usages: [usage([window(300, used: 100, resetsAt: future)])],
                                       threshold: 80, alerted: [:], now: epoch)
         #expect(full.alerts.map(\.emptied) == [true])
-        let almost = UsageAlerts.update(usages: [usage([window(300, used: 99.9, resetsAt: future)])],
+        // A row that reads 0% is used up: 99.9% used is, 99.5% used still reads 1%.
+        let shown = UsageAlerts.update(usages: [usage([window(300, used: 99.9, resetsAt: future)])],
+                                       threshold: 80, alerted: [:], now: epoch)
+        #expect(shown.alerts.map(\.emptied) == [true])
+        let almost = UsageAlerts.update(usages: [usage([window(300, used: 99.5, resetsAt: future)])],
                                         threshold: 80, alerted: [:], now: epoch)
         #expect(almost.alerts.map(\.emptied) == [false])
     }
