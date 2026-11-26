@@ -252,7 +252,9 @@ public enum SuggestionEngine {
         // Every limit in the way: at the warning level, or draining before its own reset.
         let blockers = zip(windows, paceReadings).compactMap {
             window, reading -> (window: UsageWindow, reason: SuggestionExclusion)? in
-            if window.usedPercent >= warnThreshold { return (window, .overWarnThreshold) }
+            if UsageBarPalette.isAtWarningLine(usedPercent: window.usedPercent, warnAt: warnThreshold) {
+                return (window, .overWarnThreshold)
+            }
             if let runsOutAt = UsagePace.runsOutEarly(reading, window: window) {
                 return (window, .runsOutEarly(at: runsOutAt))
             }

@@ -35,16 +35,16 @@ public enum UsageGuidance {
         windows.map { "\($0.kind.rawValue):\($0.durationMinutes!)" }.sorted().joined(separator: "+")
     }
 
-    /// Windows a comparison may use: common (unscoped), valid numbers, below the warn bar,
-    /// a reset that hasn't passed (nil allowed), a known positive duration and a real kind —
-    /// with no duplicate kind+duration inside the same account.
+    /// Windows a comparison may use: common (unscoped), valid numbers, short of the warning line
+    /// as the bar draws it, a reset that hasn't passed (nil allowed), a known positive duration
+    /// and a real kind — with no duplicate kind+duration inside the same account.
     private static func commonWindows(_ usage: AccountUsage, now: Date, warnAt: Double) -> [UsageWindow]? {
         let common = usage.windows.filter { $0.scope == nil }
         guard !common.isEmpty else { return nil }
         var seen = Set<String>()
         for window in common {
             guard window.usedPercent.isFinite, (0...100).contains(window.usedPercent),
-                  window.usedPercent < warnAt,
+                  !UsageBarPalette.isAtWarningLine(usedPercent: window.usedPercent, warnAt: warnAt),
                   let duration = window.durationMinutes, duration > 0, window.kind != .other
             else { return nil }
             if let resetsAt = window.resetsAt, resetsAt <= now { return nil }

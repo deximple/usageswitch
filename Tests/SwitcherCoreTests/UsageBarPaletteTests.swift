@@ -206,6 +206,34 @@ struct UsageBarPaletteTests {
         #expect(role(95, warnAt: 90) == .critical)          // 5% left
     }
 
+    /// Everything else that asks about the warning line or about "used up" asks these two, so
+    /// they have to say what a bar with no held level says — for every reading, not only at the lines.
+    @Test("the shared warning-line and used-up questions match the bar for every reading")
+    func sharedQuestionsMatchTheBar() {
+        // The settings allow 50…99, and an alert arms again five points lower (45…94).
+        for warnAt in [45.0, 50, 70, 80, 90, 94, 99] {
+            for tenth in 0...1050 {
+                let used = Double(tenth) / 10
+                let shown = role(used, warnAt: warnAt)
+                let left = UsageText.percentLeft(used) ?? -1
+                #expect(Palette.isAtWarningLine(usedPercent: used, warnAt: warnAt)
+                        == (Double(left) <= Palette.warningLine(warnAt: warnAt)), "\(warnAt) \(used)")
+                #expect(Palette.isAtWarningLine(usedPercent: used, warnAt: warnAt) == shown.isAtWarning,
+                        "\(warnAt) \(used)")
+                #expect(Palette.isUsedUp(usedPercent: used) == (shown == .exhausted), "\(warnAt) \(used)")
+            }
+        }
+        // A reading that isn't a number has reached nothing.
+        for used in [Double.nan, .infinity, -.infinity, -1] {
+            #expect(!Palette.isAtWarningLine(usedPercent: used, warnAt: 80))
+            #expect(!Palette.isUsedUp(usedPercent: used))
+        }
+        let atWarning: Set<Palette.Role> = [.warning, .critical, .exhausted]
+        for level in Palette.Role.allCases {
+            #expect(level.isAtWarning == atWarning.contains(level), "\(level)")
+        }
+    }
+
     /// Getting worse shows at once; getting better waits until the remaining share is two points
     /// above the line, so a reading that wobbles on a line doesn't flip the color back and forth.
     @Test("a level eases only once the remaining share is two points above its line")

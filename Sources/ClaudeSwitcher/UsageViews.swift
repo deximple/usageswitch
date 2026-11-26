@@ -201,7 +201,8 @@ struct UsageContent: View {
 
     /// What needs attention before any suggestion: one line per account or window, naming the provider.
     private func attention(now: Date) -> [UsageAttention.Line] {
-        UsageAttention.lines(model.usages, label: currentLabel, warnAt: Double(settings.usageWarnPercent), now: now)
+        UsageAttention.lines(model.usages, label: currentLabel, warnAt: Double(settings.usageWarnPercent),
+                             now: now, held: { model.heldBarRole($0, $1) })
     }
 
     @ViewBuilder

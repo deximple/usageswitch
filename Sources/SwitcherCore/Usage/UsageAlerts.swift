@@ -1,11 +1,14 @@
 import Foundation
 
 /// Which windows just crossed the warning threshold. Pure state transitions — the app layer
-/// decides how to deliver them. A key leaves the dedup set once the window drops back under
-/// `threshold - hysteresis` or goes stale, so a refill arms the alert again. A read that fails
-/// says nothing about the window, so it leaves that account's keys as they are.
+/// decides how to deliver them. Every line here is read off the whole percent the row shows
+/// (`UsageBarPalette.isAtWarningLine`), so an alert fires on the reading that turns the bar. A key
+/// leaves the dedup set once the window drops back under `threshold - hysteresis` or goes stale,
+/// so a refill arms the alert again. A read that fails says nothing about the window, so it
+/// leaves that account's keys as they are.
 public enum UsageAlerts {
-    /// Five points below the threshold re-arms an alert, so a tiny refill doesn't re-fire it.
+    /// Five points below the threshold re-arms an alert, so a tiny refill doesn't re-fire it:
+    /// under a 20% warning line the row has to read 26% or more.
     public static let hysteresis = 5.0
 
     /// A stored mark counts for a window only when both resets land within this window —
@@ -23,7 +26,7 @@ public enum UsageAlerts {
         public let key: String
         public let usage: AccountUsage
         public let window: UsageWindow
-        /// true when it just emptied (100%+), false when it crossed `threshold`.
+        /// true when the row reads 0% (used up), false when it only crossed `threshold`.
         public let emptied: Bool
     }
 
@@ -57,13 +60,15 @@ public enum UsageAlerts {
                     mark.resetsAt == nil || window.resetsAt == nil
                         || abs(window.resetsAt!.timeIntervalSince(mark.resetsAt!)) <= sameCycleTolerance
                 } ?? false
-                if window.usedPercent >= threshold {
+                if UsageBarPalette.isAtWarningLine(usedPercent: window.usedPercent, warnAt: threshold) {
                     next[key] = Mark(resetsAt: window.resetsAt)
                     if !sameCycle {
                         alerts.append(Alert(key: key, usage: usage, window: window,
-                                            emptied: window.usedPercent >= 100))
+                                            emptied: UsageBarPalette.isUsedUp(usedPercent: window.usedPercent)))
                     }
-                } else if window.usedPercent >= threshold - hysteresis, sameCycle, let stored {
+                } else if UsageBarPalette.isAtWarningLine(usedPercent: window.usedPercent,
+                                                          warnAt: threshold - hysteresis),
+                          sameCycle, let stored {
                     // Still close to the line: keep it spent until it clearly recovers.
                     next[key] = stored
                 }

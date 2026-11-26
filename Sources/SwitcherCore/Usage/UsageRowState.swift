@@ -4,6 +4,10 @@ import Foundation
 /// account/window ids so two identical lines never collide in a list. An expected non-report
 /// stays neutral; only real failures and aged or thresholded readings warn. Each line names the
 /// provider, so a Claude "Personal" and a Codex "Personal" stay apart.
+///
+/// A limit is listed while its bar is below ample (`UsageBarPalette.role`): the same whole
+/// percent, and — through `held` — the same level a bar keeps until the remaining share has
+/// clearly recovered. A bar never shows a warning the list is silent about.
 public enum UsageAttention {
     public struct Line: Equatable, Sendable {
         public let id: String
@@ -11,8 +15,12 @@ public enum UsageAttention {
         public let warn: Bool
     }
 
+    /// `held` is the level each bar showed at the last reading (`UsageBarMemory.previous`);
+    /// without it every limit is judged afresh.
     public static func lines(_ usages: [AccountUsage], label: (AccountUsage) -> String,
-                             warnAt: Double, now: Date) -> [Line] {
+                             warnAt: Double, now: Date,
+                             held: (AccountUsage, UsageWindow) -> UsageBarPalette.Role? = { _, _ in nil }
+    ) -> [Line] {
         var items: [Line] = []
         for usage in usages {
             let name = "\(UsageText.providerName(usage.provider)) · \(label(usage))"
@@ -41,7 +49,9 @@ public enum UsageAttention {
                 if window.isStale(now: now) {
                     items.append(Line(id: UsagePriority.key(usage, window),
                                       text: "\(name) — \(L10n.t(.usageRefreshNeeded))", warn: true))
-                } else if window.usedPercent >= warnAt, let left = UsageText.percentLeft(window.usedPercent) {
+                } else if let left = UsageText.percentLeft(window.usedPercent),
+                          UsageBarPalette.role(usedPercent: window.usedPercent, warnAt: warnAt, stale: false,
+                                               previous: held(usage, window)).isAtWarning {
                     items.append(Line(id: UsagePriority.key(usage, window),
                                       text: L10n.t(.usageAttnWindow, name, UsageText.name(of: window), left),
                                       warn: true))

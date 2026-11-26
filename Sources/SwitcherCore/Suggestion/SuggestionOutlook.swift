@@ -95,6 +95,12 @@ public enum SuggestionOutlook {
     /// A reset expiring within this long is pointed out.
     public static let resetTicketHorizon: TimeInterval = 2 * 86400
 
+    /// A real reading short of the warning line, as its bar draws it.
+    private static func hasRoom(_ window: UsageWindow, warnThreshold: Double) -> Bool {
+        window.usedPercent.isFinite && window.usedPercent >= 0
+            && !UsageBarPalette.isAtWarningLine(usedPercent: window.usedPercent, warnAt: warnThreshold)
+    }
+
     /// Each account's soonest projected run-out, soonest first. A measured pace is used before
     /// the window's average. Limits already at the warning level are left to the attention
     /// list, and a spent limit is out, not running out.
@@ -109,8 +115,8 @@ public enum SuggestionOutlook {
                   (0...SuggestionEngine.maximumReadingAge).contains(now.timeIntervalSince(usage.readAt))
             else { return nil }
             return usage.windows.compactMap { window -> RunOut? in
-                guard window.usedPercent.isFinite, (0..<warnThreshold).contains(window.usedPercent),
-                      !window.isStale(now: now) else { return nil }
+                guard hasRoom(window, warnThreshold: warnThreshold), !window.isStale(now: now)
+                else { return nil }
                 let key = UsagePriority.key(usage, window)
                 if let at = UsagePace.runsOutEarly(pace[key] ?? .unknown, window: window) {
                     return RunOut(accountID: usage.id, windowKey: key, at: at, basis: .recentPace)
@@ -162,7 +168,7 @@ public enum SuggestionOutlook {
             let planWide = usage.windows.filter { $0.scope == nil }
             let windows = planWide.isEmpty ? usage.windows : planWide
             guard windows.allSatisfy({
-                $0.usedPercent.isFinite && (0..<warnThreshold).contains($0.usedPercent)
+                hasRoom($0, warnThreshold: warnThreshold)
                     && !$0.isStale(now: now)
                     && UsagePace.runsOutEarly(pace[UsagePriority.key(usage, $0)] ?? .unknown,
                                               window: $0) == nil
@@ -197,7 +203,8 @@ public enum SuggestionOutlook {
         // At the warning level with share still left the account can go on; a reset is
         // worth pointing at once a limit is spent.
         let blocked = holders.filter { usage in
-            blockedIDs.contains(usage.id) && usage.windows.contains { $0.usedPercent >= 100 }
+            blockedIDs.contains(usage.id)
+                && usage.windows.contains { UsageBarPalette.isUsedUp(usedPercent: $0.usedPercent) }
         }
         .map { ResetTicket(accountID: $0.id, reason: .blocked) }
         .sorted { $0.accountID < $1.accountID }
